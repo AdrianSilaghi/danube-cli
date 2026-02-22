@@ -1,0 +1,42 @@
+{
+  "name": "@danubedata/cli",
+  "version": "0.1.0",
+  "description": "Deploy static sites to DanubeData from the terminal",
+  "type": "module",
+  "bin": {
+    "danube": "./bin/danube"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "bin",
+    "dist"
+  ],
+  "keywords": [
+    "danubedata",
+    "deploy",
+    "static-site",
+    "cli"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@inquirer/prompts": "^8.2.1",
+    "chalk": "^5.6.2",
+    "commander": "^14.0.3",
+    "ignore": "^7.0.5",
+    "ora": "^9.3.0",
+    "tar": "^7.5.9"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  }
+}
