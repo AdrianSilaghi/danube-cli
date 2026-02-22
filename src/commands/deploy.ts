@@ -8,7 +8,11 @@ import { readProjectConfig, readDanubeJson } from '../lib/project.js';
 import { NotLinkedError } from '../lib/errors.js';
 import { packageDirectory } from '../lib/packager.js';
 import { formatBytes, statusColor } from '../lib/output.js';
+import { sleep } from '../lib/sleep.js';
 import type { DeployResponse, StaticSiteBuild } from '../types/api.js';
+
+export const POLL_INTERVAL = 2000;
+export const POLL_TIMEOUT = 5 * 60 * 1000;
 
 export const deployCommand = new Command('deploy')
   .description('Deploy your site to DanubeData')
@@ -54,11 +58,9 @@ export const deployCommand = new Command('deploy')
     // Poll build status
     const pollSpinner = ora('Building...').start();
     const startTime = Date.now();
-    const TIMEOUT = 5 * 60 * 1000; // 5 minutes
-    const INTERVAL = 2000; // 2 seconds
 
-    while (Date.now() - startTime < TIMEOUT) {
-      await sleep(INTERVAL);
+    while (Date.now() - startTime < POLL_TIMEOUT) {
+      await sleep(POLL_INTERVAL);
 
       const buildRes = await api.get<{ data: StaticSiteBuild | null }>(
         `/api/v1/static-sites/${project.siteId}/builds/latest`,
@@ -86,7 +88,3 @@ export const deployCommand = new Command('deploy')
 
     pollSpinner.warn('Timed out waiting for deployment. Check status with `danube deployments ls`.');
   });
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}

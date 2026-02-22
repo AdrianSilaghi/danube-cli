@@ -110,4 +110,83 @@ describe('ApiClient', () => {
     const client = new ApiClient('my-token', 'https://api.test');
     await expect(client.get('/api/v1/sites')).rejects.toThrow(ApiError);
   });
+
+  it('uses default error message when json has no message', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      json: () => Promise.resolve({}),
+    });
+
+    const client = new ApiClient('my-token', 'https://api.test');
+    try {
+      await client.get('/api/v1/sites');
+      expect.fail('Should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      expect((err as ApiError).message).toBe('Request failed with status 503');
+    }
+  });
+
+  it('handles json parse failure gracefully', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 502,
+      json: () => Promise.reject(new Error('invalid json')),
+    });
+
+    const client = new ApiClient('my-token', 'https://api.test');
+    try {
+      await client.get('/api/v1/sites');
+      expect.fail('Should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      expect((err as ApiError).message).toBe('Request failed with status 502');
+    }
+  });
+
+  it('upload sends FormData with file', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ message: 'ok' }),
+    });
+
+    const client = new ApiClient('my-token', 'https://api.test');
+    const file = new Uint8Array([1, 2, 3]);
+    const result = await client.upload('/api/v1/upload', file, 'test.tar.gz');
+
+    expect(result).toEqual({ message: 'ok' });
+    const call = (fetch as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    expect(call[0]).toBe('https://api.test/api/v1/upload');
+    expect(call[1].body).toBeInstanceOf(FormData);
+    // Should NOT set Content-Type (browser/node sets it with boundary)
+    expect(call[1].headers['Content-Type']).toBeUndefined();
+  });
+
+  it('uses default baseUrl when none provided', () => {
+    const client = new ApiClient('my-token');
+    // Just verify it doesn't throw — default base is used
+    expect(client).toBeDefined();
+  });
+
+  describe('create()', () => {
+    it('throws NotAuthenticatedError when no token', async () => {
+      const origToken = process.env.DANUBE_TOKEN;
+      delete process.env.DANUBE_TOKEN;
+
+      await expect(ApiClient.create()).rejects.toThrow(NotAuthenticatedError);
+
+      if (origToken) process.env.DANUBE_TOKEN = origToken;
+    });
+
+    it('creates client from env token', async () => {
+      process.env.DANUBE_TOKEN = 'env-test-token';
+
+      const client = await ApiClient.create();
+      expect(client).toBeInstanceOf(ApiClient);
+
+      delete process.env.DANUBE_TOKEN;
+    });
+  });
 });

@@ -40,6 +40,14 @@ describe('project', () => {
     expect(result).toEqual({ siteId: 99, teamId: 5, siteName: 'ci-site' });
   });
 
+  it('defaults siteName to unknown when DANUBE_SITE_NAME not set', async () => {
+    process.env.DANUBE_SITE_ID = '10';
+    process.env.DANUBE_TEAM_ID = '2';
+    // DANUBE_SITE_NAME intentionally not set
+    const result = await readProjectConfig(testDir);
+    expect(result).toEqual({ siteId: 10, teamId: 2, siteName: 'unknown' });
+  });
+
   it('returns null when no danube.json exists', async () => {
     const result = await readDanubeJson(testDir);
     expect(result).toBeNull();
