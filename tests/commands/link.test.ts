@@ -61,6 +61,7 @@ describe('link command', () => {
       siteId: 1,
       teamId: 1,
       siteName: 'my-site',
+      defaultDomain: 'my-site.danubesites.ro',
     });
   });
 
@@ -100,6 +101,7 @@ describe('link command', () => {
       siteId: 42,
       teamId: 1,
       siteName: 'new-site',
+      defaultDomain: 'new-site.danubesites.ro',
     });
     expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Created site'));
   });

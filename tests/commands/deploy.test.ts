@@ -99,18 +99,18 @@ describe('deploy command', () => {
     expect(mockUpload).toHaveBeenCalledWith(
       '/api/v1/static-sites/1/deploy',
       expect.any(Buffer),
-      'deploy.tar.gz',
+      'deploy.zip',
     );
     expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Deployment started'));
   });
 
-  it('polls until live', async () => {
+  it('polls until succeeded', async () => {
     mockReadProjectConfig.mockResolvedValue({ siteId: 1, teamId: 1, siteName: 'test' });
     mockReadDanubeJson.mockResolvedValue(null);
     mockUpload.mockResolvedValue({ message: 'Deploying', site_id: 1, status: 'pending' });
     mockGet
       .mockResolvedValueOnce({ data: { status: 'processing' } })
-      .mockResolvedValueOnce({ data: { status: 'live' } });
+      .mockResolvedValueOnce({ data: { status: 'succeeded', build_number: 1 } });
 
     await deployCommand.parseAsync(['node', 'test', '--dir', testDir]);
 
@@ -154,7 +154,7 @@ describe('deploy command', () => {
     mockUpload.mockResolvedValue({ message: 'Deploying', site_id: 1, status: 'pending' });
     mockGet
       .mockResolvedValueOnce({ data: null })
-      .mockResolvedValueOnce({ data: { status: 'live' } });
+      .mockResolvedValueOnce({ data: { status: 'succeeded', build_number: 1 } });
 
     await deployCommand.parseAsync(['node', 'test', '--dir', testDir]);
 

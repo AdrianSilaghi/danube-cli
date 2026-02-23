@@ -1,6 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { ApiClient } from '../src/lib/api-client.js';
 import { ApiError, NotAuthenticatedError } from '../src/lib/errors.js';
+
+const mockReadConfig = vi.fn();
+vi.mock('../src/lib/config.js', async () => {
+  const actual = await vi.importActual<typeof import('../src/lib/config.js')>('../src/lib/config.js');
+  return {
+    ...actual,
+    readConfig: (...args: unknown[]) => mockReadConfig(...args),
+  };
+});
+
+const { ApiClient } = await import('../src/lib/api-client.js');
 
 describe('ApiClient', () => {
   const originalFetch = globalThis.fetch;
@@ -174,6 +184,7 @@ describe('ApiClient', () => {
     it('throws NotAuthenticatedError when no token', async () => {
       const origToken = process.env.DANUBE_TOKEN;
       delete process.env.DANUBE_TOKEN;
+      mockReadConfig.mockResolvedValueOnce(null);
 
       await expect(ApiClient.create()).rejects.toThrow(NotAuthenticatedError);
 
@@ -182,6 +193,7 @@ describe('ApiClient', () => {
 
     it('creates client from env token', async () => {
       process.env.DANUBE_TOKEN = 'env-test-token';
+      mockReadConfig.mockResolvedValueOnce({ token: 'env-test-token' });
 
       const client = await ApiClient.create();
       expect(client).toBeInstanceOf(ApiClient);

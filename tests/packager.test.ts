@@ -19,16 +19,16 @@ describe('packager', () => {
   });
 
   describe('packageDirectory', () => {
-    it('packages files into tar.gz', async () => {
+    it('packages files into zip', async () => {
       await writeFile(join(testDir, 'index.html'), '<h1>Hello</h1>');
       await writeFile(join(testDir, 'style.css'), 'body {}');
 
       const { buffer, fileCount } = await packageDirectory(testDir);
       expect(fileCount).toBe(2);
       expect(buffer.length).toBeGreaterThan(0);
-      // Check it's gzipped (magic bytes 1f 8b)
-      expect(buffer[0]).toBe(0x1f);
-      expect(buffer[1]).toBe(0x8b);
+      // Check it's a ZIP (magic bytes 50 4b)
+      expect(buffer[0]).toBe(0x50);
+      expect(buffer[1]).toBe(0x4b);
     });
 
     it('respects .gitignore', async () => {

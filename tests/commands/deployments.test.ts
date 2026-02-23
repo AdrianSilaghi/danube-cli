@@ -72,12 +72,12 @@ describe('deployments command', () => {
       mockGet.mockResolvedValue({
         data: [
           {
-            id: 1, revision: 3, is_active: true,
-            activated_at: '2024-06-01T12:00:00Z', created_at: '2024-06-01T11:00:00Z',
+            id: 1, revision_number: 3, status: 'active', is_current: true,
+            trigger_type: 'cli', deployed_at: '2024-06-01T12:00:00Z', created_at: '2024-06-01T11:00:00Z',
           },
           {
-            id: 2, revision: 2, is_active: false,
-            activated_at: null, created_at: '2024-05-31T10:00:00Z',
+            id: 2, revision_number: 2, status: 'inactive', is_current: false,
+            trigger_type: 'cli', deployed_at: null, created_at: '2024-05-31T10:00:00Z',
           },
         ],
       });
@@ -110,7 +110,7 @@ describe('deployments command', () => {
 
     it('activates the deployment', async () => {
       mockReadProjectConfig.mockResolvedValue({ siteId: 1, teamId: 1, siteName: 'test' });
-      mockGet.mockResolvedValue({ data: [{ id: 5, revision: 2 }, { id: 3, revision: 1 }] });
+      mockGet.mockResolvedValue({ data: [{ id: 5, revision_number: 2 }, { id: 3, revision_number: 1 }] });
       mockPost.mockResolvedValue({ message: 'Activated' });
 
       await deploymentsCommand.parseAsync(['node', 'test', 'rollback', '2']);
