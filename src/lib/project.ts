@@ -5,6 +5,7 @@ export interface ProjectConfig {
   siteId: number;
   teamId: number;
   siteName: string;
+  defaultDomain?: string;
 }
 
 export interface DanubeJson {

@@ -46,7 +46,7 @@ export const deployCommand = new Command('deploy')
     const deployRes = await api.upload<DeployResponse>(
       `/api/v1/static-sites/${project.siteId}/deploy`,
       buffer,
-      'deploy.tar.gz',
+      'deploy.zip',
     );
     uploadSpinner.succeed('Uploaded');
 
@@ -71,13 +71,14 @@ export const deployCommand = new Command('deploy')
 
       pollSpinner.text = `Status: ${build.status}...`;
 
-      if (build.status === 'live') {
-        pollSpinner.succeed(`Deployed! Status: ${statusColor('live')}`);
-        console.log(chalk.green(`\nLive at: ${chalk.bold(`https://${project.siteName}.danubesites.ro`)}`));
+      if (build.status === 'succeeded') {
+        pollSpinner.succeed(`Deployed! Build #${build.build_number} ${statusColor('succeeded')}`);
+        const domain = project.defaultDomain || `${project.siteName}.pages.danubedata.ro`;
+        console.log(chalk.green(`\nLive at: ${chalk.bold(`https://${domain}`)}`));
         return;
       }
 
-      if (build.status === 'failed') {
+      if (build.status === 'failed' || build.status === 'cancelled') {
         pollSpinner.fail(`Deployment failed`);
         if (build.error_message) {
           console.error(chalk.red(build.error_message));

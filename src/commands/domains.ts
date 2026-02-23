@@ -53,7 +53,7 @@ const addCommand = new Command('add')
     if (res.data.verification_record) {
       console.log(`\nAdd a CNAME record to verify ownership:`);
       console.log(chalk.cyan(`  ${res.data.verification_record}`));
-      console.log(`\nThen run: ${chalk.bold(`danube domains verify ${domain}`)}`);
+      console.log(`\nThen run: ${chalk.bold(`danube pages domains verify ${domain}`)}`);
     }
   });
 

@@ -70,7 +70,7 @@ export class ApiClient {
 
   async upload<T>(path: string, file: Uint8Array, filename: string): Promise<T> {
     const formData = new FormData();
-    formData.append('archive', new Blob([file as BlobPart]), filename);
+    formData.append('file', new Blob([file as BlobPart]), filename);
     return this.request<T>('POST', path, formData);
   }
 }

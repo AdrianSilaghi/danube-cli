@@ -64,6 +64,7 @@ export const linkCommand = new Command('link')
       siteId: site.id,
       teamId: teamId,
       siteName: site.name,
+      defaultDomain: site.default_domain,
     });
 
     console.log(chalk.green(`\nLinked to ${chalk.bold(site.name)} (${site.default_domain})`));

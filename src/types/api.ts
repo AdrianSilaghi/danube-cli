@@ -29,24 +29,35 @@ export interface StaticSite {
 }
 
 export interface StaticSiteBuild {
-  id: number;
-  static_site_id: number;
-  revision: number;
-  status: 'pending' | 'uploading' | 'processing' | 'deploying' | 'live' | 'failed';
+  id: string;
+  build_number: number;
+  status: 'pending' | 'processing' | 'building_image' | 'pushing' | 'succeeded' | 'failed' | 'cancelled';
+  source_type: string;
+  trigger_type: string;
+  file_count: number | null;
+  source_size_bytes: number | null;
+  duration_seconds: number | null;
   error_message: string | null;
+  commit_sha: string | null;
+  commit_message: string | null;
   created_at: string;
   updated_at: string;
 }
 
 export interface StaticSiteDeployment {
   id: number;
-  static_site_id: number;
-  static_site_build_id: number;
-  revision: number;
-  is_active: boolean;
-  activated_at: string | null;
+  revision_number: number;
+  status: 'pending' | 'building' | 'deploying' | 'active' | 'failed' | 'inactive';
+  image_ref: string | null;
+  trigger_type: string;
+  is_current: boolean;
+  file_count: number | null;
+  file_size_bytes: number | null;
+  build_duration_seconds: number | null;
+  commit_sha: string | null;
+  commit_message: string | null;
+  deployed_at: string | null;
   created_at: string;
-  updated_at: string;
 }
 
 export interface StaticSiteDomain {

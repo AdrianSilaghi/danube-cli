@@ -11,7 +11,7 @@ describe('errors', () => {
 
   it('NotLinkedError has correct message and name', () => {
     const err = new NotLinkedError();
-    expect(err.message).toBe('No project linked. Run `danube link` first.');
+    expect(err.message).toBe('No project linked. Run `danube pages link` first.');
     expect(err.name).toBe('NotLinkedError');
     expect(err).toBeInstanceOf(Error);
   });

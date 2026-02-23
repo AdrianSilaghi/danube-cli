@@ -7,7 +7,7 @@ export class NotAuthenticatedError extends Error {
 
 export class NotLinkedError extends Error {
   constructor() {
-    super('No project linked. Run `danube link` first.');
+    super('No project linked. Run `danube pages link` first.');
     this.name = 'NotLinkedError';
   }
 }

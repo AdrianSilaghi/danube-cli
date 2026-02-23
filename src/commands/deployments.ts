@@ -24,13 +24,14 @@ const lsCommand = new Command('ls')
     }
 
     const rows = res.data.map(d => [
-      String(d.revision),
-      d.is_active ? statusColor('active') : chalk.dim('inactive'),
-      d.activated_at ? formatDate(d.activated_at) : '-',
+      `#${d.revision_number}`,
+      statusColor(d.status) + (d.is_current ? chalk.cyan(' (current)') : ''),
+      d.trigger_type,
+      d.deployed_at ? formatDate(d.deployed_at) : '-',
       formatDate(d.created_at),
     ]);
 
-    console.log(formatTable(['REVISION', 'STATUS', 'ACTIVATED', 'CREATED'], rows));
+    console.log(formatTable(['REVISION', 'STATUS', 'TRIGGER', 'DEPLOYED', 'CREATED'], rows));
   });
 
 const rollbackCommand = new Command('rollback')
@@ -47,7 +48,7 @@ const rollbackCommand = new Command('rollback')
       `/api/v1/static-sites/${project.siteId}/deployments`,
     );
 
-    const deployment = deploymentsRes.data.find(d => d.revision === Number(revision));
+    const deployment = deploymentsRes.data.find(d => d.revision_number === Number(revision));
     if (!deployment) {
       console.error(chalk.red(`Deployment revision ${revision} not found.`));
       process.exit(1);

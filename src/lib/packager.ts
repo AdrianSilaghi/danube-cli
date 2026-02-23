@@ -1,7 +1,7 @@
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import ignore from 'ignore';
-import { create as tarCreate } from 'tar';
+import archiver from 'archiver';
 
 async function collectFiles(dir: string, ig: ReturnType<typeof ignore>, base: string): Promise<string[]> {
   const entries = await readdir(dir, { withFileTypes: true });
@@ -58,18 +58,21 @@ export async function packageDirectory(dir: string, extraIgnore?: string[]): Pro
     throw new Error('No files to deploy. Check your output directory and ignore patterns.');
   }
 
-  // Create tar.gz as buffer
+  // Create ZIP as buffer
   const chunks: Buffer[] = [];
 
   await new Promise<void>((resolve, reject) => {
-    const stream = tarCreate(
-      { gzip: true, cwd: dir },
-      files,
-    );
+    const archive = archiver('zip', { zlib: { level: 9 } });
 
-    stream.on('data', (chunk: Buffer) => chunks.push(chunk));
-    stream.on('end', resolve);
-    stream.on('error', reject);
+    archive.on('data', (chunk: Buffer) => chunks.push(chunk));
+    archive.on('end', resolve);
+    archive.on('error', reject);
+
+    for (const file of files) {
+      archive.file(join(dir, file), { name: file });
+    }
+
+    archive.finalize();
   });
 
   return {
