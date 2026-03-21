@@ -46,7 +46,12 @@ export const loginCommand = new Command('login')
       }
 
       const user = (await res.json()) as User;
-      await writeConfig({ token, apiBase: getApiBase() });
+      const apiBase = getApiBase();
+      const config: { token: string; apiBase?: string } = { token };
+      if (apiBase !== 'https://danubedata.ro') {
+        config.apiBase = apiBase;
+      }
+      await writeConfig(config);
 
       console.log(chalk.green(`\nAuthenticated as ${chalk.bold(user.name)} (${user.email})`));
     } catch (err) {

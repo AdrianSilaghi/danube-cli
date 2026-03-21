@@ -39,12 +39,12 @@ export async function packageDirectory(dir: string, extraIgnore?: string[]): Pro
     // No .gitignore
   }
 
-  // Read .daubeignore
+  // Read .danubeignore
   try {
-    const daubeignore = await readFile(join(dir, '.daubeignore'), 'utf-8');
-    ig.add(daubeignore);
+    const danubeignore = await readFile(join(dir, '.danubeignore'), 'utf-8');
+    ig.add(danubeignore);
   } catch {
-    // No .daubeignore
+    // No .danubeignore
   }
 
   // Extra ignore patterns from danube.json

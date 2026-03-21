@@ -41,13 +41,13 @@ describe('packager', () => {
       expect(fileCount).toBe(2);
     });
 
-    it('respects .daubeignore', async () => {
-      await writeFile(join(testDir, '.daubeignore'), '*.log\n');
+    it('respects .danubeignore', async () => {
+      await writeFile(join(testDir, '.danubeignore'), '*.log\n');
       await writeFile(join(testDir, 'index.html'), '<h1>Hello</h1>');
       await writeFile(join(testDir, 'debug.log'), 'log');
 
       const { fileCount } = await packageDirectory(testDir);
-      // .daubeignore + index.html (debug.log is excluded)
+      // .danubeignore + index.html (debug.log is excluded)
       expect(fileCount).toBe(2);
     });
 
@@ -116,7 +116,7 @@ describe('packager', () => {
       expect(fileCount).toBe(2);
     });
 
-    it('works without .gitignore or .daubeignore', async () => {
+    it('works without .gitignore or .danubeignore', async () => {
       await writeFile(join(testDir, 'index.html'), '<h1>Hello</h1>');
 
       const { buffer, fileCount } = await packageDirectory(testDir);

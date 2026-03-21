@@ -68,6 +68,10 @@ export class ApiClient {
     return this.request<T>('DELETE', path);
   }
 
+  put<T>(path: string, body?: unknown): Promise<T> {
+    return this.request<T>('PUT', path, body);
+  }
+
   async upload<T>(path: string, file: Uint8Array, filename: string): Promise<T> {
     const formData = new FormData();
     formData.append('file', new Blob([file as BlobPart]), filename);

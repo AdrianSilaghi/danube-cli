@@ -71,4 +71,13 @@ describe('config', () => {
     process.env.DANUBE_TOKEN = 'env-tk';
     expect(getToken({ token: 'cfg-tk' })).toBe('env-tk');
   });
+
+  it('throws on corrupted config file', async () => {
+    await writeConfig({ token: 'test-token-123' });
+    // Corrupt the config file
+    const configFile = join(testDir, '.danube', 'config.json');
+    const { writeFile: writeF } = await import('node:fs/promises');
+    await writeF(configFile, '{invalid json!!!');
+    await expect(readConfig()).rejects.toThrow('Config file is corrupted');
+  });
 });

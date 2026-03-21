@@ -56,7 +56,11 @@ export const linkCommand = new Command('link')
       site = res.data;
       console.log(chalk.green(`Created site: ${site.name}`));
     } else {
-      site = sitesRes.data.find(s => s.id === siteChoice)!;
+      const found = sitesRes.data.find(s => s.id === siteChoice);
+      if (!found) {
+        throw new Error('Selected site not found. Please try again.');
+      }
+      site = found;
     }
 
     // 3. Write project config

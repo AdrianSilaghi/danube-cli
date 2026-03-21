@@ -24,8 +24,9 @@ export async function readConfig(): Promise<DanubeConfig | null> {
   try {
     const raw = await readFile(CONFIG_FILE, 'utf-8');
     return JSON.parse(raw) as DanubeConfig;
-  } catch {
-    return null;
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw new Error(`Config file is corrupted: ${CONFIG_FILE}. Run 'danube login' to recreate it.`);
   }
 }
 

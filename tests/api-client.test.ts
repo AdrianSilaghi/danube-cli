@@ -110,6 +110,27 @@ describe('ApiClient', () => {
     expect(result).toBeUndefined();
   });
 
+  it('sends PUT request with JSON body', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ message: 'updated' }),
+    });
+
+    const client = new ApiClient('my-token', 'https://api.test');
+    await client.put('/api/v1/serverless/abc', { image: 'nginx' });
+
+    expect(fetch).toHaveBeenCalledWith('https://api.test/api/v1/serverless/abc', {
+      method: 'PUT',
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': 'Bearer my-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ image: 'nginx' }),
+    });
+  });
+
   it('throws ApiError on 500', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: false,

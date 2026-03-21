@@ -22,9 +22,14 @@ export async function readProjectConfig(cwd: string = process.cwd()): Promise<Pr
   const envSiteId = process.env.DANUBE_SITE_ID;
   const envTeamId = process.env.DANUBE_TEAM_ID;
   if (envSiteId && envTeamId) {
+    const siteId = parseInt(envSiteId, 10);
+    const teamId = parseInt(envTeamId, 10);
+    if (isNaN(siteId) || isNaN(teamId) || siteId <= 0 || teamId <= 0) {
+      throw new Error('DANUBE_SITE_ID and DANUBE_TEAM_ID must be positive integers.');
+    }
     return {
-      siteId: Number(envSiteId),
-      teamId: Number(envTeamId),
+      siteId,
+      teamId,
       siteName: process.env.DANUBE_SITE_NAME || 'unknown',
     };
   }

@@ -57,7 +57,7 @@ describe('login command', () => {
     });
     expect(mockWriteConfig).toHaveBeenCalledWith({
       token: 'my-token',
-      apiBase: 'https://test.danubedata.ro',
+      apiBase: 'https://test.danubedata.ro',  // Non-default, so persisted
     });
     expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Test User'));
   });

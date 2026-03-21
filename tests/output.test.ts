@@ -63,6 +63,18 @@ describe('output', () => {
       expect(statusColor('deploying')).toBe(chalk.yellow('deploying'));
     });
 
+    it('colors building_image yellow', () => {
+      expect(statusColor('building_image')).toBe(chalk.yellow('building_image'));
+    });
+
+    it('colors pushing yellow', () => {
+      expect(statusColor('pushing')).toBe(chalk.yellow('pushing'));
+    });
+
+    it('colors cloning yellow', () => {
+      expect(statusColor('cloning')).toBe(chalk.yellow('cloning'));
+    });
+
     it('colors failed red', () => {
       expect(statusColor('failed')).toBe(chalk.red('failed'));
     });
@@ -91,6 +103,14 @@ describe('output', () => {
 
     it('formats gigabytes', () => {
       expect(formatBytes(1073741824)).toBe('1.0 GB');
+    });
+
+    it('formats terabytes', () => {
+      expect(formatBytes(1099511627776)).toBe('1.0 TB');
+    });
+
+    it('clamps to TB for very large values', () => {
+      expect(formatBytes(1099511627776 * 1024)).toBe('1024.0 TB');
     });
   });
 
