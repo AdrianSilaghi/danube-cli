@@ -178,11 +178,10 @@ export interface VpsInstance {
 }
 
 export interface VpsConnectionInfo {
-  ssh_user: string;
-  ssh_port: number;
   public_ip: string | null;
+  private_ip: string | null;
   ipv6_address: string | null;
-  vnc_url: string | null;
+  vnc_access_url: string | null;
 }
 
 export interface VpsStatus {

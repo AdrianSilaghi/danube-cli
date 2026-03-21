@@ -125,6 +125,34 @@ export const metricsCommand = new Command('metrics')
     }
   });
 
+export const passwordCommand = new Command('password')
+  .description('Show SSH password for a VPS instance')
+  .argument('<id>', 'VPS instance ID')
+  .action(async (id: string) => {
+    const confirmed = await confirm({
+      message: 'This will display the root password in your terminal. Continue?',
+      default: false,
+    });
+
+    if (!confirmed) {
+      console.log('Cancelled.');
+      return;
+    }
+
+    const api = await ApiClient.create();
+    const res = await api.get<{ password: string; username: string; public_ip: string | null }>(
+      `/api/v1/vps/${id}/password`,
+    );
+
+    console.log('');
+    console.log(`  Username: ${chalk.bold(res.username)}`);
+    console.log(`  Password: ${chalk.bold.yellow(res.password)}`);
+    if (res.public_ip) {
+      console.log(`  SSH:      ${chalk.dim(`ssh ${res.username}@${res.public_ip}`)}`);
+    }
+    console.log('');
+  });
+
 function formatUptime(seconds: number): string {
   const days = Math.floor(seconds / 86400);
   const hours = Math.floor((seconds % 86400) / 3600);

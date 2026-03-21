@@ -114,7 +114,7 @@ describe('vps instances', () => {
     it('displays instance details', async () => {
       mockGet.mockResolvedValue({
         instance: makeVps(),
-        connection_info: { ssh_user: 'root', ssh_port: 22, public_ip: '1.2.3.4', ipv6_address: null, vnc_url: null },
+        connection_info: { public_ip: '1.2.3.4', private_ip: null, ipv6_address: null, vnc_access_url: null },
         monthly_cost: 4.49,
       });
 

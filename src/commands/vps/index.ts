@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { lsCommand, createCommand, getCommand, updateCommand, deleteCommand } from './instances.js';
-import { startCommand, stopCommand, rebootCommand, reinstallCommand, statusCommand, metricsCommand } from './actions.js';
+import { startCommand, stopCommand, rebootCommand, reinstallCommand, statusCommand, metricsCommand, passwordCommand } from './actions.js';
 import { imagesCommand } from './images.js';
 
 export const vpsCommand = new Command('vps')
@@ -16,4 +16,5 @@ export const vpsCommand = new Command('vps')
   .addCommand(reinstallCommand)
   .addCommand(statusCommand)
   .addCommand(metricsCommand)
+  .addCommand(passwordCommand)
   .addCommand(imagesCommand);

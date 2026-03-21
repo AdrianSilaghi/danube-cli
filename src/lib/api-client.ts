@@ -49,7 +49,7 @@ export class ApiClient {
       if (res.status === 401) {
         throw new NotAuthenticatedError();
       }
-      const message = json?.message || `Request failed with status ${res.status}`;
+      const message = json?.message || json?.error || `Request failed with status ${res.status}`;
       throw new ApiError(res.status, message, json?.errors);
     }
 

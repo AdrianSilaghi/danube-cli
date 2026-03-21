@@ -1,6 +1,6 @@
 # @danubedata/cli
 
-Deploy static sites to [DanubeData](https://danubedata.ro) from the terminal.
+Manage [DanubeData](https://danubedata.ro) infrastructure from the terminal.
 
 ## Installation
 
@@ -13,31 +13,38 @@ Requires Node.js 18 or later.
 ## Quick Start
 
 ```bash
-# Authenticate with your API token
-danube login
+# Authenticate via browser
+danube auth
 
-# Link your project to a static site
+# List your VPS instances
+danube vps ls
+
+# List your storage buckets
+danube storage buckets ls
+
+# Deploy a static site
 danube pages link
-
-# Deploy the current directory
 danube pages deploy
 ```
 
 ## Authentication
 
-Generate an API token from your [DanubeData dashboard](https://danubedata.ro) and authenticate:
+### Browser Auth (recommended)
 
 ```bash
-danube login
+danube auth
 ```
 
-You can also pass the token directly:
+Opens your browser to log in and authorize the CLI automatically — no manual token copying.
+
+### Token Auth
 
 ```bash
-danube login --token <your-token>
+danube login                    # Interactive prompt
+danube login --token <token>    # Pass token directly
 ```
 
-Or set the `DANUBE_TOKEN` environment variable for CI/CD:
+### CI/CD
 
 ```bash
 export DANUBE_TOKEN=your-token
@@ -46,71 +53,121 @@ danube pages deploy
 
 ## Commands
 
-### `danube login`
+### General
 
-Authenticate with DanubeData. Prompts for an API token or accepts `--token <token>`.
+| Command | Description |
+|---|---|
+| `danube auth` | Authenticate via browser (like `gh auth login`) |
+| `danube login` | Authenticate with an API token |
+| `danube logout` | Remove stored credentials |
+| `danube whoami` | Show authenticated user and teams |
 
-### `danube logout`
+### VPS Instances (`danube vps`)
 
-Remove stored authentication credentials.
+| Command | Description |
+|---|---|
+| `danube vps ls` | List all VPS instances |
+| `danube vps create` | Create a new VPS (interactive or flags) |
+| `danube vps get <id>` | Show VPS details and connection info |
+| `danube vps update <id>` | Update VPS config (must be stopped) |
+| `danube vps delete <id>` | Delete a VPS instance |
+| `danube vps start <id>` | Start a stopped VPS |
+| `danube vps stop <id>` | Stop a running VPS |
+| `danube vps reboot <id>` | Reboot a running VPS |
+| `danube vps reinstall <id>` | Reinstall OS (destroys all data) |
+| `danube vps status <id>` | Show current status and capabilities |
+| `danube vps metrics <id>` | Show CPU/memory/storage/network usage |
+| `danube vps password <id>` | Show SSH password (with confirmation) |
+| `danube vps images` | List available OS images |
 
-### `danube whoami`
+#### Create a VPS
 
-Show the currently authenticated user and their teams.
+```bash
+# Interactive
+danube vps create
 
-### `danube pages link`
+# With flags
+danube vps create \
+  --name my-server \
+  --image ubuntu-24.04 \
+  --plan nano_shared \
+  --ssh-key-id <key-id>
+```
 
-Link the current directory to a DanubeData static site. Prompts you to select a team and site (or create a new one). Writes configuration to `.danube/project.json`.
+#### Power management
 
-### `danube pages deploy`
+```bash
+danube vps stop <id>
+danube vps start <id>
+danube vps reboot <id>
+```
 
-Deploy your site to DanubeData.
+### Object Storage (`danube storage`)
+
+| Command | Description |
+|---|---|
+| `danube storage buckets ls` | List all buckets |
+| `danube storage buckets create` | Create a new bucket |
+| `danube storage buckets get <id>` | Show bucket details |
+| `danube storage buckets update <id>` | Update bucket settings |
+| `danube storage buckets delete <id>` | Delete a bucket |
+| `danube storage buckets metrics <id>` | Show bucket metrics |
+| `danube storage keys ls` | List all access keys |
+| `danube storage keys create` | Create a new access key |
+| `danube storage keys get <id>` | Show access key details |
+| `danube storage keys revoke <id>` | Revoke an access key |
+
+#### Create a bucket
+
+```bash
+# Interactive
+danube storage buckets create
+
+# With flags
+danube storage buckets create --name my-bucket --region fsn1 --versioning
+```
+
+#### Update bucket settings
+
+```bash
+danube storage buckets update <id> --size-limit 10GB --encryption
+danube storage buckets update <id> --public --display-name "My Assets"
+```
+
+#### Manage access keys
+
+```bash
+danube storage keys create --name "deploy-key"
+danube storage keys ls
+danube storage keys revoke <id>
+```
+
+### Static Sites (`danube pages`)
+
+| Command | Description |
+|---|---|
+| `danube pages link` | Link directory to a static site |
+| `danube pages deploy` | Deploy the linked site |
+| `danube pages deployments ls` | List deployments |
+| `danube pages deployments rollback <rev>` | Roll back to a revision |
+| `danube pages domains ls` | List custom domains |
+| `danube pages domains add <domain>` | Add a custom domain |
+| `danube pages domains remove <domain>` | Remove a custom domain |
+| `danube pages domains verify <domain>` | Verify DNS for a domain |
+
+#### Deploy
 
 ```bash
 danube pages deploy              # Deploy current directory
 danube pages deploy --dir dist   # Deploy a specific directory
-danube pages deploy --no-wait    # Don't wait for build to complete
+danube pages deploy --no-wait    # Don't wait for build
 ```
-
-The command packages your files into a ZIP archive, uploads them, and polls the build status until deployment is live.
-
-### `danube pages deployments ls`
-
-List all deployments for the linked site. Shows revision, status, trigger method, and timestamps.
-
-### `danube pages deployments rollback <revision>`
-
-Activate a previous deployment by revision number.
-
-```bash
-danube pages deployments rollback 3
-```
-
-### `danube pages domains ls`
-
-List all domains configured for the linked site.
-
-### `danube pages domains add <domain>`
-
-Add a custom domain. Returns DNS verification instructions if required.
-
-### `danube pages domains remove <domain>`
-
-Remove a custom domain.
-
-### `danube pages domains verify <domain>`
-
-Trigger DNS verification for a custom domain.
 
 ## Configuration
 
-### Project Configuration
-
-Running `danube pages link` creates a `.danube/project.json` file in your project directory. This file is required for all `pages` subcommands.
-
 ### `danube.json`
 
-You can optionally create a `danube.json` file in your project root to configure deployments:
+Optional project config for static site deployments:
 
 ```json
 {
@@ -119,16 +176,11 @@ You can optionally create a `danube.json` file in your project root to configure
 }
 ```
 
-- **`outputDir`** - Directory to deploy (overridden by `--dir` flag)
-- **`ignore`** - Additional file patterns to exclude from deployment
-
-Files matching `.gitignore` patterns are automatically excluded, along with `.git`, `node_modules`, and `.danube` directories.
-
 ## Environment Variables
 
 | Variable | Description |
 |---|---|
-| `DANUBE_TOKEN` | API token (alternative to `danube login`) |
+| `DANUBE_TOKEN` | API token (alternative to `danube auth`) |
 | `DANUBE_API_BASE` | Override the API base URL |
 | `CI` | Suppresses update notifications |
 | `DANUBE_NO_UPDATE_CHECK` | Suppresses update notifications |

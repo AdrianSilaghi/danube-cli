@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import { randomBytes } from 'node:crypto';
 import chalk from 'chalk';
 import ora from 'ora';
 import { input, select, password as passwordPrompt, confirm } from '@inquirer/prompts';
@@ -11,6 +12,12 @@ import type {
   VpsImageGroup,
   PaginatedResponse,
 } from '../../types/api.js';
+
+function generatePassword(length = 24): string {
+  const chars = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%&*';
+  const bytes = randomBytes(length);
+  return Array.from(bytes, b => chars[b % chars.length]).join('');
+}
 
 export const lsCommand = new Command('ls')
   .description('List all VPS instances')
@@ -116,11 +123,27 @@ export const createCommand = new Command('create')
       });
 
       if (authMethod === 'password') {
-        pass = await passwordPrompt({
-          message: 'Root password (min 12 characters):',
-          mask: '*',
-          validate: (v: string) => v.length >= 12 || 'Password must be at least 12 characters',
+        const passwordChoice = await select({
+          message: 'Password:',
+          choices: [
+            { name: 'Generate a secure password', value: 'generate' },
+            { name: 'Enter manually', value: 'manual' },
+          ],
         });
+
+        if (passwordChoice === 'generate') {
+          pass = generatePassword();
+          console.log('');
+          console.log(`  Generated password: ${chalk.bold.yellow(pass)}`);
+          console.log(chalk.yellow('  Save this password now — it will not be shown again.'));
+          console.log('');
+        } else {
+          pass = await passwordPrompt({
+            message: 'Root password (min 12 characters):',
+            mask: '*',
+            validate: (v: string) => v.length >= 12 || 'Password must be at least 12 characters',
+          });
+        }
       } else {
         sshKeyId = await input({
           message: 'SSH key ID:',
@@ -157,11 +180,12 @@ export const getCommand = new Command('get')
   .argument('<id>', 'VPS instance ID')
   .action(async (id: string) => {
     const api = await ApiClient.create();
-    const res = await api.get<{ instance: VpsInstance; connection_info: VpsConnectionInfo; monthly_cost: number }>(
+    const res = await api.get<{ instance: VpsInstance; connection_info: Record<string, unknown>; monthly_cost: number }>(
       `/api/v1/vps/${id}`,
     );
     const v = res.instance;
-    const c = res.connection_info;
+
+    const sshCmd = v.public_ip ? `ssh root@${v.public_ip}` : '-';
 
     const lines = [
       ['ID', v.id],
@@ -175,9 +199,9 @@ export const getCommand = new Command('get')
       ['Datacenter', v.datacenter],
       ['IPv4', v.public_ip || '-'],
       ['IPv6', v.ipv6_address || '-'],
-      ['SSH', c.public_ip ? `ssh ${c.ssh_user}@${c.public_ip} -p ${c.ssh_port}` : '-'],
-      ['VNC', c.vnc_url || '-'],
-      ['Cost', `\u20AC${v.monthly_cost_dollars}/mo`],
+      ['SSH', sshCmd],
+      ['VNC', v.vnc_access_url || '-'],
+      ['Cost', `\u20AC${res.monthly_cost ?? v.monthly_cost_dollars}/mo`],
       ['Created', formatDate(v.created_at)],
       ['Deployed', v.deployed_at ? formatDate(v.deployed_at) : '-'],
     ];

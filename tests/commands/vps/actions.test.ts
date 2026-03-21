@@ -23,7 +23,7 @@ vi.mock('@inquirer/prompts', () => ({
   confirm: (...args: unknown[]) => mockConfirm(...args),
 }));
 
-const { startCommand, stopCommand, rebootCommand, reinstallCommand, statusCommand, metricsCommand } =
+const { startCommand, stopCommand, rebootCommand, reinstallCommand, statusCommand, metricsCommand, passwordCommand } =
   await import('../../../src/commands/vps/actions.js');
 
 describe('vps actions', () => {
@@ -92,5 +92,20 @@ describe('vps actions', () => {
     await metricsCommand.parseAsync(['node', 'test', 'vps-1']);
     expect(mockGet).toHaveBeenCalledWith('/api/v1/vps/vps-1/metrics');
     expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('25%'));
+  });
+
+  it('shows VPS password after confirmation', async () => {
+    mockConfirm.mockResolvedValue(true);
+    mockGet.mockResolvedValue({ password: 'MySecretPass123!', username: 'root', public_ip: '1.2.3.4' });
+    await passwordCommand.parseAsync(['node', 'test', 'vps-1']);
+    expect(mockGet).toHaveBeenCalledWith('/api/v1/vps/vps-1/password');
+    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('MySecretPass123!'));
+  });
+
+  it('cancels password display when user declines', async () => {
+    mockConfirm.mockResolvedValue(false);
+    await passwordCommand.parseAsync(['node', 'test', 'vps-1']);
+    expect(consoleLogSpy).toHaveBeenCalledWith('Cancelled.');
+    expect(mockGet).not.toHaveBeenCalled();
   });
 });
