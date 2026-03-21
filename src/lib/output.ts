@@ -19,11 +19,16 @@ export function statusColor(status: string): string {
     case 'live':
     case 'active':
     case 'verified':
+    case 'running':
       return chalk.green(status);
     case 'pending':
     case 'uploading':
     case 'processing':
     case 'deploying':
+    case 'starting':
+    case 'stopping':
+    case 'rebooting':
+    case 'reinstalling':
       return chalk.yellow(status);
     case 'failed':
     case 'error':
@@ -32,6 +37,8 @@ export function statusColor(status: string): string {
     case 'updating':
     case 'destroying':
       return chalk.yellow(status);
+    case 'stopped':
+      return chalk.dim(status);
     case 'revoked':
       return chalk.red(status);
     default:

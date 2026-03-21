@@ -147,3 +147,78 @@ export interface StorageMetrics {
   monthly_cost_dollars: string;
   last_synced_at: string | null;
 }
+
+export interface VpsInstance {
+  id: string;
+  name: string;
+  status: string;
+  status_label: string;
+  resource_profile: string;
+  cpu_allocation_type: 'shared' | 'dedicated';
+  cpu_cores: number;
+  memory_size_gb: number;
+  storage_size_gb: number;
+  image: string;
+  datacenter: string;
+  public_ip: string | null;
+  ipv6_address: string | null;
+  vnc_access_url: string | null;
+  monthly_cost_cents: number;
+  monthly_cost_dollars: number;
+  deployed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  team_id: string;
+  user_id: string;
+  ssh_key_id: string | null;
+  can_be_started: boolean;
+  can_be_stopped: boolean;
+  can_be_rebooted: boolean;
+  can_be_destroyed: boolean;
+}
+
+export interface VpsConnectionInfo {
+  ssh_user: string;
+  ssh_port: number;
+  public_ip: string | null;
+  ipv6_address: string | null;
+  vnc_url: string | null;
+}
+
+export interface VpsStatus {
+  status: string;
+  status_label: string;
+  status_color: string;
+  can_be_started: boolean;
+  can_be_stopped: boolean;
+  can_be_rebooted: boolean;
+  can_be_destroyed: boolean;
+  is_transitional: boolean;
+  updated_at: string;
+}
+
+export interface VpsMetrics {
+  cpu: { usage_percent: number; cores: number; sockets: number; threads: number };
+  memory: { used_gb: number; total_gb: number; usage_percent: number };
+  storage: { used_gb: number; total_gb: number; usage_percent: number };
+  network: { rx_bytes: number; tx_bytes: number; rx_packets: number; tx_packets: number };
+  uptime_seconds: number;
+  timestamp: string;
+}
+
+export interface VpsImage {
+  id: string;
+  image: string;
+  label: string;
+  description: string;
+  distro: string;
+  version: string;
+  family: string | null;
+  default_user: string;
+}
+
+export interface VpsImageGroup {
+  distro: string;
+  name: string;
+  images: VpsImage[];
+}

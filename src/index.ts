@@ -9,6 +9,7 @@ import { deploymentsCommand } from './commands/deployments.js';
 import { domainsCommand } from './commands/domains.js';
 import { authCommand } from './commands/auth.js';
 import { storageCommand } from './commands/storage/index.js';
+import { vpsCommand } from './commands/vps/index.js';
 import { NotAuthenticatedError, NotLinkedError, ApiError } from './lib/errors.js';
 import { getCurrentVersion, checkForUpdate, printUpdateNotification } from './lib/version.js';
 
@@ -22,6 +23,7 @@ program.addCommand(authCommand);
 program.addCommand(logoutCommand);
 program.addCommand(whoamiCommand);
 program.addCommand(storageCommand);
+program.addCommand(vpsCommand);
 
 const pagesCommand = new Command('pages')
   .description('Manage static sites');
