@@ -1,7 +1,7 @@
 {
   "name": "@danubedata/cli",
-  "version": "0.1.0",
-  "description": "Deploy static sites to DanubeData from the terminal",
+  "version": "0.2.0",
+  "description": "DanubeData CLI — manage infrastructure from the terminal",
   "type": "module",
   "bin": {
     "danube": "./bin/danube"

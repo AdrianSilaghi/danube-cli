@@ -7,6 +7,8 @@ import { linkCommand } from './commands/link.js';
 import { deployCommand } from './commands/deploy.js';
 import { deploymentsCommand } from './commands/deployments.js';
 import { domainsCommand } from './commands/domains.js';
+import { authCommand } from './commands/auth.js';
+import { storageCommand } from './commands/storage/index.js';
 import { NotAuthenticatedError, NotLinkedError, ApiError } from './lib/errors.js';
 import { getCurrentVersion, checkForUpdate, printUpdateNotification } from './lib/version.js';
 
@@ -16,8 +18,10 @@ const program = new Command()
   .version(getCurrentVersion());
 
 program.addCommand(loginCommand);
+program.addCommand(authCommand);
 program.addCommand(logoutCommand);
 program.addCommand(whoamiCommand);
+program.addCommand(storageCommand);
 
 const pagesCommand = new Command('pages')
   .description('Manage static sites');

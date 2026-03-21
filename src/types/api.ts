@@ -98,3 +98,52 @@ export interface DeployResponse {
   site_id: number;
   status: string;
 }
+
+export interface StorageBucket {
+  id: string;
+  team_id: number;
+  name: string;
+  minio_bucket_name: string | null;
+  region: string;
+  status: string;
+  endpoint: string | null;
+  public_access: boolean;
+  versioning_enabled: boolean;
+  encryption_enabled: boolean;
+  size_bytes: number;
+  object_count: number;
+  size_limit_bytes: number | null;
+  monthly_cost_cents: number;
+  monthly_cost_dollars: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StorageAccessKey {
+  id: string;
+  team_id: number;
+  name: string;
+  access_key_id: string;
+  status: string;
+  expires_at: string | null;
+  last_used_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateAccessKeyResponse {
+  id: string;
+  name: string;
+  access_key_id: string;
+  secret_access_key: string;
+  expires_at: string | null;
+  message: string;
+}
+
+export interface StorageMetrics {
+  size_bytes: number;
+  object_count: number;
+  monthly_cost_cents: number;
+  monthly_cost_dollars: string;
+  last_synced_at: string | null;
+}

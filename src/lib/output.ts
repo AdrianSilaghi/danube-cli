@@ -26,6 +26,13 @@ export function statusColor(status: string): string {
     case 'deploying':
       return chalk.yellow(status);
     case 'failed':
+    case 'error':
+      return chalk.red(status);
+    case 'creating':
+    case 'updating':
+    case 'destroying':
+      return chalk.yellow(status);
+    case 'revoked':
       return chalk.red(status);
     default:
       return status;
