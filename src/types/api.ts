@@ -24,7 +24,7 @@ export interface StaticSite {
   team_id: number;
   name: string;
   slug: string;
-  default_domain: string;
+  url: string;
   output_directory: string | null;
   status: string;
   current_deployment_id: number | null;

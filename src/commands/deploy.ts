@@ -83,13 +83,13 @@ export const deployCommand = new Command('deploy')
       }
 
       if (build.status === 'succeeded') {
-        const domain = project.defaultDomain || `${project.siteName}.pages.danubedata.ro`;
+        const url = project.siteUrl || project.defaultDomain && `https://${project.defaultDomain}` || `https://${project.siteName}.pages.danubedata.ro`;
         if (isJsonMode()) {
-          jsonOutput({ status: 'succeeded', build_number: build.build_number, url: `https://${domain}`, file_count: fileCount });
+          jsonOutput({ status: 'succeeded', build_number: build.build_number, url, file_count: fileCount });
           return;
         }
         pollSpinner!.succeed(`Deployed! Build #${build.build_number} ${statusColor('succeeded')}`);
-        console.log(chalk.green(`\nLive at: ${chalk.bold(`https://${domain}`)}`));
+        console.log(chalk.green(`\nLive at: ${chalk.bold(url)}`));
         return;
       }
 

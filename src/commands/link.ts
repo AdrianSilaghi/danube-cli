@@ -33,7 +33,7 @@ export const linkCommand = new Command('link')
 
     const CREATE_NEW = -1;
     const choices = [
-      ...sitesRes.data.map(s => ({ name: `${s.name} (${s.default_domain})`, value: s.id })),
+      ...sitesRes.data.map(s => ({ name: `${s.name} (${s.url})`, value: s.id })),
       { name: chalk.cyan('+ Create new site'), value: CREATE_NEW },
     ];
 
@@ -65,9 +65,9 @@ export const linkCommand = new Command('link')
       siteId: site.id,
       teamId: teamId,
       siteName: site.name,
-      defaultDomain: site.default_domain,
+      siteUrl: site.url,
     });
 
-    console.log(chalk.green(`\nLinked to ${chalk.bold(site.name)} (${site.default_domain})`));
+    console.log(chalk.green(`\nLinked to ${chalk.bold(site.name)} (${site.url})`));
     console.log(`Config saved to ${chalk.dim('.danube/project.json')}`);
   });

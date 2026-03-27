@@ -24,7 +24,7 @@ const { linkCommand } = await import('../../src/commands/link.js');
 
 const makeSite = (overrides = {}) => ({
   id: 1, team_id: 1, name: 'my-site', slug: 'my-site',
-  default_domain: 'my-site.danubesites.ro', output_directory: null,
+  url: 'https://my-site.danubesites.ro', output_directory: null,
   status: 'active', current_deployment_id: null,
   created_at: '2024-01-01T00:00:00Z', updated_at: '2024-01-01T00:00:00Z',
   ...overrides,
@@ -61,7 +61,7 @@ describe('link command', () => {
       siteId: 1,
       teamId: 1,
       siteName: 'my-site',
-      defaultDomain: 'my-site.danubesites.ro',
+      siteUrl: 'https://my-site.danubesites.ro',
     });
   });
 
@@ -83,7 +83,7 @@ describe('link command', () => {
   });
 
   it('creates new site when selected', async () => {
-    const newSite = makeSite({ id: 42, name: 'new-site', default_domain: 'new-site.danubesites.ro' });
+    const newSite = makeSite({ id: 42, name: 'new-site', url: 'https://new-site.danubesites.ro' });
     mockGet
       .mockResolvedValueOnce({ data: [{ id: 1, name: 'My Team' }] })
       .mockResolvedValueOnce({ data: [] });
@@ -101,13 +101,13 @@ describe('link command', () => {
       siteId: 42,
       teamId: 1,
       siteName: 'new-site',
-      defaultDomain: 'new-site.danubesites.ro',
+      siteUrl: 'https://new-site.danubesites.ro',
     });
     expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Created site'));
   });
 
   it('validates site name input is not empty', async () => {
-    const newSite = makeSite({ id: 10, name: 'valid', default_domain: 'valid.danubesites.ro' });
+    const newSite = makeSite({ id: 10, name: 'valid', url: 'https://valid.danubesites.ro' });
     mockGet
       .mockResolvedValueOnce({ data: [{ id: 1, name: 'My Team' }] })
       .mockResolvedValueOnce({ data: [] });

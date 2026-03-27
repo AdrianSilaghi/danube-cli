@@ -5,6 +5,8 @@ export interface ProjectConfig {
   siteId: number;
   teamId: number;
   siteName: string;
+  siteUrl?: string;
+  /** @deprecated Use siteUrl instead */
   defaultDomain?: string;
 }
 
