@@ -3,6 +3,7 @@ import { select, input } from '@inquirer/prompts';
 import chalk from 'chalk';
 import { ApiClient } from '../lib/api-client.js';
 import { writeProjectConfig } from '../lib/project.js';
+import { teamsArray } from '../types/api.js';
 import type { TeamsResponse, PaginatedResponse, StaticSite, MessageWithDataResponse } from '../types/api.js';
 
 export const linkCommand = new Command('link')
@@ -12,7 +13,7 @@ export const linkCommand = new Command('link')
 
     // 1. Fetch teams
     const teamsRes = await api.get<TeamsResponse>('/api/v1/user/teams');
-    const teams = teamsRes.data;
+    const teams = teamsArray(teamsRes);
 
     let teamId: number;
     if (teams.length === 1) {

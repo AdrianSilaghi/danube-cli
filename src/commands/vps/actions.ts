@@ -4,6 +4,7 @@ import ora from 'ora';
 import { confirm, select } from '@inquirer/prompts';
 import { ApiClient } from '../../lib/api-client.js';
 import { statusColor, formatBytes, formatDate } from '../../lib/output.js';
+import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import type { VpsStatus, VpsMetrics, VpsImageGroup } from '../../types/api.js';
 
 export const startCommand = new Command('start')
@@ -11,9 +12,14 @@ export const startCommand = new Command('start')
   .argument('<id>', 'VPS instance ID')
   .action(async (id: string) => {
     const api = await ApiClient.create();
-    const spinner = ora('Starting VPS...').start();
+    const spinner = isJsonMode() ? null : ora('Starting VPS...').start();
     const res = await api.post<{ message: string; status: string }>(`/api/v1/vps/${id}/start`);
-    spinner.succeed(res.message);
+
+    if (isJsonMode()) {
+      jsonOutput({ status: res.status, message: res.message, id });
+      return;
+    }
+    spinner!.succeed(res.message);
   });
 
 export const stopCommand = new Command('stop')
@@ -21,9 +27,14 @@ export const stopCommand = new Command('stop')
   .argument('<id>', 'VPS instance ID')
   .action(async (id: string) => {
     const api = await ApiClient.create();
-    const spinner = ora('Stopping VPS...').start();
+    const spinner = isJsonMode() ? null : ora('Stopping VPS...').start();
     const res = await api.post<{ message: string; status: string }>(`/api/v1/vps/${id}/stop`);
-    spinner.succeed(res.message);
+
+    if (isJsonMode()) {
+      jsonOutput({ status: res.status, message: res.message, id });
+      return;
+    }
+    spinner!.succeed(res.message);
   });
 
 export const rebootCommand = new Command('reboot')
@@ -31,9 +42,14 @@ export const rebootCommand = new Command('reboot')
   .argument('<id>', 'VPS instance ID')
   .action(async (id: string) => {
     const api = await ApiClient.create();
-    const spinner = ora('Rebooting VPS...').start();
+    const spinner = isJsonMode() ? null : ora('Rebooting VPS...').start();
     const res = await api.post<{ message: string; status: string }>(`/api/v1/vps/${id}/reboot`);
-    spinner.succeed(res.message);
+
+    if (isJsonMode()) {
+      jsonOutput({ status: res.status, message: res.message, id });
+      return;
+    }
+    spinner!.succeed(res.message);
   });
 
 export const reinstallCommand = new Command('reinstall')
@@ -57,7 +73,7 @@ export const reinstallCommand = new Command('reinstall')
       image = await select({ message: 'Select new OS:', choices: imageChoices });
     }
 
-    if (!opts.force) {
+    if (!opts.force && !isJsonMode()) {
       const confirmed = await confirm({
         message: `This will DESTROY ALL DATA on VPS ${id} and reinstall with ${image}. Continue?`,
         default: false,
@@ -72,9 +88,14 @@ export const reinstallCommand = new Command('reinstall')
     const body: Record<string, unknown> = { image };
     if (opts.cloudInit) body.custom_cloud_init = opts.cloudInit;
 
-    const spinner = ora('Reinstalling VPS...').start();
+    const spinner = isJsonMode() ? null : ora('Reinstalling VPS...').start();
     const res = await api.post<{ message: string; status: string }>(`/api/v1/vps/${id}/reinstall`, body);
-    spinner.succeed(res.message);
+
+    if (isJsonMode()) {
+      jsonOutput({ status: res.status, message: res.message, id, image });
+      return;
+    }
+    spinner!.succeed(res.message);
   });
 
 export const statusCommand = new Command('status')
@@ -83,6 +104,11 @@ export const statusCommand = new Command('status')
   .action(async (id: string) => {
     const api = await ApiClient.create();
     const s = await api.get<VpsStatus>(`/api/v1/vps/${id}/status`);
+
+    if (isJsonMode()) {
+      jsonOutput(s);
+      return;
+    }
 
     const lines = [
       ['Status', statusColor(s.status)],
@@ -108,14 +134,20 @@ export const metricsCommand = new Command('metrics')
     const api = await ApiClient.create();
     const m = await api.get<VpsMetrics>(`/api/v1/vps/${id}/metrics`);
 
+    if (isJsonMode()) {
+      jsonOutput(m);
+      return;
+    }
+
     const uptime = formatUptime(m.uptime_seconds);
 
     const lines = [
       ['CPU Usage', `${m.cpu.usage_percent}% (${m.cpu.cores} cores)`],
       ['Memory', `${m.memory.used_gb}/${m.memory.total_gb} GB (${m.memory.usage_percent}%)`],
       ['Storage', `${m.storage.used_gb}/${m.storage.total_gb} GB (${m.storage.usage_percent}%)`],
-      ['Network RX', formatBytes(m.network.rx_bytes)],
-      ['Network TX', formatBytes(m.network.tx_bytes)],
+      ['Network RX', `${formatBytes(m.network.rx_bytes_per_sec)}/s`],
+      ['Network TX', `${formatBytes(m.network.tx_bytes_per_sec)}/s`],
+      ['Network', m.network.status],
       ['Uptime', uptime],
     ];
 
@@ -129,20 +161,27 @@ export const passwordCommand = new Command('password')
   .description('Show SSH password for a VPS instance')
   .argument('<id>', 'VPS instance ID')
   .action(async (id: string) => {
-    const confirmed = await confirm({
-      message: 'This will display the root password in your terminal. Continue?',
-      default: false,
-    });
+    if (!isJsonMode()) {
+      const confirmed = await confirm({
+        message: 'This will display the root password in your terminal. Continue?',
+        default: false,
+      });
 
-    if (!confirmed) {
-      console.log('Cancelled.');
-      return;
+      if (!confirmed) {
+        console.log('Cancelled.');
+        return;
+      }
     }
 
     const api = await ApiClient.create();
     const res = await api.get<{ password: string; username: string; public_ip: string | null }>(
       `/api/v1/vps/${id}/password`,
     );
+
+    if (isJsonMode()) {
+      jsonOutput(res);
+      return;
+    }
 
     console.log('');
     console.log(`  Username: ${chalk.bold(res.username)}`);

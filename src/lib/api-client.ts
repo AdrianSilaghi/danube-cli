@@ -1,13 +1,15 @@
-import { getApiBase, readConfig, getToken } from './config.js';
+import { getApiBase, readConfig, getToken, getTeamId } from './config.js';
 import { ApiError, NotAuthenticatedError } from './errors.js';
 
 export class ApiClient {
   private token: string;
   private baseUrl: string;
+  private teamId: number | null;
 
-  constructor(token: string, baseUrl?: string) {
+  constructor(token: string, baseUrl?: string, teamId?: number | null) {
     this.token = token;
     this.baseUrl = baseUrl || getApiBase();
+    this.teamId = teamId ?? null;
   }
 
   static async create(): Promise<ApiClient> {
@@ -16,7 +18,7 @@ export class ApiClient {
     if (!token) {
       throw new NotAuthenticatedError();
     }
-    return new ApiClient(token, config?.apiBase);
+    return new ApiClient(token, config?.apiBase, getTeamId(config));
   }
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -25,6 +27,10 @@ export class ApiClient {
       'Accept': 'application/json',
       'Authorization': `Bearer ${this.token}`,
     };
+
+    if (this.teamId) {
+      headers['X-Team-Id'] = String(this.teamId);
+    }
 
     const init: RequestInit = { method, headers };
 

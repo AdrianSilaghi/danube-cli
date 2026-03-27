@@ -4,6 +4,7 @@ import ora from 'ora';
 import { input, confirm } from '@inquirer/prompts';
 import { ApiClient } from '../../lib/api-client.js';
 import { formatTable, statusColor, formatDate } from '../../lib/output.js';
+import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import type {
   StorageAccessKey,
   CreateAccessKeyResponse,
@@ -16,6 +17,11 @@ const lsCommand = new Command('ls')
   .action(async () => {
     const api = await ApiClient.create();
     const res = await api.get<PaginatedResponse<StorageAccessKey>>('/api/v1/storage/access-keys');
+
+    if (isJsonMode()) {
+      jsonOutput(res.data);
+      return;
+    }
 
     if (res.data.length === 0) {
       console.log('No access keys found.');
@@ -52,10 +58,22 @@ const createCommand = new Command('create')
     if (opts.expires) body.expires_at = opts.expires;
 
     const api = await ApiClient.create();
-    const spinner = ora('Creating access key...').start();
+    const spinner = isJsonMode() ? null : ora('Creating access key...').start();
 
     const res = await api.post<CreateAccessKeyResponse>('/api/v1/storage/access-keys', body);
-    spinner.succeed(`Created access key ${chalk.bold(res.name)}`);
+
+    if (isJsonMode()) {
+      jsonOutput({
+        id: res.id,
+        name: res.name,
+        access_key_id: res.access_key_id,
+        secret_access_key: res.secret_access_key,
+        expires_at: res.expires_at,
+      });
+      return;
+    }
+
+    spinner!.succeed(`Created access key ${chalk.bold(res.name)}`);
 
     console.log('');
     console.log(`  Access Key ID:     ${chalk.bold(res.access_key_id)}`);
@@ -70,6 +88,12 @@ const getCommand = new Command('get')
   .action(async (keyId: string) => {
     const api = await ApiClient.create();
     const res = await api.get<{ access_key: StorageAccessKey }>(`/api/v1/storage/access-keys/${keyId}`);
+
+    if (isJsonMode()) {
+      jsonOutput(res.access_key);
+      return;
+    }
+
     const k = res.access_key;
 
     const lines = [
@@ -92,7 +116,7 @@ const revokeCommand = new Command('revoke')
   .argument('<key-id>', 'Access key ID')
   .option('--force', 'Skip confirmation')
   .action(async (keyId: string, opts: { force?: boolean }) => {
-    if (!opts.force) {
+    if (!opts.force && !isJsonMode()) {
       const confirmed = await confirm({ message: `Are you sure you want to revoke access key ${keyId}?`, default: false });
       if (!confirmed) {
         console.log('Cancelled.');
@@ -101,10 +125,15 @@ const revokeCommand = new Command('revoke')
     }
 
     const api = await ApiClient.create();
-    const spinner = ora('Revoking access key...').start();
+    const spinner = isJsonMode() ? null : ora('Revoking access key...').start();
 
     await api.delete<MessageResponse>(`/api/v1/storage/access-keys/${keyId}`);
-    spinner.succeed('Access key revoked');
+
+    if (isJsonMode()) {
+      jsonOutput({ status: 'revoked', id: keyId });
+      return;
+    }
+    spinner!.succeed('Access key revoked');
   });
 
 export const keysCommand = new Command('keys')

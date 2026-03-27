@@ -5,6 +5,7 @@ import { ApiClient } from '../lib/api-client.js';
 import { readProjectConfig } from '../lib/project.js';
 import { NotLinkedError } from '../lib/errors.js';
 import { formatTable, statusColor, formatDate } from '../lib/output.js';
+import { isJsonMode, jsonOutput } from '../lib/json-mode.js';
 import type { PaginatedResponse, StaticSiteDeployment, MessageResponse } from '../types/api.js';
 
 const lsCommand = new Command('ls')
@@ -17,6 +18,11 @@ const lsCommand = new Command('ls')
     const res = await api.get<PaginatedResponse<StaticSiteDeployment>>(
       `/api/v1/static-sites/${project.siteId}/deployments`,
     );
+
+    if (isJsonMode()) {
+      jsonOutput(res.data);
+      return;
+    }
 
     if (res.data.length === 0) {
       console.log('No deployments yet.');
@@ -54,12 +60,16 @@ const rollbackCommand = new Command('rollback')
       process.exit(1);
     }
 
-    const spinner = ora(`Rolling back to revision ${revision}...`).start();
+    const spinner = isJsonMode() ? null : ora(`Rolling back to revision ${revision}...`).start();
     await api.post<MessageResponse>(
       `/api/v1/static-sites/${project.siteId}/deployments/${deployment.id}/activate`,
     );
 
-    spinner.succeed(`Rolled back to revision ${revision}`);
+    if (isJsonMode()) {
+      jsonOutput({ status: 'activated', revision: Number(revision), deployment_id: deployment.id });
+      return;
+    }
+    spinner!.succeed(`Rolled back to revision ${revision}`);
   });
 
 export const deploymentsCommand = new Command('deployments')

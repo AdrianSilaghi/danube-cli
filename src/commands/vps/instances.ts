@@ -5,6 +5,7 @@ import ora from 'ora';
 import { input, select, password as passwordPrompt, confirm } from '@inquirer/prompts';
 import { ApiClient } from '../../lib/api-client.js';
 import { formatTable, statusColor, formatDate } from '../../lib/output.js';
+import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import type {
   VpsInstance,
   VpsConnectionInfo,
@@ -24,6 +25,11 @@ export const lsCommand = new Command('ls')
   .action(async () => {
     const api = await ApiClient.create();
     const res = await api.get<PaginatedResponse<VpsInstance>>('/api/v1/vps');
+
+    if (isJsonMode()) {
+      jsonOutput(res.data);
+      return;
+    }
 
     if (res.data.length === 0) {
       console.log('No VPS instances found.');
@@ -133,10 +139,12 @@ export const createCommand = new Command('create')
 
         if (passwordChoice === 'generate') {
           pass = generatePassword();
-          console.log('');
-          console.log(`  Generated password: ${chalk.bold.yellow(pass)}`);
-          console.log(chalk.yellow('  Save this password now — it will not be shown again.'));
-          console.log('');
+          if (!isJsonMode()) {
+            console.log('');
+            console.log(`  Generated password: ${chalk.bold.yellow(pass)}`);
+            console.log(chalk.yellow('  Save this password now — it will not be shown again.'));
+            console.log('');
+          }
         } else {
           pass = await passwordPrompt({
             message: 'Root password (min 12 characters):',
@@ -170,9 +178,14 @@ export const createCommand = new Command('create')
       body.password_confirmation = pass;
     }
 
-    const spinner = ora('Creating VPS instance...').start();
+    const spinner = isJsonMode() ? null : ora('Creating VPS instance...').start();
     const res = await api.post<{ message: string; instance: VpsInstance }>('/api/v1/vps', body);
-    spinner.succeed(`Created VPS ${chalk.bold(res.instance.name)} (${res.instance.id})`);
+
+    if (isJsonMode()) {
+      jsonOutput(res.instance);
+      return;
+    }
+    spinner!.succeed(`Created VPS ${chalk.bold(res.instance.name)} (${res.instance.id})`);
   });
 
 export const getCommand = new Command('get')
@@ -183,8 +196,13 @@ export const getCommand = new Command('get')
     const res = await api.get<{ instance: VpsInstance; connection_info: Record<string, unknown>; monthly_cost: number }>(
       `/api/v1/vps/${id}`,
     );
-    const v = res.instance;
 
+    if (isJsonMode()) {
+      jsonOutput({ ...res.instance, monthly_cost: res.monthly_cost, connection_info: res.connection_info });
+      return;
+    }
+
+    const v = res.instance;
     const sshCmd = v.public_ip ? `ssh root@${v.public_ip}` : '-';
 
     const lines = [
@@ -241,10 +259,15 @@ export const updateCommand = new Command('update')
     }
 
     const api = await ApiClient.create();
-    const spinner = ora('Updating VPS instance...').start();
+    const spinner = isJsonMode() ? null : ora('Updating VPS instance...').start();
 
     const res = await api.put<{ message: string; instance: VpsInstance }>(`/api/v1/vps/${id}`, body);
-    spinner.succeed(`Updated VPS ${chalk.bold(res.instance.name)}`);
+
+    if (isJsonMode()) {
+      jsonOutput(res.instance);
+      return;
+    }
+    spinner!.succeed(`Updated VPS ${chalk.bold(res.instance.name)}`);
   });
 
 export const deleteCommand = new Command('delete')
@@ -252,7 +275,7 @@ export const deleteCommand = new Command('delete')
   .argument('<id>', 'VPS instance ID')
   .option('--force', 'Skip confirmation')
   .action(async (id: string, opts: { force?: boolean }) => {
-    if (!opts.force) {
+    if (!opts.force && !isJsonMode()) {
       const confirmed = await confirm({
         message: `Are you sure you want to delete VPS ${id}? This cannot be undone.`,
         default: false,
@@ -264,8 +287,13 @@ export const deleteCommand = new Command('delete')
     }
 
     const api = await ApiClient.create();
-    const spinner = ora('Deleting VPS instance...').start();
+    const spinner = isJsonMode() ? null : ora('Deleting VPS instance...').start();
 
     await api.delete<{ message: string }>(`/api/v1/vps/${id}`);
-    spinner.succeed('VPS instance deleted');
+
+    if (isJsonMode()) {
+      jsonOutput({ status: 'deleted', id });
+      return;
+    }
+    spinner!.succeed('VPS instance deleted');
   });

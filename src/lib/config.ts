@@ -5,6 +5,8 @@ import { homedir } from 'node:os';
 export interface DanubeConfig {
   token: string;
   apiBase?: string;
+  teamId?: number;
+  teamName?: string;
 }
 
 const CONFIG_DIR = join(homedir(), '.danube');
@@ -15,18 +17,26 @@ export function getApiBase(): string {
 }
 
 export async function readConfig(): Promise<DanubeConfig | null> {
-  // Env var takes precedence
-  const envToken = process.env.DANUBE_TOKEN;
-  if (envToken) {
-    return { token: envToken, apiBase: getApiBase() };
-  }
+  let fileConfig: DanubeConfig | null = null;
 
   try {
     const raw = await readFile(CONFIG_FILE, 'utf-8');
-    return JSON.parse(raw) as DanubeConfig;
+    fileConfig = JSON.parse(raw) as DanubeConfig;
   } catch {
-    return null;
+    // No config file
   }
+
+  // Env var takes precedence for token
+  const envToken = process.env.DANUBE_TOKEN;
+  if (envToken) {
+    return {
+      ...fileConfig,
+      token: envToken,
+      apiBase: getApiBase(),
+    };
+  }
+
+  return fileConfig;
 }
 
 export async function writeConfig(config: DanubeConfig): Promise<void> {
@@ -44,4 +54,10 @@ export async function deleteConfig(): Promise<void> {
 
 export function getToken(config: DanubeConfig | null): string | null {
   return process.env.DANUBE_TOKEN || config?.token || null;
+}
+
+export function getTeamId(config: DanubeConfig | null): number | null {
+  const envTeamId = process.env.DANUBE_TEAM_ID;
+  if (envTeamId) return Number(envTeamId);
+  return config?.teamId ?? null;
 }

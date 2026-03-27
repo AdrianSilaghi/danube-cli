@@ -5,6 +5,7 @@ import { ApiClient } from '../lib/api-client.js';
 import { readProjectConfig } from '../lib/project.js';
 import { NotLinkedError } from '../lib/errors.js';
 import { formatTable, statusColor } from '../lib/output.js';
+import { isJsonMode, jsonOutput } from '../lib/json-mode.js';
 import type { StaticSiteDomain, MessageWithDataResponse, MessageResponse } from '../types/api.js';
 
 const lsCommand = new Command('ls')
@@ -17,6 +18,11 @@ const lsCommand = new Command('ls')
     const res = await api.get<{ data: StaticSiteDomain[] }>(
       `/api/v1/static-sites/${project.siteId}/domains`,
     );
+
+    if (isJsonMode()) {
+      jsonOutput(res.data);
+      return;
+    }
 
     if (res.data.length === 0) {
       console.log('No domains configured.');
@@ -41,14 +47,19 @@ const addCommand = new Command('add')
     if (!project) throw new NotLinkedError();
 
     const api = await ApiClient.create();
-    const spinner = ora(`Adding ${domain}...`).start();
+    const spinner = isJsonMode() ? null : ora(`Adding ${domain}...`).start();
 
     const res = await api.post<MessageWithDataResponse<StaticSiteDomain>>(
       `/api/v1/static-sites/${project.siteId}/domains`,
       { domain },
     );
 
-    spinner.succeed(`Added ${chalk.bold(domain)}`);
+    if (isJsonMode()) {
+      jsonOutput(res.data);
+      return;
+    }
+
+    spinner!.succeed(`Added ${chalk.bold(domain)}`);
 
     if (res.data.verification_record) {
       console.log(`\nAdd a CNAME record to verify ownership:`);
@@ -77,12 +88,16 @@ const removeCommand = new Command('remove')
       process.exit(1);
     }
 
-    const spinner = ora(`Removing ${domain}...`).start();
+    const spinner = isJsonMode() ? null : ora(`Removing ${domain}...`).start();
     await api.delete<MessageResponse>(
       `/api/v1/static-sites/${project.siteId}/domains/${domainObj.id}`,
     );
 
-    spinner.succeed(`Removed ${domain}`);
+    if (isJsonMode()) {
+      jsonOutput({ status: 'removed', domain });
+      return;
+    }
+    spinner!.succeed(`Removed ${domain}`);
   });
 
 const verifyCommand = new Command('verify')
@@ -105,12 +120,16 @@ const verifyCommand = new Command('verify')
       process.exit(1);
     }
 
-    const spinner = ora(`Verifying ${domain}...`).start();
+    const spinner = isJsonMode() ? null : ora(`Verifying ${domain}...`).start();
     await api.post<MessageResponse>(
       `/api/v1/static-sites/${project.siteId}/domains/${domainObj.id}/verify`,
     );
 
-    spinner.succeed(`Verification started for ${chalk.bold(domain)}`);
+    if (isJsonMode()) {
+      jsonOutput({ status: 'verification_started', domain });
+      return;
+    }
+    spinner!.succeed(`Verification started for ${chalk.bold(domain)}`);
   });
 
 export const domainsCommand = new Command('domains')

@@ -4,6 +4,7 @@ import ora from 'ora';
 import { input, select, confirm } from '@inquirer/prompts';
 import { ApiClient } from '../../lib/api-client.js';
 import { formatTable, statusColor, formatBytes, formatDate } from '../../lib/output.js';
+import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import type {
   StorageBucket,
   StorageMetrics,
@@ -26,6 +27,11 @@ const lsCommand = new Command('ls')
   .action(async () => {
     const api = await ApiClient.create();
     const res = await api.get<PaginatedResponse<StorageBucket>>('/api/v1/storage/buckets');
+
+    if (isJsonMode()) {
+      jsonOutput(res.data);
+      return;
+    }
 
     if (res.data.length === 0) {
       console.log('No buckets found.');
@@ -72,25 +78,29 @@ const createCommand = new Command('create')
       });
     }
 
-    if (versioning === undefined) {
+    if (versioning === undefined && !isJsonMode()) {
       versioning = await confirm({ message: 'Enable versioning?', default: false });
     }
 
-    if (isPublic === undefined) {
+    if (isPublic === undefined && !isJsonMode()) {
       isPublic = await confirm({ message: 'Enable public access?', default: false });
     }
 
     const api = await ApiClient.create();
-    const spinner = ora('Creating bucket...').start();
+    const spinner = isJsonMode() ? null : ora('Creating bucket...').start();
 
     const res = await api.post<{ message: string; bucket: StorageBucket }>('/api/v1/storage/buckets', {
       name: name.trim(),
       region,
-      versioning_enabled: versioning,
-      public_access: isPublic,
+      versioning_enabled: versioning ?? false,
+      public_access: isPublic ?? false,
     });
 
-    spinner.succeed(`Created bucket ${chalk.bold(res.bucket.name)}`);
+    if (isJsonMode()) {
+      jsonOutput(res.bucket);
+      return;
+    }
+    spinner!.succeed(`Created bucket ${chalk.bold(res.bucket.name)}`);
   });
 
 const getCommand = new Command('get')
@@ -99,6 +109,12 @@ const getCommand = new Command('get')
   .action(async (bucketId: string) => {
     const api = await ApiClient.create();
     const res = await api.get<{ bucket: StorageBucket }>(`/api/v1/storage/buckets/${bucketId}`);
+
+    if (isJsonMode()) {
+      jsonOutput(res.bucket);
+      return;
+    }
+
     const b = res.bucket;
 
     const lines = [
@@ -154,10 +170,15 @@ const updateCommand = new Command('update')
     }
 
     const api = await ApiClient.create();
-    const spinner = ora('Updating bucket...').start();
+    const spinner = isJsonMode() ? null : ora('Updating bucket...').start();
 
     const res = await api.put<{ message: string; bucket: StorageBucket }>(`/api/v1/storage/buckets/${bucketId}`, body);
-    spinner.succeed(`Updated bucket ${chalk.bold(res.bucket.name)}`);
+
+    if (isJsonMode()) {
+      jsonOutput(res.bucket);
+      return;
+    }
+    spinner!.succeed(`Updated bucket ${chalk.bold(res.bucket.name)}`);
   });
 
 const deleteCommand = new Command('delete')
@@ -165,7 +186,7 @@ const deleteCommand = new Command('delete')
   .argument('<bucket-id>', 'Bucket ID')
   .option('--force', 'Skip confirmation')
   .action(async (bucketId: string, opts: { force?: boolean }) => {
-    if (!opts.force) {
+    if (!opts.force && !isJsonMode()) {
       const confirmed = await confirm({ message: `Are you sure you want to delete bucket ${bucketId}?`, default: false });
       if (!confirmed) {
         console.log('Cancelled.');
@@ -174,10 +195,15 @@ const deleteCommand = new Command('delete')
     }
 
     const api = await ApiClient.create();
-    const spinner = ora('Deleting bucket...').start();
+    const spinner = isJsonMode() ? null : ora('Deleting bucket...').start();
 
     await api.delete<MessageResponse>(`/api/v1/storage/buckets/${bucketId}`);
-    spinner.succeed('Bucket deleted');
+
+    if (isJsonMode()) {
+      jsonOutput({ status: 'deleted', id: bucketId });
+      return;
+    }
+    spinner!.succeed('Bucket deleted');
   });
 
 const metricsCommand = new Command('metrics')
@@ -186,6 +212,11 @@ const metricsCommand = new Command('metrics')
   .action(async (bucketId: string) => {
     const api = await ApiClient.create();
     const m = await api.get<StorageMetrics>(`/api/v1/storage/buckets/${bucketId}/metrics`);
+
+    if (isJsonMode()) {
+      jsonOutput(m);
+      return;
+    }
 
     const lines = [
       ['Size', formatBytes(m.size_bytes ?? 0)],

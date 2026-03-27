@@ -11,8 +11,12 @@ export interface Team {
 }
 
 export interface TeamsResponse {
-  data: Team[];
+  data: Team[] | Record<string, Team>;
   current_team_id: number;
+}
+
+export function teamsArray(res: TeamsResponse): Team[] {
+  return Array.isArray(res.data) ? res.data : Object.values(res.data);
 }
 
 export interface StaticSite {
@@ -200,7 +204,7 @@ export interface VpsMetrics {
   cpu: { usage_percent: number; cores: number; sockets: number; threads: number };
   memory: { used_gb: number; total_gb: number; usage_percent: number };
   storage: { used_gb: number; total_gb: number; usage_percent: number };
-  network: { rx_bytes: number; tx_bytes: number; rx_packets: number; tx_packets: number };
+  network: { rx_bytes_per_sec: number; tx_bytes_per_sec: number; error_rate: number; status: string };
   uptime_seconds: number;
   timestamp: string;
 }
