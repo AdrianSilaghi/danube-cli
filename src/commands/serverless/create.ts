@@ -122,6 +122,11 @@ export const createCommand = new Command('create')
       });
     }
 
+    // Free tier has a max_replicas limit of 3
+    if (body.resource_profile === 'free' && body.max_scale === undefined) {
+      body.max_scale = 3;
+    }
+
     const res = await api.post<ServerlessCreateResponse>('/api/v1/serverless', body);
 
     console.log(chalk.green(`\nCreated serverless container: ${chalk.bold(res.container.name)}`));
