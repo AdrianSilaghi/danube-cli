@@ -225,3 +225,81 @@ export interface VpsImageGroup {
   name: string;
   images: VpsImage[];
 }
+
+export interface ServerlessContainer {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  deployment_type: 'docker_image' | 'git_repository' | 'zip_upload';
+  source_type: string | null;
+  image: string;
+  image_tag: string;
+  port: number;
+  resource_profile: string;
+  min_scale: number;
+  max_scale: number;
+  scaling_metric: 'rps' | 'concurrency' | null;
+  scaling_target: number | null;
+  concurrency_target: number | null;
+  timeout_seconds: number | null;
+  environment_variables: Record<string, string> | null;
+  current_replicas: number;
+  status: string;
+  url: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ServerlessDeployment {
+  id: string;
+  revision_number: number;
+  status: string;
+  is_current: boolean;
+  image: string;
+  image_tag: string;
+  traffic_percent: number;
+  deployed_at: string | null;
+  created_at: string;
+}
+
+export interface ServerlessBuild {
+  id: string;
+  build_number: number;
+  status: 'pending' | 'cloning' | 'building' | 'pushing' | 'succeeded' | 'failed' | 'cancelled';
+  source_type: string;
+  trigger_type: string;
+  built_image_ref: string | null;
+  duration_seconds: number | null;
+  error_message: string | null;
+  created_at: string;
+}
+
+export interface ServerlessShowResponse {
+  container: ServerlessContainer;
+  metrics: Record<string, unknown>;
+  url: string | null;
+  monthly_cost: number;
+}
+
+export interface ServerlessCreateResponse {
+  message: string;
+  container: ServerlessContainer;
+}
+
+export interface ServerlessDeployResponse {
+  message: string;
+  container_id: string;
+  status: string;
+}
+
+export interface ServerlessUsageResponse {
+  period: string;
+  usage: unknown[];
+  summary: {
+    total_requests: number;
+    total_compute_seconds: number;
+    total_cost_cents: number;
+    total_cost_dollars: number;
+  };
+}

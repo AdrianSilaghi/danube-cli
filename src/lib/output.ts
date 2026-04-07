@@ -1,14 +1,22 @@
 import chalk from 'chalk';
 
+// Strip ANSI escape codes for width calculation
+function stripAnsi(str: string): string {
+  return str.replace(/\x1B\[[0-9;]*m/g, '');
+}
+
 export function formatTable(headers: string[], rows: string[][]): string {
   const widths = headers.map((h, i) =>
-    Math.max(h.length, ...rows.map(r => (r[i] || '').length)),
+    Math.max(h.length, ...rows.map(r => stripAnsi(r[i] || '').length)),
   );
 
   const sep = widths.map(w => '-'.repeat(w)).join('  ');
   const headerLine = headers.map((h, i) => h.padEnd(widths[i]!)).join('  ');
   const bodyLines = rows.map(row =>
-    row.map((cell, i) => cell.padEnd(widths[i]!)).join('  '),
+    row.map((cell, i) => {
+      const pad = widths[i]! - stripAnsi(cell).length;
+      return cell + ' '.repeat(Math.max(0, pad));
+    }).join('  '),
   );
 
   return [headerLine, sep, ...bodyLines].join('\n');
@@ -20,6 +28,7 @@ export function statusColor(status: string): string {
     case 'active':
     case 'verified':
     case 'running':
+    case 'succeeded':
       return chalk.green(status);
     case 'pending':
     case 'uploading':
@@ -29,14 +38,18 @@ export function statusColor(status: string): string {
     case 'stopping':
     case 'rebooting':
     case 'reinstalling':
-      return chalk.yellow(status);
-    case 'failed':
-    case 'error':
-      return chalk.red(status);
     case 'creating':
     case 'updating':
     case 'destroying':
+    case 'building':
+    case 'building_image':
+    case 'pushing':
+    case 'cloning':
       return chalk.yellow(status);
+    case 'failed':
+    case 'error':
+    case 'degraded':
+      return chalk.red(status);
     case 'stopped':
       return chalk.dim(status);
     case 'revoked':
@@ -48,8 +61,8 @@ export function statusColor(status: string): string {
 
 export function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
   return `${(bytes / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0)} ${units[i]}`;
 }
 

@@ -71,4 +71,29 @@ describe('config', () => {
     process.env.DANUBE_TOKEN = 'env-tk';
     expect(getToken({ token: 'cfg-tk' })).toBe('env-tk');
   });
+
+  it('returns null on corrupted config file', async () => {
+    await writeConfig({ token: 'test-token-123' });
+    // Corrupt the config file
+    const configFile = join(testDir, '.danube', 'config.json');
+    const { writeFile: writeF } = await import('node:fs/promises');
+    await writeF(configFile, '{invalid json!!!');
+    const config = await readConfig();
+    expect(config).toBeNull();
+  });
+
+  it('getApiBase rejects plain HTTP URLs', () => {
+    process.env.DANUBE_API_BASE = 'http://evil.com';
+    expect(() => getApiBase()).toThrow('DANUBE_API_BASE must use HTTPS');
+  });
+
+  it('getApiBase allows http://localhost', () => {
+    process.env.DANUBE_API_BASE = 'http://localhost:8000';
+    expect(getApiBase()).toBe('http://localhost:8000');
+  });
+
+  it('getApiBase allows http://127.0.0.1', () => {
+    process.env.DANUBE_API_BASE = 'http://127.0.0.1:8000';
+    expect(getApiBase()).toBe('http://127.0.0.1:8000');
+  });
 });

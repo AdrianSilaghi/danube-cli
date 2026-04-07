@@ -49,9 +49,9 @@ const rollbackCommand = new Command('rollback')
 
     const api = await ApiClient.create();
 
-    // Find deployment by revision
+    // Find deployment by revision (high per_page to avoid pagination issues)
     const deploymentsRes = await api.get<PaginatedResponse<StaticSiteDeployment>>(
-      `/api/v1/static-sites/${project.siteId}/deployments`,
+      `/api/v1/static-sites/${project.siteId}/deployments?per_page=200`,
     );
 
     const deployment = deploymentsRes.data.find(d => d.revision_number === Number(revision));

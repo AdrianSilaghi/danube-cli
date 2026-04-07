@@ -11,6 +11,14 @@ import { authCommand } from './commands/auth.js';
 import { storageCommand } from './commands/storage/index.js';
 import { vpsCommand } from './commands/vps/index.js';
 import { projectCommand } from './commands/project.js';
+import { lsCommand as serverlessLsCommand } from './commands/serverless/ls.js';
+import { createCommand as serverlessCreateCommand } from './commands/serverless/create.js';
+import { deployCommand as serverlessDeployCommand } from './commands/serverless/deploy.js';
+import { showCommand as serverlessShowCommand } from './commands/serverless/show.js';
+import { updateCommand as serverlessUpdateCommand } from './commands/serverless/update.js';
+import { rmCommand as serverlessRmCommand } from './commands/serverless/rm.js';
+import { deploymentsCommand as serverlessDeploymentsCommand } from './commands/serverless/deployments.js';
+import { usageCommand as serverlessUsageCommand } from './commands/serverless/usage.js';
 import { NotAuthenticatedError, NotLinkedError, ApiError } from './lib/errors.js';
 import { getCurrentVersion, checkForUpdate, printUpdateNotification } from './lib/version.js';
 import { setJsonMode, isJsonMode, jsonError } from './lib/json-mode.js';
@@ -45,6 +53,24 @@ pagesCommand.addCommand(deploymentsCommand);
 pagesCommand.addCommand(domainsCommand);
 program.addCommand(pagesCommand);
 
+const serverlessCommand = new Command('serverless')
+  .description('Manage serverless containers');
+serverlessCommand.addCommand(serverlessLsCommand);
+serverlessCommand.addCommand(serverlessCreateCommand);
+serverlessCommand.addCommand(serverlessDeployCommand);
+serverlessCommand.addCommand(serverlessShowCommand);
+serverlessCommand.addCommand(serverlessUpdateCommand);
+serverlessCommand.addCommand(serverlessRmCommand);
+serverlessCommand.addCommand(serverlessDeploymentsCommand);
+serverlessCommand.addCommand(serverlessUsageCommand);
+program.addCommand(serverlessCommand);
+
+// Graceful SIGINT fallback — clean exit when Ctrl+C is pressed outside polling loops
+process.on('SIGINT', () => {
+  console.log('');
+  process.exit(130);
+});
+
 function handleError(err: unknown): never {
   if (isJsonMode()) {
     if (err instanceof NotAuthenticatedError) {
@@ -76,11 +102,7 @@ function handleError(err: unknown): never {
     }
     process.exit(1);
   }
-  if (err instanceof Error) {
-    console.error(chalk.red(err.message));
-    process.exit(1);
-  }
-  console.error(chalk.red('An unexpected error occurred.'));
+  console.error(chalk.red(err instanceof Error ? err.message : 'An unexpected error occurred.'));
   process.exit(1);
 }
 

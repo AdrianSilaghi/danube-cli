@@ -1,5 +1,5 @@
-import { readFile, readdir, stat } from 'node:fs/promises';
-import { join, relative } from 'node:path';
+import { readFile, readdir, realpath, stat } from 'node:fs/promises';
+import { join, relative, sep } from 'node:path';
 import ignore from 'ignore';
 import archiver from 'archiver';
 
@@ -17,7 +17,18 @@ async function collectFiles(dir: string, ig: ReturnType<typeof ignore>, base: st
       // Also check if directory itself is ignored (with trailing slash)
       if (ig.ignores(relPath + '/')) continue;
       files.push(...await collectFiles(fullPath, ig, base));
-    } else if (entry.isFile() || entry.isSymbolicLink()) {
+    } else if (entry.isSymbolicLink()) {
+      try {
+        const resolved = await realpath(fullPath);
+        const resolvedBase = await realpath(base);
+        const normalizedBase = resolvedBase.endsWith(sep) ? resolvedBase : resolvedBase + sep;
+        if (resolved.startsWith(normalizedBase) || resolved === resolvedBase) {
+          files.push(relPath);
+        }
+      } catch {
+        // Broken symlink — skip
+      }
+    } else if (entry.isFile()) {
       files.push(relPath);
     }
   }
@@ -39,12 +50,12 @@ export async function packageDirectory(dir: string, extraIgnore?: string[]): Pro
     // No .gitignore
   }
 
-  // Read .daubeignore
+  // Read .danubeignore
   try {
-    const daubeignore = await readFile(join(dir, '.daubeignore'), 'utf-8');
-    ig.add(daubeignore);
+    const danubeignore = await readFile(join(dir, '.danubeignore'), 'utf-8');
+    ig.add(danubeignore);
   } catch {
-    // No .daubeignore
+    // No .danubeignore
   }
 
   // Extra ignore patterns from danube.json

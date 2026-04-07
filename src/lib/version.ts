@@ -50,7 +50,7 @@ async function readCache(): Promise<UpdateCache | null> {
 async function writeCache(cache: UpdateCache): Promise<void> {
   try {
     await mkdir(dirname(CACHE_FILE), { recursive: true });
-    await writeFile(CACHE_FILE, JSON.stringify(cache, null, 2) + '\n');
+    await writeFile(CACHE_FILE, JSON.stringify(cache, null, 2) + '\n', { mode: 0o600 });
   } catch {
     // Silently ignore write errors
   }

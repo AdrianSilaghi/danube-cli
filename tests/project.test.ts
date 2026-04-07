@@ -48,6 +48,24 @@ describe('project', () => {
     expect(result).toEqual({ siteId: 10, teamId: 2, siteName: 'unknown' });
   });
 
+  it('throws when DANUBE_SITE_ID is not a positive integer', async () => {
+    process.env.DANUBE_SITE_ID = 'abc';
+    process.env.DANUBE_TEAM_ID = '2';
+    await expect(readProjectConfig(testDir)).rejects.toThrow('must be positive integers');
+  });
+
+  it('throws when DANUBE_TEAM_ID is not a positive integer', async () => {
+    process.env.DANUBE_SITE_ID = '1';
+    process.env.DANUBE_TEAM_ID = '0';
+    await expect(readProjectConfig(testDir)).rejects.toThrow('must be positive integers');
+  });
+
+  it('throws when DANUBE_SITE_ID is negative', async () => {
+    process.env.DANUBE_SITE_ID = '-5';
+    process.env.DANUBE_TEAM_ID = '1';
+    await expect(readProjectConfig(testDir)).rejects.toThrow('must be positive integers');
+  });
+
   it('returns null when no danube.json exists', async () => {
     const result = await readDanubeJson(testDir);
     expect(result).toBeNull();

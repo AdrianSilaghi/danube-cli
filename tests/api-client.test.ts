@@ -34,13 +34,15 @@ describe('ApiClient', () => {
     const client = new ApiClient('my-token', 'https://api.test');
     const result = await client.get<{ data: string }>('/api/v1/sites');
 
-    expect(fetch).toHaveBeenCalledWith('https://api.test/api/v1/sites', {
+    expect(fetch).toHaveBeenCalledWith('https://api.test/api/v1/sites', expect.objectContaining({
       method: 'GET',
       headers: {
         'Accept': 'application/json',
         'Authorization': 'Bearer my-token',
       },
-    });
+    }));
+    const call = (fetch as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    expect(call[1].signal).toBeInstanceOf(AbortSignal);
     expect(result).toEqual({ data: 'test' });
   });
 
@@ -54,7 +56,7 @@ describe('ApiClient', () => {
     const client = new ApiClient('my-token', 'https://api.test');
     await client.post('/api/v1/sites', { name: 'test' });
 
-    expect(fetch).toHaveBeenCalledWith('https://api.test/api/v1/sites', {
+    expect(fetch).toHaveBeenCalledWith('https://api.test/api/v1/sites', expect.objectContaining({
       method: 'POST',
       headers: {
         'Accept': 'application/json',
@@ -62,7 +64,7 @@ describe('ApiClient', () => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ name: 'test' }),
-    });
+    }));
   });
 
   it('throws NotAuthenticatedError on 401', async () => {
@@ -108,6 +110,27 @@ describe('ApiClient', () => {
     const client = new ApiClient('my-token', 'https://api.test');
     const result = await client.delete('/api/v1/sites/1');
     expect(result).toBeUndefined();
+  });
+
+  it('sends PUT request with JSON body', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ message: 'updated' }),
+    });
+
+    const client = new ApiClient('my-token', 'https://api.test');
+    await client.put('/api/v1/serverless/abc', { image: 'nginx' });
+
+    expect(fetch).toHaveBeenCalledWith('https://api.test/api/v1/serverless/abc', expect.objectContaining({
+      method: 'PUT',
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': 'Bearer my-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ image: 'nginx' }),
+    }));
   });
 
   it('throws ApiError on 500', async () => {
@@ -172,6 +195,31 @@ describe('ApiClient', () => {
     expect(call[1].body).toBeInstanceOf(FormData);
     // Should NOT set Content-Type (browser/node sets it with boundary)
     expect(call[1].headers['Content-Type']).toBeUndefined();
+  });
+
+  it('throws descriptive error when request times out', async () => {
+    globalThis.fetch = vi.fn().mockRejectedValue(
+      new DOMException('The operation was aborted.', 'AbortError'),
+    );
+
+    const client = new ApiClient('my-token', 'https://api.test');
+    await expect(client.get('/api/v1/slow')).rejects.toThrow(
+      'Request timed out after 30000ms: GET /api/v1/slow',
+    );
+  });
+
+  it('passes abort signal to fetch', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ data: 'ok' }),
+    });
+
+    const client = new ApiClient('my-token', 'https://api.test');
+    await client.get('/api/v1/sites');
+
+    const call = (fetch as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    expect(call[1].signal).toBeInstanceOf(AbortSignal);
   });
 
   it('uses default baseUrl when none provided', () => {

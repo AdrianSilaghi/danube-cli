@@ -7,7 +7,7 @@ import type { User } from '../types/api.js';
 
 export const loginCommand = new Command('login')
   .description('Authenticate with DanubeData')
-  .option('--token <token>', 'API token (or paste interactively)')
+  .option('--token <token>', 'API token (prefer DANUBE_TOKEN env var in CI to avoid shell history exposure)')
   .action(async (opts: { token?: string }) => {
     let token = opts.token;
 
@@ -46,7 +46,12 @@ export const loginCommand = new Command('login')
       }
 
       const user = (await res.json()) as User;
-      await writeConfig({ token, apiBase: getApiBase() });
+      const apiBase = getApiBase();
+      const config: { token: string; apiBase?: string } = { token };
+      if (apiBase !== 'https://danubedata.ro') {
+        config.apiBase = apiBase;
+      }
+      await writeConfig(config);
 
       console.log(chalk.green(`\nAuthenticated as ${chalk.bold(user.name)} (${user.email})`));
     } catch (err) {
