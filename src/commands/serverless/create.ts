@@ -114,10 +114,10 @@ export const createCommand = new Command('create')
       body.resource_profile = await select({
         message: 'Resource profile:',
         choices: [
-          { name: 'Micro (0.25 vCPU, 256MB) - $5/mo', value: 'micro' },
-          { name: 'Small (0.5 vCPU, 512MB) - $10/mo', value: 'small' },
-          { name: 'Medium (1 vCPU, 1GB) - $20/mo', value: 'medium' },
-          { name: 'Large (2 vCPU, 2GB) - $40/mo', value: 'large' },
+          { name: 'Free (0.01-0.1 vCPU, 64-128MB) - 2M req/mo included', value: 'free' },
+          { name: 'Small (0.5-1 vCPU, 256-512MB) - pay per use', value: 'small' },
+          { name: 'Medium (1-2 vCPU, 512MB-1GB) - pay per use', value: 'medium' },
+          { name: 'Large (2-4 vCPU, 1-2GB) - pay per use', value: 'large' },
         ],
       });
     }
