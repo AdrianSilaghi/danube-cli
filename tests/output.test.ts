@@ -32,6 +32,25 @@ describe('output', () => {
       const lines = result.split('\n');
       expect(lines).toHaveLength(2); // header + separator only
     });
+
+    it('aligns columns correctly with ANSI-colored cells', () => {
+      const colored = chalk.green('live');
+      const result = formatTable(
+        ['NAME', 'STATUS', 'REGION'],
+        [
+          ['my-site', colored, 'fsn1'],
+          ['other-app', 'stopped', 'hel1'],
+        ],
+      );
+      const lines = result.split('\n');
+      // Separator dashes should align with header widths (no ANSI inflation)
+      const sepParts = lines[1]!.split('  ');
+      expect(sepParts[1]!.length).toBe('STATUS'.length < 'stopped'.length ? 'stopped'.length : 'STATUS'.length);
+      // The non-colored row should have proper padding too
+      const stoppedRow = lines[3]!;
+      // 'other-app' and 'stopped' should be separated by exactly 2 spaces after padding
+      expect(stoppedRow).toContain('other-app  stopped  hel1');
+    });
   });
 
   describe('statusColor', () => {

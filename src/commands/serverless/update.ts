@@ -3,7 +3,7 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { ApiClient } from '../../lib/api-client.js';
 import { resolveContainer } from './resolve.js';
-import type { ServerlessContainer, ServerlessShowResponse } from '../../types/api.js';
+import type { ServerlessContainer } from '../../types/api.js';
 
 export const updateCommand = new Command('update')
   .description('Update a serverless container')
@@ -24,25 +24,30 @@ export const updateCommand = new Command('update')
     const api = await ApiClient.create();
     const container = await resolveContainer(api, nameOrId);
 
+    const parseIntOption = (val: string, name: string): number => {
+      const n = parseInt(val, 10);
+      if (isNaN(n)) {
+        console.error(chalk.red(`Invalid value for ${name}: '${val}' is not an integer.`));
+        process.exit(1);
+      }
+      return n;
+    };
+
     const body: Record<string, unknown> = {};
     if (opts.image) body.image = opts.image;
     if (opts.tag) body.image_tag = opts.tag;
     if (opts.profile) body.resource_profile = opts.profile;
-    if (opts.port) body.port = parseInt(opts.port, 10);
-    if (opts.minScale !== undefined) body.min_scale = parseInt(opts.minScale, 10);
-    if (opts.maxScale !== undefined) body.max_scale = parseInt(opts.maxScale, 10);
+    if (opts.port) body.port = parseIntOption(opts.port, '--port');
+    if (opts.minScale !== undefined) body.min_scale = parseIntOption(opts.minScale, '--min-scale');
+    if (opts.maxScale !== undefined) body.max_scale = parseIntOption(opts.maxScale, '--max-scale');
     if (opts.scalingMetric) body.scaling_metric = opts.scalingMetric;
-    if (opts.scalingTarget !== undefined) body.scaling_target = parseInt(opts.scalingTarget, 10);
-    if (opts.concurrencyTarget !== undefined) body.concurrency_target = parseInt(opts.concurrencyTarget, 10);
-    if (opts.timeout !== undefined) body.timeout_seconds = parseInt(opts.timeout, 10);
+    if (opts.scalingTarget !== undefined) body.scaling_target = parseIntOption(opts.scalingTarget, '--scaling-target');
+    if (opts.concurrencyTarget !== undefined) body.concurrency_target = parseIntOption(opts.concurrencyTarget, '--concurrency-target');
+    if (opts.timeout !== undefined) body.timeout_seconds = parseIntOption(opts.timeout, '--timeout');
 
     // Handle environment variable changes (merge with existing)
     if (opts.env || opts.rmEnv) {
-      // Fetch current container to get existing env vars
-      const current = await api.get<ServerlessShowResponse>(
-        `/api/v1/serverless/${container.id}`,
-      );
-      const existingEnv: Record<string, string> = current.container.environment_variables ?? {};
+      const existingEnv: Record<string, string> = { ...(container.environment_variables ?? {}) };
 
       // Remove specified keys first
       if (opts.rmEnv) {

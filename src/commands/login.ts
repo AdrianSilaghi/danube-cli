@@ -7,7 +7,7 @@ import type { User } from '../types/api.js';
 
 export const loginCommand = new Command('login')
   .description('Authenticate with DanubeData')
-  .option('--token <token>', 'API token (or paste interactively)')
+  .option('--token <token>', 'API token (prefer DANUBE_TOKEN env var in CI to avoid shell history exposure)')
   .action(async (opts: { token?: string }) => {
     let token = opts.token;
 

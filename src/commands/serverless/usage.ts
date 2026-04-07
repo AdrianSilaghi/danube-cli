@@ -12,6 +12,11 @@ export const usageCommand = new Command('usage')
     const api = await ApiClient.create();
     const container = await resolveContainer(api, nameOrId);
 
+    if (opts.period && !/^\d{4}-\d{2}$/.test(opts.period)) {
+      console.error(chalk.red('Invalid period format. Use YYYY-MM (e.g. 2025-03).'));
+      process.exit(1);
+    }
+
     const query = opts.period ? `?period=${encodeURIComponent(opts.period)}` : '';
     const res = await api.get<ServerlessUsageResponse>(
       `/api/v1/serverless/${container.id}/usage${query}`,

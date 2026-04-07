@@ -11,7 +11,16 @@ const CONFIG_DIR = join(homedir(), '.danube');
 const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
 
 export function getApiBase(): string {
-  return process.env.DANUBE_API_BASE || 'https://danubedata.ro';
+  const base = process.env.DANUBE_API_BASE;
+  if (base) {
+    if (!base.startsWith('https://') && !base.startsWith('http://localhost') && !base.startsWith('http://127.')) {
+      throw new Error(
+        `DANUBE_API_BASE must use HTTPS. Got: ${base}. HTTP is only allowed for localhost development.`,
+      );
+    }
+    return base;
+  }
+  return 'https://danubedata.ro';
 }
 
 export async function readConfig(): Promise<DanubeConfig | null> {

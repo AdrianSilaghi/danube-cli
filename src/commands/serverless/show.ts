@@ -21,7 +21,11 @@ export const showCommand = new Command('show')
     console.log(`  ID:              ${c.id}`);
     console.log(`  Status:          ${statusColor(c.status)}`);
     console.log(`  Deployment Type: ${c.deployment_type}`);
-    console.log(`  Image:           ${c.image}:${c.image_tag}`);
+    if (c.deployment_type === 'docker_image' || (c.image && c.image !== 'pending-build')) {
+      console.log(`  Image:           ${c.image}:${c.image_tag}`);
+    } else {
+      console.log(`  Image:           ${chalk.dim('(awaiting first build)')}`);
+    }
     console.log(`  Port:            ${c.port}`);
     console.log(`  Profile:         ${c.resource_profile}`);
     console.log(`  URL:             ${res.url || '-'}`);

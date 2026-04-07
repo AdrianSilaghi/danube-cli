@@ -19,6 +19,15 @@ export const createCommand = new Command('create')
   .action(async (opts) => {
     const api = await ApiClient.create();
 
+    const parseIntOption = (val: string, name: string): number => {
+      const n = parseInt(val, 10);
+      if (isNaN(n)) {
+        console.error(chalk.red(`Invalid value for ${name}: '${val}' is not an integer.`));
+        process.exit(1);
+      }
+      return n;
+    };
+
     // Select team
     const teamsRes = await api.get<TeamsResponse>('/api/v1/user/teams');
     const teams = teamsRes.data;
@@ -56,13 +65,14 @@ export const createCommand = new Command('create')
 
     // Build request body
     const body: Record<string, unknown> = {
+      team_id: teamId,
       name: name.trim(),
       deployment_type: deploymentType,
-      port: parseInt(opts.port, 10),
+      port: parseIntOption(opts.port, 'port'),
     };
 
-    if (opts.minScale !== undefined) body.min_scale = parseInt(opts.minScale, 10);
-    if (opts.maxScale !== undefined) body.max_scale = parseInt(opts.maxScale, 10);
+    if (opts.minScale !== undefined) body.min_scale = parseIntOption(opts.minScale, 'min-scale');
+    if (opts.maxScale !== undefined) body.max_scale = parseIntOption(opts.maxScale, 'max-scale');
     if (opts.profile) body.resource_profile = opts.profile;
 
     // Type-specific fields

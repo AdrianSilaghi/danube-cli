@@ -1,7 +1,7 @@
 {
   "name": "@danubedata/cli",
-  "version": "0.1.0",
-  "description": "Deploy static sites to DanubeData from the terminal",
+  "version": "0.2.0",
+  "description": "DanubeData CLI — deploy static sites and serverless containers from the terminal",
   "type": "module",
   "bin": {
     "danube": "./bin/danube"
@@ -23,6 +23,8 @@
     "danubedata",
     "deploy",
     "static-site",
+    "serverless",
+    "containers",
     "cli"
   ],
   "author": "DanubeData <adrian.silaghi@danubedata.ro>",

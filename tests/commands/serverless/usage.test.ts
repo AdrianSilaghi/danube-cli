@@ -53,6 +53,29 @@ describe('serverless usage command', () => {
     expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('4.99'));
   });
 
+  it('exits on invalid period format', async () => {
+    const originalExit = process.exit;
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    process.exit = vi.fn().mockImplementation((code: number) => {
+      throw new Error(`process.exit(${code})`);
+    }) as never;
+
+    mockGet.mockResolvedValueOnce({
+      data: [makeContainer()],
+      pagination: { current_page: 1, last_page: 1, per_page: 15, total: 1 },
+    });
+
+    await expect(
+      usageCommand.parseAsync(['node', 'test', 'my-api', '--period', 'last-month']),
+    ).rejects.toThrow('process.exit(1)');
+
+    expect(process.exit).toHaveBeenCalledWith(1);
+    expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid period format'));
+
+    process.exit = originalExit;
+    consoleErrorSpy.mockRestore();
+  });
+
   it('passes period option', async () => {
     mockGet
       .mockResolvedValueOnce({

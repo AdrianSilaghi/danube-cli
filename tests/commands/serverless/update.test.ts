@@ -39,13 +39,6 @@ const listResponse = (overrides = {}) => ({
   pagination: { current_page: 1, last_page: 1, per_page: 15, total: 1 },
 });
 
-const showResponse = (overrides = {}) => ({
-  container: makeContainer(overrides),
-  metrics: {},
-  url: null,
-  monthly_cost: 4.99,
-});
-
 describe('serverless update command', () => {
   const originalExit = process.exit;
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
@@ -75,10 +68,7 @@ describe('serverless update command', () => {
   });
 
   it('updates environment variables merged with existing', async () => {
-    // First call: resolve container via list endpoint
-    mockGet.mockResolvedValueOnce(listResponse());
-    // Second call: fetch current container to get existing env vars
-    mockGet.mockResolvedValueOnce(showResponse({
+    mockGet.mockResolvedValueOnce(listResponse({
       environment_variables: { EXISTING_KEY: 'existing_value' },
     }));
     mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer() });
@@ -91,8 +81,7 @@ describe('serverless update command', () => {
   });
 
   it('sets env vars on container with no existing env vars', async () => {
-    mockGet.mockResolvedValueOnce(listResponse());
-    mockGet.mockResolvedValueOnce(showResponse({ environment_variables: null }));
+    mockGet.mockResolvedValueOnce(listResponse({ environment_variables: null }));
     mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer() });
 
     await updateCommand.parseAsync(['node', 'test', 'my-api', '--env', 'KEY=value']);
@@ -103,8 +92,7 @@ describe('serverless update command', () => {
   });
 
   it('removes environment variables', async () => {
-    mockGet.mockResolvedValueOnce(listResponse());
-    mockGet.mockResolvedValueOnce(showResponse({
+    mockGet.mockResolvedValueOnce(listResponse({
       environment_variables: { KEEP: 'yes', REMOVE_ME: 'gone', ALSO_REMOVE: 'gone' },
     }));
     mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer() });
@@ -117,8 +105,7 @@ describe('serverless update command', () => {
   });
 
   it('adds and removes env vars in one command', async () => {
-    mockGet.mockResolvedValueOnce(listResponse());
-    mockGet.mockResolvedValueOnce(showResponse({
+    mockGet.mockResolvedValueOnce(listResponse({
       environment_variables: { OLD: 'value', REPLACE: 'old' },
     }));
     mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer() });
@@ -159,8 +146,7 @@ describe('serverless update command', () => {
   });
 
   it('exits on invalid env format (no equals sign)', async () => {
-    mockGet.mockResolvedValueOnce(listResponse());
-    mockGet.mockResolvedValueOnce(showResponse({ environment_variables: {} }));
+    mockGet.mockResolvedValueOnce(listResponse({ environment_variables: {} }));
 
     await expect(
       updateCommand.parseAsync(['node', 'test', 'my-api', '--env', 'INVALID_FORMAT']),
@@ -168,6 +154,17 @@ describe('serverless update command', () => {
 
     expect(process.exit).toHaveBeenCalledWith(1);
     expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid env format'));
+  });
+
+  it('exits on non-integer port value', async () => {
+    mockGet.mockResolvedValueOnce(listResponse());
+
+    await expect(
+      updateCommand.parseAsync(['node', 'test', 'my-api', '--port', 'abc']),
+    ).rejects.toThrow(ExitError);
+
+    expect(process.exit).toHaveBeenCalledWith(1);
+    expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid value for --port'));
   });
 
   it('exits when no options specified', async () => {

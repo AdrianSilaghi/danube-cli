@@ -8,7 +8,7 @@ import { packageDirectory } from '../../lib/packager.js';
 import { formatBytes, statusColor } from '../../lib/output.js';
 import { sleep } from '../../lib/sleep.js';
 import { resolveContainer } from './resolve.js';
-import type { ServerlessBuild, ServerlessDeployResponse } from '../../types/api.js';
+import type { ServerlessBuild, ServerlessDeployResponse, ServerlessShowResponse } from '../../types/api.js';
 
 export const POLL_INTERVAL = 2000;
 export const POLL_TIMEOUT = 10 * 60 * 1000; // 10 minutes for serverless builds
@@ -96,8 +96,11 @@ export const deployCommand = new Command('deploy')
 
         if (build.status === 'succeeded') {
           pollSpinner.succeed(`Build #${build.build_number} ${statusColor('succeeded')}`);
-          if (container.url) {
-            console.log(chalk.green(`\nLive at: ${chalk.bold(container.url)}`));
+          const updated = await api.get<ServerlessShowResponse>(
+            `/api/v1/serverless/${container.id}`,
+          );
+          if (updated.url) {
+            console.log(chalk.green(`\nLive at: ${chalk.bold(updated.url)}`));
           }
           return;
         }
@@ -112,6 +115,7 @@ export const deployCommand = new Command('deploy')
       }
 
       pollSpinner.warn('Timed out waiting for build. Check status with: danube serverless show ' + container.name);
+      process.exit(1);
     } finally {
       process.removeListener('SIGINT', sigintHandler);
     }

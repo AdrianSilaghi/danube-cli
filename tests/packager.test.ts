@@ -108,12 +108,39 @@ describe('packager', () => {
       expect(fileCount).toBe(1);
     });
 
-    it('includes symlinks', async () => {
+    it('includes symlinks within deploy directory', async () => {
       await writeFile(join(testDir, 'real.txt'), 'content');
       await symlink(join(testDir, 'real.txt'), join(testDir, 'link.txt'));
 
       const { fileCount } = await packageDirectory(testDir);
       expect(fileCount).toBe(2);
+    });
+
+    it('excludes symlinks pointing outside deploy directory', async () => {
+      const outsideDir = join(tmpdir(), `danube-packager-outside-${randomUUID()}`);
+      await mkdir(outsideDir, { recursive: true });
+      const outsideFile = join(outsideDir, 'secret.txt');
+      await writeFile(outsideFile, 'sensitive data');
+
+      await writeFile(join(testDir, 'index.html'), '<h1>Hello</h1>');
+      await symlink(outsideFile, join(testDir, 'escape.txt'));
+
+      try {
+        const { fileCount } = await packageDirectory(testDir);
+        // Only index.html — the symlink pointing outside is excluded
+        expect(fileCount).toBe(1);
+      } finally {
+        await rm(outsideDir, { recursive: true, force: true });
+      }
+    });
+
+    it('skips broken symlinks', async () => {
+      await writeFile(join(testDir, 'index.html'), '<h1>Hello</h1>');
+      await symlink(join(testDir, 'nonexistent.txt'), join(testDir, 'broken.txt'));
+
+      const { fileCount } = await packageDirectory(testDir);
+      // Only index.html — the broken symlink is skipped
+      expect(fileCount).toBe(1);
     });
 
     it('works without .gitignore or .danubeignore', async () => {

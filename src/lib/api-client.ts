@@ -19,14 +19,17 @@ export class ApiClient {
     return new ApiClient(token, config?.apiBase);
   }
 
-  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  private async request<T>(method: string, path: string, body?: unknown, timeoutMs: number = 30_000): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const headers: Record<string, string> = {
       'Accept': 'application/json',
       'Authorization': `Bearer ${this.token}`,
     };
 
-    const init: RequestInit = { method, headers };
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    const init: RequestInit = { method, headers, signal: controller.signal };
 
     if (body !== undefined) {
       if (body instanceof FormData) {
@@ -37,23 +40,32 @@ export class ApiClient {
       }
     }
 
-    const res = await fetch(url, init);
+    try {
+      const res = await fetch(url, init);
 
-    if (res.status === 204) {
-      return undefined as T;
-    }
-
-    const json = await res.json().catch(() => null);
-
-    if (!res.ok) {
-      if (res.status === 401) {
-        throw new NotAuthenticatedError();
+      if (res.status === 204) {
+        return undefined as T;
       }
-      const message = json?.message || `Request failed with status ${res.status}`;
-      throw new ApiError(res.status, message, json?.errors);
-    }
 
-    return json as T;
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        if (res.status === 401) {
+          throw new NotAuthenticatedError();
+        }
+        const message = json?.message || `Request failed with status ${res.status}`;
+        throw new ApiError(res.status, message, json?.errors);
+      }
+
+      return json as T;
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        throw new Error(`Request timed out after ${timeoutMs}ms: ${method} ${path}`);
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   get<T>(path: string): Promise<T> {
@@ -75,6 +87,7 @@ export class ApiClient {
   async upload<T>(path: string, file: Uint8Array, filename: string): Promise<T> {
     const formData = new FormData();
     formData.append('file', new Blob([file as BlobPart]), filename);
-    return this.request<T>('POST', path, formData);
+    const uploadTimeout = Math.max(120_000, file.length / 50);
+    return this.request<T>('POST', path, formData, uploadTimeout);
   }
 }

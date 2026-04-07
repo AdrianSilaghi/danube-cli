@@ -80,4 +80,19 @@ describe('config', () => {
     await writeF(configFile, '{invalid json!!!');
     await expect(readConfig()).rejects.toThrow('Config file is corrupted');
   });
+
+  it('getApiBase rejects plain HTTP URLs', () => {
+    process.env.DANUBE_API_BASE = 'http://evil.com';
+    expect(() => getApiBase()).toThrow('DANUBE_API_BASE must use HTTPS');
+  });
+
+  it('getApiBase allows http://localhost', () => {
+    process.env.DANUBE_API_BASE = 'http://localhost:8000';
+    expect(getApiBase()).toBe('http://localhost:8000');
+  });
+
+  it('getApiBase allows http://127.0.0.1', () => {
+    process.env.DANUBE_API_BASE = 'http://127.0.0.1:8000';
+    expect(getApiBase()).toBe('http://127.0.0.1:8000');
+  });
 });
