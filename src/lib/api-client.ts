@@ -1,5 +1,6 @@
 import { getApiBase, readConfig, getToken, getTeamId } from './config.js';
 import { ApiError, NotAuthenticatedError } from './errors.js';
+import { getCurrentVersion } from './version.js';
 
 export class ApiClient {
   private token: string;
@@ -26,6 +27,7 @@ export class ApiClient {
     const headers: Record<string, string> = {
       'Accept': 'application/json',
       'Authorization': `Bearer ${this.token}`,
+      'User-Agent': `DanubeCLI/${getCurrentVersion()}`,
     };
 
     if (this.teamId) {
