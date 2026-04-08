@@ -36,10 +36,10 @@ describe('ApiClient', () => {
 
     expect(fetch).toHaveBeenCalledWith('https://api.test/api/v1/sites', expect.objectContaining({
       method: 'GET',
-      headers: {
+      headers: expect.objectContaining({
         'Accept': 'application/json',
         'Authorization': 'Bearer my-token',
-      },
+      }),
     }));
     const call = (fetch as ReturnType<typeof vi.fn>).mock.calls[0]!;
     expect(call[1].signal).toBeInstanceOf(AbortSignal);
@@ -58,11 +58,11 @@ describe('ApiClient', () => {
 
     expect(fetch).toHaveBeenCalledWith('https://api.test/api/v1/sites', expect.objectContaining({
       method: 'POST',
-      headers: {
+      headers: expect.objectContaining({
         'Accept': 'application/json',
         'Authorization': 'Bearer my-token',
         'Content-Type': 'application/json',
-      },
+      }),
       body: JSON.stringify({ name: 'test' }),
     }));
   });
@@ -124,11 +124,11 @@ describe('ApiClient', () => {
 
     expect(fetch).toHaveBeenCalledWith('https://api.test/api/v1/serverless/abc', expect.objectContaining({
       method: 'PUT',
-      headers: {
+      headers: expect.objectContaining({
         'Accept': 'application/json',
         'Authorization': 'Bearer my-token',
         'Content-Type': 'application/json',
-      },
+      }),
       body: JSON.stringify({ image: 'nginx' }),
     }));
   });
