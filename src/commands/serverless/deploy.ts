@@ -50,7 +50,7 @@ export const deployCommand = new Command('deploy')
     uploadSpinner.succeed('Uploaded');
 
     if (!opts.wait) {
-      console.log(chalk.green('\nBuild started. Check status with: danube serverless show ' + container.name));
+      console.log(chalk.green('\nBuild started. Check status with: danube rapids show ' + container.name));
       return;
     }
 
@@ -114,7 +114,7 @@ export const deployCommand = new Command('deploy')
         }
       }
 
-      pollSpinner.warn('Timed out waiting for build. Check status with: danube serverless show ' + container.name);
+      pollSpinner.warn('Timed out waiting for build. Check status with: danube rapids show ' + container.name);
       process.exit(1);
     } finally {
       process.removeListener('SIGINT', sigintHandler);

@@ -128,7 +128,7 @@ describe('serverless create command', () => {
       source_type: 'buildpack',
       resource_profile: 'micro',
     }));
-    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('danube serverless deploy'));
+    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('danube rapids deploy'));
   });
 
   it('prompts for team selection when multiple teams exist', async () => {

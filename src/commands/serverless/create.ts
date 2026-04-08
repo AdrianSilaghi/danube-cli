@@ -134,6 +134,6 @@ export const createCommand = new Command('create')
     console.log(`Status: ${res.container.status}`);
 
     if (deploymentType === 'zip_upload') {
-      console.log(chalk.dim('\nDeploy your code with: danube serverless deploy ' + res.container.name + ' --dir ./src'));
+      console.log(chalk.dim('\nDeploy your code with: danube rapids deploy ' + res.container.name + ' --dir ./src'));
     }
   });

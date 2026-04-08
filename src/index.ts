@@ -53,8 +53,8 @@ pagesCommand.addCommand(deploymentsCommand);
 pagesCommand.addCommand(domainsCommand);
 program.addCommand(pagesCommand);
 
-const serverlessCommand = new Command('serverless')
-  .description('Manage serverless containers');
+const serverlessCommand = new Command('rapids')
+  .description('Manage rapids containers');
 serverlessCommand.addCommand(serverlessLsCommand);
 serverlessCommand.addCommand(serverlessCreateCommand);
 serverlessCommand.addCommand(serverlessDeployCommand);
