@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { lsCommand, createCommand, getCommand, updateCommand, rmCommand } from './instances.js';
 import { startCommand, stopCommand, connectionInfoCommand, dnsCommand } from './actions.js';
+import { snapshotsCommand } from './snapshots.js';
 
 export const cacheCommand = new Command('cache')
   .description('Manage cache instances (Redis / Valkey / Dragonfly)')
@@ -12,4 +13,5 @@ export const cacheCommand = new Command('cache')
   .addCommand(startCommand)
   .addCommand(stopCommand)
   .addCommand(connectionInfoCommand)
-  .addCommand(dnsCommand);
+  .addCommand(dnsCommand)
+  .addCommand(snapshotsCommand);
