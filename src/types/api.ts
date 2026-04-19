@@ -236,6 +236,149 @@ export interface VpsImageGroup {
   images: VpsImage[];
 }
 
+// ---------------------------------------------------------------------------
+// Cache
+// ---------------------------------------------------------------------------
+
+export type CacheProvider = 'redis' | 'valkey' | 'dragonfly';
+
+export interface CacheInstance {
+  id: string;
+  name: string;
+  status: string;
+  status_label: string;
+  resource_profile: string;
+  cpu_cores: number;
+  memory_size_mb: number;
+  version: string | null;
+  provider_id: string;
+  provider?: { id: string; name: string; type: CacheProvider };
+  endpoint: string | null;
+  port: number | null;
+  monthly_cost_cents: number;
+  monthly_cost_dollars: string | number;
+  deployed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  team_id: number;
+  user_id: number;
+  can_be_started: boolean;
+  can_be_stopped: boolean;
+  can_be_destroyed: boolean;
+}
+
+export interface CacheConnectionInfo {
+  connection_info: string;
+  password: string;
+}
+
+export interface CacheSnapshot {
+  id: string;
+  name: string;
+  description: string | null;
+  status: string;
+  size_mb: number | null;
+  cache_instance_id: string;
+  cache_instance?: { id: string; name: string };
+  created_at: string;
+  updated_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Database
+// ---------------------------------------------------------------------------
+
+export type DatabaseProvider = 'mysql' | 'postgresql' | 'mariadb';
+
+export interface DatabaseInstance {
+  id: string;
+  name: string;
+  status: string;
+  status_label: string;
+  resource_profile: string;
+  cpu_cores: number;
+  memory_size_mb: number;
+  storage_size_gb: number;
+  version: string | null;
+  datacenter: string;
+  provider_id: string;
+  provider?: { id: string; name: string; type: DatabaseProvider };
+  engine?: { id: string; name: DatabaseProvider };
+  endpoint: string | null;
+  port: number | null;
+  username: string | null;
+  monthly_cost_cents: number;
+  monthly_cost_dollars: string | number;
+  deployed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  team_id: number;
+  user_id: number;
+  can_be_started: boolean;
+  can_be_stopped: boolean;
+  can_be_destroyed: boolean;
+}
+
+export interface DatabaseCredentials {
+  connection_info: string;
+  username: string;
+  password: string;
+}
+
+export interface DatabaseReplica {
+  name: string;
+  node_id: string;
+  replica_index: number;
+  endpoint: string | null;
+  status: string;
+  ready: boolean;
+  replication_status: string | null;
+  seconds_behind_master: number | null;
+  is_replication_healthy: boolean;
+}
+
+export interface DatabaseReplicaList {
+  replicas: DatabaseReplica[];
+  master: {
+    name: string;
+    node_id: string;
+    endpoint: string | null;
+    status: string;
+    ready: boolean;
+  };
+  billing: {
+    hourly_cost_cents: number;
+    monthly_cost_cents: number;
+  };
+}
+
+export interface DatabaseReplicationStatus {
+  is_replicating: boolean;
+  replica_count: number;
+  replicas: Array<{
+    name: string;
+    node_id: string;
+    ready: boolean;
+    status: string;
+    replication_status: string | null;
+    seconds_behind_master: number | null;
+    is_replication_healthy: boolean;
+    replica_index: number;
+  }>;
+}
+
+export interface DatabaseSnapshot {
+  id: string;
+  name: string;
+  description: string | null;
+  status: string;
+  size_gb: number | null;
+  database_instance_id: string;
+  database_instance?: { id: string; name: string };
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ServerlessContainer {
   id: string;
   name: string;
