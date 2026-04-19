@@ -228,33 +228,55 @@ describe('buckets command', () => {
   });
 
   describe('metrics', () => {
-    it('displays bucket metrics', async () => {
+    it('displays bucket metrics with requests and egress', async () => {
       mockGet.mockResolvedValue({
-        size_bytes: 5242880,
-        object_count: 100,
+        size_bytes: 167_203_942_400,
+        size_human: '155.7 GB',
+        object_count: 18368,
+        requests_24h: 12401,
+        requests_24h_by_method: { GET: 9800, PUT: 2100, DELETE: 50, HEAD: 451 },
+        egress_bytes_24h: 987_654_321,
+        egress_human_24h: '0.92 GB',
         monthly_cost_cents: 399,
         monthly_cost_dollars: '3.99',
-        last_synced_at: '2024-06-01T12:00:00Z',
+        last_sync_at: new Date(Date.now() - 2 * 60_000).toISOString(),
       });
 
       await bucketsCommand.parseAsync(['node', 'test', 'metrics', 'bucket-1']);
 
       expect(mockGet).toHaveBeenCalledWith('/api/v1/storage/buckets/bucket-1/metrics');
-      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('5.0 MB'));
+
+      const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
+      expect(output).toContain('155.7 GB');
+      expect(output).toContain('18,368');
+      expect(output).toContain('12,401');
+      expect(output).toContain('GET 9,800');
+      expect(output).toContain('PUT 2,100');
+      expect(output).toContain('DEL 50');
+      expect(output).toContain('HEAD 451');
+      expect(output).toContain('0.92 GB');
+      expect(output).toContain('€3.99');
+      expect(output).toMatch(/2m ago/);
     });
 
-    it('displays metrics with no sync date', async () => {
+    it('shows em-dash when requests_24h is null (loki unreachable)', async () => {
       mockGet.mockResolvedValue({
         size_bytes: 0,
+        size_human: '0 B',
         object_count: 0,
+        requests_24h: null,
+        requests_24h_by_method: null,
+        egress_bytes_24h: 0,
+        egress_human_24h: '0 B',
         monthly_cost_cents: 399,
         monthly_cost_dollars: '3.99',
-        last_synced_at: null,
+        last_sync_at: null,
       });
 
       await bucketsCommand.parseAsync(['node', 'test', 'metrics', 'bucket-1']);
 
-      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('-'));
+      const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
+      expect(output).toMatch(/Requests \(24h\)\s+\S*—/);
     });
   });
 });

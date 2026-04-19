@@ -3,7 +3,7 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { input, select, confirm } from '@inquirer/prompts';
 import { ApiClient } from '../../lib/api-client.js';
-import { formatTable, statusColor, formatBytes, formatDate } from '../../lib/output.js';
+import { formatTable, statusColor, formatBytes, formatDate, formatNumber, formatRelativeTime } from '../../lib/output.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import type {
   StorageBucket,
@@ -218,11 +218,23 @@ const metricsCommand = new Command('metrics')
       return;
     }
 
+    const requestsCell = m.requests_24h === null
+      ? chalk.dim('—')
+      : (() => {
+          const bd = m.requests_24h_by_method;
+          const breakdown = bd
+            ? chalk.dim(`  GET ${formatNumber(bd.GET)} · PUT ${formatNumber(bd.PUT)} · DEL ${formatNumber(bd.DELETE)} · HEAD ${formatNumber(bd.HEAD)}`)
+            : '';
+          return `${formatNumber(m.requests_24h!)}${breakdown}`;
+        })();
+
     const lines = [
-      ['Size', formatBytes(m.size_bytes ?? 0)],
-      ['Objects', String(m.object_count ?? 0)],
+      ['Size', m.size_human ?? formatBytes(m.size_bytes ?? 0)],
+      ['Objects', formatNumber(m.object_count ?? 0)],
+      ['Requests (24h)', requestsCell],
+      ['Egress  (24h)', m.egress_human_24h ?? formatBytes(m.egress_bytes_24h ?? 0)],
       ['Monthly Cost', `\u20AC${m.monthly_cost_dollars ?? '0.00'}`],
-      ['Last Synced', m.last_synced_at ? formatDate(m.last_synced_at) : '-'],
+      ['Last Synced', formatRelativeTime(m.last_sync_at)],
     ];
 
     const maxLabel = Math.max(...lines.map(([l]) => l!.length));
