@@ -4,7 +4,8 @@ import ora from 'ora';
 import { confirm } from '@inquirer/prompts';
 import { ApiClient } from '../../lib/api-client.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
-import type { DatabaseCredentials } from '../../types/api.js';
+import { formatBytes } from '../../lib/output.js';
+import type { DatabaseCredentials, DatabaseMetricsResponse } from '../../types/api.js';
 
 export const startCommand = new Command('start')
   .description('Start a stopped database instance')
@@ -64,6 +65,36 @@ export const credentialsCommand = new Command('credentials')
     console.log(`  Username:   ${chalk.bold(res.username)}`);
     console.log(`  Password:   ${chalk.bold.yellow(res.password)}`);
     console.log('');
+  });
+
+export const metricsCommand = new Command('metrics')
+  .description('Show database instance metrics summary')
+  .argument('<id>', 'Database instance ID')
+  .action(async (id: string) => {
+    const api = await ApiClient.create();
+    const res = await api.get<DatabaseMetricsResponse>(`/api/v1/database/${id}/metrics`);
+
+    if (isJsonMode()) {
+      jsonOutput(res);
+      return;
+    }
+
+    const s = res.summary;
+    const h = res.health;
+
+    const lines = [
+      ['Health', h.is_healthy ? chalk.green('healthy') : chalk.red('unhealthy')],
+      ['Memory Used', `${formatBytes(s.memory_used_bytes)} (${s.memory_used_mb} MB)`],
+      ['Connected Clients', String(s.connected_clients)],
+      ['Total Queries', s.total_queries.toLocaleString('en-US')],
+      ['Slow Queries', s.slow_queries.toLocaleString('en-US')],
+      ['Retrieved', s.retrieved_at],
+    ];
+
+    const maxLabel = Math.max(...lines.map(([l]) => l!.length));
+    for (const [label, value] of lines) {
+      console.log(`${chalk.dim(label!.padEnd(maxLabel))}  ${value}`);
+    }
   });
 
 export const dnsCommand = new Command('dns')

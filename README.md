@@ -156,6 +156,7 @@ Managed Redis / Valkey / Dragonfly in-memory stores.
 | `danube cache start <id>` | Start a stopped cache |
 | `danube cache stop <id>` | Stop a running cache |
 | `danube cache connection-info <id>` | Show connection URL and password |
+| `danube cache metrics <id>` | Show memory, connections, hit ratio, and health |
 | `danube cache dns enable <id>` | Enable public DNS |
 | `danube cache dns disable <id>` | Disable public DNS |
 | `danube cache snapshots ls` | List snapshots (optional `--instance <id>`) |
@@ -188,6 +189,7 @@ Managed MySQL / PostgreSQL / MariaDB with read-replica support.
 | `danube database start <id>` | Start a stopped database |
 | `danube database stop <id>` | Stop a running database |
 | `danube database credentials <id>` | Show connection URL, username, and password |
+| `danube database metrics <id>` | Show memory, connections, query throughput, and health |
 | `danube database dns enable <id>` | Enable public DNS |
 | `danube database dns disable <id>` | Disable public DNS |
 | `danube database replicas ls <instance-id>` | List read replicas |
@@ -208,6 +210,30 @@ danube database create
 
 # With flags
 danube database create --name my-db --provider postgresql --datacenter fsn1 --profile small --database-name app
+```
+
+### Parameter Groups (`danube parameter-groups` / `danube pg`)
+
+Reusable engine configurations for cache / database / queue instances. System groups are read-only — clone them to customize.
+
+| Command | Description |
+|---|---|
+| `danube pg ls [--type cache\|database\|queue] [--provider <p>]` | List groups (team + system) |
+| `danube pg create --name <n> --type <t> --provider <p> --parameters <json\|@file.json> [--locked key1,key2]` | Create a new group |
+| `danube pg get <id>` | Show group with parameters (locked keys highlighted) |
+| `danube pg update <id> [--name] [--parameters ...] [--locked ...] [--default\|--no-default]` | Update team-owned group |
+| `danube pg rm <id>` | Delete team-owned group (fails if in use) |
+| `danube pg clone <id> [--name <new>]` | Clone into your team (typical for system groups) |
+
+#### Create from a JSON file
+
+```bash
+# redis.json: { "maxmemory-policy": "allkeys-lru", "timeout": 0 }
+danube pg create \
+  --name my-redis \
+  --type cache --provider redis \
+  --parameters @redis.json \
+  --locked maxmemory-policy
 ```
 
 ### Static Sites (`danube pages`)

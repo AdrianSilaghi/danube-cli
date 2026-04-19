@@ -12,6 +12,7 @@ import { storageCommand } from './commands/storage/index.js';
 import { vpsCommand } from './commands/vps/index.js';
 import { cacheCommand } from './commands/cache/index.js';
 import { databaseCommand } from './commands/database/index.js';
+import { parameterGroupsCommand } from './commands/parameter-groups.js';
 import { projectCommand } from './commands/project.js';
 import { lsCommand as serverlessLsCommand } from './commands/serverless/ls.js';
 import { createCommand as serverlessCreateCommand } from './commands/serverless/create.js';
@@ -47,6 +48,7 @@ program.addCommand(storageCommand);
 program.addCommand(vpsCommand);
 program.addCommand(cacheCommand);
 program.addCommand(databaseCommand);
+program.addCommand(parameterGroupsCommand);
 program.addCommand(projectCommand);
 
 const pagesCommand = new Command('pages')

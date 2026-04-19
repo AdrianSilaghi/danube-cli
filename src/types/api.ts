@@ -379,6 +379,78 @@ export interface DatabaseSnapshot {
   updated_at: string;
 }
 
+// ---------------------------------------------------------------------------
+// Metrics (cache / database summary)
+// ---------------------------------------------------------------------------
+
+export interface CacheMetricsSummary {
+  memory_used_bytes: number;
+  memory_used_mb: number;
+  connected_clients: number;
+  total_commands_processed: number;
+  keyspace_hits: number;
+  keyspace_misses: number;
+  hit_ratio_percentage: number;
+  retrieved_at: string;
+}
+
+export interface CacheHealth {
+  is_healthy: boolean;
+  up_status: boolean;
+  redis_up: boolean;
+  checked_at: string;
+}
+
+export interface CacheMetricsResponse {
+  summary: CacheMetricsSummary;
+  health: CacheHealth;
+  instance: { id: string; name: string };
+}
+
+export interface DatabaseMetricsSummary {
+  memory_used_bytes: number;
+  memory_used_mb: number;
+  connected_clients: number;
+  total_queries: number;
+  slow_queries: number;
+  retrieved_at: string;
+}
+
+export interface DatabaseHealth {
+  is_healthy: boolean;
+  up_status: boolean;
+  checked_at: string;
+}
+
+export interface DatabaseMetricsResponse {
+  summary: DatabaseMetricsSummary;
+  health: DatabaseHealth;
+  instance: { id: string; name: string };
+}
+
+// ---------------------------------------------------------------------------
+// Parameter groups
+// ---------------------------------------------------------------------------
+
+export type ParameterGroupType = 'cache' | 'database' | 'queue';
+
+export interface ParameterGroup {
+  id: number;
+  name: string;
+  type: ParameterGroupType;
+  provider_type: string;
+  family: string | null;
+  description: string | null;
+  parameters: Record<string, string | number | boolean | null>;
+  locked_parameters: string[];
+  team_id: number | null;
+  is_default: boolean;
+  is_active: boolean;
+  is_system: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
 export interface ServerlessContainer {
   id: string;
   name: string;
