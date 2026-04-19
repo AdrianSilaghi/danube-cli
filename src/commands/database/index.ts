@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { lsCommand, createCommand, getCommand, updateCommand, rmCommand } from './instances.js';
 import { startCommand, stopCommand, credentialsCommand, dnsCommand } from './actions.js';
+import { replicasCommand } from './replicas.js';
 
 export const databaseCommand = new Command('database')
   .description('Manage database instances (MySQL / PostgreSQL / MariaDB)')
@@ -12,4 +13,5 @@ export const databaseCommand = new Command('database')
   .addCommand(startCommand)
   .addCommand(stopCommand)
   .addCommand(credentialsCommand)
-  .addCommand(dnsCommand);
+  .addCommand(dnsCommand)
+  .addCommand(replicasCommand);
