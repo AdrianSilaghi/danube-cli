@@ -69,3 +69,20 @@ export function formatBytes(bytes: number): string {
 export function formatDate(iso: string): string {
   return new Date(iso).toLocaleString();
 }
+
+export function formatNumber(n: number): string {
+  return n.toLocaleString('en-US');
+}
+
+export function formatRelativeTime(iso: string | null): string {
+  if (!iso) return '-';
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return '-';
+  const diffSec = Math.round((Date.now() - then) / 1000);
+  if (diffSec < 0) return new Date(iso).toLocaleString();
+  if (diffSec < 60) return `${diffSec}s ago`;
+  if (diffSec < 3600) return `${Math.round(diffSec / 60)}m ago`;
+  if (diffSec < 86_400) return `${Math.round(diffSec / 3600)}h ago`;
+  if (diffSec < 7 * 86_400) return `${Math.round(diffSec / 86_400)}d ago`;
+  return new Date(iso).toLocaleString();
+}

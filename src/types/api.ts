@@ -146,10 +146,20 @@ export interface CreateAccessKeyResponse {
 
 export interface StorageMetrics {
   size_bytes: number;
+  size_human: string;
   object_count: number;
+  requests_24h: number | null;
+  requests_24h_by_method: {
+    GET: number;
+    PUT: number;
+    DELETE: number;
+    HEAD: number;
+  } | null;
+  egress_bytes_24h: number;
+  egress_human_24h: string;
   monthly_cost_cents: number;
   monthly_cost_dollars: string;
-  last_synced_at: string | null;
+  last_sync_at: string | null;
 }
 
 export interface VpsInstance {
