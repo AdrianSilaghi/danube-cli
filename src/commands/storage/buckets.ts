@@ -218,14 +218,14 @@ const metricsCommand = new Command('metrics')
       return;
     }
 
-    const requestsCell = m.requests_24h === null
+    const requestsCell = m.requests_24h == null
       ? chalk.dim('—')
       : (() => {
           const bd = m.requests_24h_by_method;
           const breakdown = bd
             ? chalk.dim(`  GET ${formatNumber(bd.GET)} · PUT ${formatNumber(bd.PUT)} · DEL ${formatNumber(bd.DELETE)} · HEAD ${formatNumber(bd.HEAD)}`)
             : '';
-          return `${formatNumber(m.requests_24h!)}${breakdown}`;
+          return `${formatNumber(m.requests_24h)}${breakdown}`;
         })();
 
     const lines = [
@@ -234,7 +234,7 @@ const metricsCommand = new Command('metrics')
       ['Requests (24h)', requestsCell],
       ['Egress  (24h)', m.egress_human_24h ?? formatBytes(m.egress_bytes_24h ?? 0)],
       ['Monthly Cost', `\u20AC${m.monthly_cost_dollars ?? '0.00'}`],
-      ['Last Synced', formatRelativeTime(m.last_sync_at)],
+      ['Last Synced', formatRelativeTime(m.last_sync_at ?? (m as { last_synced_at?: string | null }).last_synced_at ?? null)],
     ];
 
     const maxLabel = Math.max(...lines.map(([l]) => l!.length));
