@@ -142,6 +142,74 @@ danube storage keys ls
 danube storage keys revoke <id>
 ```
 
+### Cache Instances (`danube cache`)
+
+Managed Redis / Valkey / Dragonfly in-memory stores.
+
+| Command | Description |
+|---|---|
+| `danube cache ls` | List all cache instances |
+| `danube cache create` | Create a new cache (interactive or flags) |
+| `danube cache get <id>` | Show cache details |
+| `danube cache update <id>` | Update resource profile or name |
+| `danube cache rm <id>` | Delete a cache instance |
+| `danube cache start <id>` | Start a stopped cache |
+| `danube cache stop <id>` | Stop a running cache |
+| `danube cache connection-info <id>` | Show connection URL and password |
+| `danube cache dns enable <id>` | Enable public DNS |
+| `danube cache dns disable <id>` | Disable public DNS |
+| `danube cache snapshots ls` | List snapshots (optional `--instance <id>`) |
+| `danube cache snapshots create <instance-id> --name <name>` | Create a snapshot |
+| `danube cache snapshots restore <snapshot-id>` | Restore into source instance |
+| `danube cache snapshots clone <snapshot-id> --name <new>` | Clone into a new instance |
+| `danube cache snapshots rm <snapshot-id>` | Delete a snapshot |
+
+#### Create a cache
+
+```bash
+# Interactive
+danube cache create
+
+# With flags
+danube cache create --name my-cache --provider redis --datacenter fsn1 --profile small
+```
+
+### Database Instances (`danube database`)
+
+Managed MySQL / PostgreSQL / MariaDB with read-replica support.
+
+| Command | Description |
+|---|---|
+| `danube database ls` | List all database instances |
+| `danube database create` | Create a new database (interactive or flags) |
+| `danube database get <id>` | Show database details |
+| `danube database update <id>` | Update resource profile or name |
+| `danube database rm <id>` | Delete a database instance |
+| `danube database start <id>` | Start a stopped database |
+| `danube database stop <id>` | Stop a running database |
+| `danube database credentials <id>` | Show connection URL, username, and password |
+| `danube database dns enable <id>` | Enable public DNS |
+| `danube database dns disable <id>` | Disable public DNS |
+| `danube database replicas ls <instance-id>` | List read replicas |
+| `danube database replicas add <instance-id> --count <n>` | Add one or more replicas |
+| `danube database replicas rm <instance-id> <index>` | Remove replica by index |
+| `danube database replicas status <instance-id>` | Show per-replica replication lag |
+| `danube database snapshots ls` | List snapshots (optional `--instance <id>`) |
+| `danube database snapshots create <instance-id> --name <name>` | Create a snapshot |
+| `danube database snapshots restore <snapshot-id>` | Restore into source instance |
+| `danube database snapshots clone <snapshot-id> --name <new> [--database-name <db>]` | Clone into a new instance |
+| `danube database snapshots rm <snapshot-id>` | Delete a snapshot |
+
+#### Create a database
+
+```bash
+# Interactive
+danube database create
+
+# With flags
+danube database create --name my-db --provider postgresql --datacenter fsn1 --profile small --database-name app
+```
+
 ### Static Sites (`danube pages`)
 
 | Command | Description |
