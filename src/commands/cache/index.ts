@@ -1,0 +1,15 @@
+import { Command } from 'commander';
+import { lsCommand, createCommand, getCommand, updateCommand, rmCommand } from './instances.js';
+import { startCommand, stopCommand, connectionInfoCommand, dnsCommand } from './actions.js';
+
+export const cacheCommand = new Command('cache')
+  .description('Manage cache instances (Redis / Valkey / Dragonfly)')
+  .addCommand(lsCommand)
+  .addCommand(createCommand)
+  .addCommand(getCommand)
+  .addCommand(updateCommand)
+  .addCommand(rmCommand)
+  .addCommand(startCommand)
+  .addCommand(stopCommand)
+  .addCommand(connectionInfoCommand)
+  .addCommand(dnsCommand);
