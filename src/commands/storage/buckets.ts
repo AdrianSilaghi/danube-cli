@@ -307,9 +307,13 @@ const trendCommand = new Command('trend')
     const qs = new URLSearchParams(params).toString();
     const t = await api.get<BucketTrendResponse>(`/api/v1/storage/buckets/${bucketId}/metrics/trend?${qs}`);
 
+    // Exit code 3 on stale data is set regardless of output format so
+    // scripts/agents that pipe the output (csv/table) can still branch
+    // on staleness without parsing the body.
+    if (t.freshness === 'stale') process.exitCode = 3;
+
     if (isJsonMode() || opts.format === 'json') {
       jsonOutput(t);
-      if (t.freshness === 'stale') process.exitCode = 3;
       return;
     }
 
@@ -336,7 +340,6 @@ const trendCommand = new Command('trend')
 
     if (n === 0) {
       console.log(chalk.dim('No data points in this window.'));
-      if (t.freshness === 'stale') process.exitCode = 3;
       return;
     }
 
@@ -385,7 +388,9 @@ const trendCommand = new Command('trend')
 
     const requestsSeries = t.data.map((r) => r.requests.total);
     const egressSeries = t.data.map((r) => r.egress_bytes);
-    const p95Series = t.data.map((r) => r.latency_ms.p95);
+    // latency_ms.p95 is the legacy name; the new API returns p95_upper_bound
+    // for rollup responses. Accept either to stay forward-compatible.
+    const p95Series: Array<number | null> = t.data.map((r) => r.latency_ms.p95 ?? r.latency_ms.p95_upper_bound ?? null);
     const errSeries = t.data.map((r) => r.error_rate);
 
     const lines: [string, string, string][] = [
@@ -399,8 +404,6 @@ const trendCommand = new Command('trend')
     for (const [label, sp, suffix] of lines) {
       console.log(`${chalk.dim(label.padEnd(maxLabel))}  ${sp}  ${chalk.dim(suffix)}`);
     }
-
-    if (t.freshness === 'stale') process.exitCode = 3;
   });
 
 const topCommand = new Command('top')

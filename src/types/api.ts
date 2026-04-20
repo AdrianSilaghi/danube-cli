@@ -178,8 +178,11 @@ export interface BucketTrendPoint {
   egress_bytes: number;
   ingress_bytes: number | null;
   error_rate: number | null;
-  latency_ms: { mean: number | null; p95: number | null };
+  latency_ms: { mean: number | null; p95?: number | null; p95_upper_bound?: number | null };
   interval_seconds: number | null;
+  // Legacy backwards-compat field from the pre-deltas trend response.
+  // Present when source==='legacy'; null when reading from the rollup table.
+  requests_24h_total?: number | null;
 }
 
 export interface BucketTrendResponse {
