@@ -155,11 +155,59 @@ export interface StorageMetrics {
     DELETE: number;
     HEAD: number;
   } | null;
+  requests_24h_by_status?: { '2xx': number; '4xx': number; '5xx': number } | null;
+  error_rate_24h?: number | null;
+  latency_24h_ms?: { p50: number | null; p95: number | null; mean: number | null } | null;
   egress_bytes_24h: number;
   egress_human_24h: string;
+  ingress_bytes_24h?: number | null;
+  ingress_human_24h?: string | null;
   monthly_cost_cents: number;
   monthly_cost_dollars: string;
+  freshness?: 'fresh' | 'lagging' | 'stale' | 'never';
   last_sync_at: string | null;
+  metrics_precomputed_at?: string | null;
+}
+
+export interface BucketTrendPoint {
+  recorded_at: string;
+  size_bytes: number;
+  object_count: number;
+  requests: { total: number | null; get: number; put: number; delete: number; head: number };
+  status: { '2xx': number; '4xx': number; '5xx': number };
+  egress_bytes: number;
+  ingress_bytes: number | null;
+  error_rate: number | null;
+  latency_ms: { mean: number | null; p95: number | null };
+  interval_seconds: number | null;
+}
+
+export interface BucketTrendResponse {
+  bucket_id: string;
+  window: '24h' | '7d' | '30d';
+  resolution: '1m' | '5m' | '1h' | '1d';
+  source: 'deltas' | 'legacy';
+  freshness: 'fresh' | 'lagging' | 'stale' | 'never';
+  generated_at: string;
+  data: BucketTrendPoint[];
+}
+
+export interface BucketTopObjectsResponse {
+  bucket_id: string;
+  dimension: 'size' | 'egress' | 'requests';
+  recorded_at: string | null;
+  items: Array<{ rank: number; object_key: string; value: number }>;
+}
+
+export interface BucketHealthResponse {
+  bucket_id: string;
+  pending_multipart_count: number | null;
+  pending_multipart_bytes: number | null;
+  deleted_size_bytes: number | null;
+  freshness: 'fresh' | 'lagging' | 'stale' | 'never';
+  metrics_precomputed_at: string | null;
+  last_health_check_at: string | null;
+  health_check_status: 'ok' | 'skipped' | 'error' | null;
 }
 
 export interface VpsInstance {
