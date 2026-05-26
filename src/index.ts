@@ -17,6 +17,7 @@ import { projectCommand } from './commands/project.js';
 import { lsCommand as serverlessLsCommand } from './commands/serverless/ls.js';
 import { createCommand as serverlessCreateCommand } from './commands/serverless/create.js';
 import { deployCommand as serverlessDeployCommand } from './commands/serverless/deploy.js';
+import { redeployCommand as serverlessRedeployCommand } from './commands/serverless/redeploy.js';
 import { showCommand as serverlessShowCommand } from './commands/serverless/show.js';
 import { updateCommand as serverlessUpdateCommand } from './commands/serverless/update.js';
 import { rmCommand as serverlessRmCommand } from './commands/serverless/rm.js';
@@ -64,6 +65,7 @@ const serverlessCommand = new Command('rapids')
 serverlessCommand.addCommand(serverlessLsCommand);
 serverlessCommand.addCommand(serverlessCreateCommand);
 serverlessCommand.addCommand(serverlessDeployCommand);
+serverlessCommand.addCommand(serverlessRedeployCommand);
 serverlessCommand.addCommand(serverlessShowCommand);
 serverlessCommand.addCommand(serverlessUpdateCommand);
 serverlessCommand.addCommand(serverlessRmCommand);
