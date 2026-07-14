@@ -51,6 +51,27 @@ export DANUBE_TOKEN=your-token
 danube pages deploy
 ```
 
+## Scripting & JSON mode
+
+Pass `--json` (any position) for machine-readable output. In JSON mode the CLI never prompts:
+missing required flags fail with `{"code":"missing_required_flag","flags":[...]}` (exit 2) and
+destructive commands require `--force`/`--yes` or fail with `{"code":"confirmation_required"}` (exit 5).
+Errors are single-line JSON on stderr; results are JSON on stdout. (A few inline flag-value
+validation errors still print plain text; they always exit non-zero.) List commands return the
+complete collection (all pages).
+
+### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | Generic or API error |
+| 2 | Missing required flag (non-interactive) |
+| 3 | Not authenticated |
+| 4 | Resource not found |
+| 5 | Confirmation required (add `--force`) |
+| 130 | Cancelled (Ctrl+C) |
+
 ## Commands
 
 `show` and `delete` remain accepted aliases of `get` and `rm` everywhere.
@@ -95,6 +116,8 @@ danube vps create \
   --plan nano_shared \
   --ssh-key-id <key-id>
 ```
+
+Plans and prices in the interactive picker are fetched live from the API.
 
 #### Power management
 
@@ -177,6 +200,8 @@ danube cache create
 danube cache create --name my-cache --provider redis --datacenter fsn1 --profile small
 ```
 
+Plans and prices in the interactive picker are fetched live from the API.
+
 ### Database Instances (`danube database` / `danube db`)
 
 Managed MySQL / PostgreSQL / MariaDB with read-replica support.
@@ -213,6 +238,8 @@ danube database create
 # With flags
 danube database create --name my-db --provider postgresql --datacenter fsn1 --profile small --database-name app
 ```
+
+Plans and prices in the interactive picker are fetched live from the API.
 
 ### Parameter Groups (`danube parameter-groups` / `danube pg`)
 
