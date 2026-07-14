@@ -4,6 +4,7 @@ import ora from 'ora';
 import { ApiClient } from '../../lib/api-client.js';
 import { resolveContainer } from './resolve.js';
 import { confirmDestruction } from '../../lib/interactive.js';
+import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import type { MessageResponse } from '../../types/api.js';
 
 export const rmCommand = new Command('rm')
@@ -25,7 +26,12 @@ export const rmCommand = new Command('rm')
       return;
     }
 
-    const spinner = ora('Deleting container...').start();
+    const spinner = isJsonMode() ? null : ora('Deleting container...').start();
     await api.delete<MessageResponse>(`/api/v1/serverless/${container.id}`);
-    spinner.succeed(`Deleted ${chalk.bold(container.name)}`);
+
+    if (isJsonMode()) {
+      jsonOutput({ status: 'deleted', id: container.id });
+      return;
+    }
+    spinner!.succeed(`Deleted ${chalk.bold(container.name)}`);
   });

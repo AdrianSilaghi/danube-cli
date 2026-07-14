@@ -86,4 +86,20 @@ describe('serverless rm command', () => {
     expect(mockDelete).not.toHaveBeenCalled();
     setJsonMode(false);
   });
+
+  it('outputs deleted status as JSON in json mode with --force', async () => {
+    const { setJsonMode } = await import('../../../src/lib/json-mode.js');
+    setJsonMode(true);
+    mockGet.mockResolvedValue({
+      data: [makeContainer()],
+      pagination: { current_page: 1, last_page: 1, per_page: 100, total: 1 },
+    });
+    mockDelete.mockResolvedValue({ message: 'Deleted' });
+
+    await rmCommand.parseAsync(['node', 'test', 'my-api', '--force']);
+
+    const printed = JSON.parse(consoleLogSpy.mock.calls.at(-1)![0] as string);
+    expect(printed).toEqual({ status: 'deleted', id: 'abc-123' });
+    setJsonMode(false);
+  });
 });

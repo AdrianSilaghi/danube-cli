@@ -187,4 +187,94 @@ describe('serverless deploy command', () => {
       Date.now = original;
     }
   });
+
+  it('outputs building status as JSON with --no-wait', async () => {
+    const { setJsonMode } = await import('../../../src/lib/json-mode.js');
+    setJsonMode(true);
+    mockGet.mockResolvedValueOnce({
+      data: [makeContainer()],
+      pagination: { current_page: 1, last_page: 1, per_page: 15, total: 1 },
+    });
+    mockUpload.mockResolvedValue({ message: 'Deploying', container_id: 'abc-123', status: 'building' });
+
+    await deployCommand.parseAsync(['node', 'test', 'my-api', '--dir', testDir, '--no-wait']);
+
+    const printed = JSON.parse(consoleLogSpy.mock.calls.at(-1)![0] as string);
+    expect(printed).toEqual({ id: 'abc-123', name: 'my-api', status: 'building' });
+    setJsonMode(false);
+  });
+
+  it('outputs succeeded status as JSON when build completes', async () => {
+    const { setJsonMode } = await import('../../../src/lib/json-mode.js');
+    setJsonMode(true);
+    mockGet
+      .mockResolvedValueOnce({
+        data: [makeContainer()],
+        pagination: { current_page: 1, last_page: 1, per_page: 15, total: 1 },
+      })
+      .mockResolvedValueOnce({ data: { status: 'succeeded', build_number: 1 } })
+      .mockResolvedValueOnce({ container: makeContainer(), url: 'https://my-api.serverless.danubedata.ro', metrics: {}, monthly_cost: 0 });
+    mockUpload.mockResolvedValue({ message: 'Deploying', container_id: 'abc-123', status: 'building' });
+
+    await deployCommand.parseAsync(['node', 'test', 'my-api', '--dir', testDir]);
+
+    const printed = JSON.parse(consoleLogSpy.mock.calls.at(-1)![0] as string);
+    expect(printed).toEqual({
+      id: 'abc-123', name: 'my-api', status: 'succeeded', build_number: 1,
+      url: 'https://my-api.serverless.danubedata.ro',
+    });
+    setJsonMode(false);
+  });
+
+  it('emits build_failed jsonError and exits 1 on failed build', async () => {
+    const { setJsonMode } = await import('../../../src/lib/json-mode.js');
+    setJsonMode(true);
+    mockGet
+      .mockResolvedValueOnce({
+        data: [makeContainer()],
+        pagination: { current_page: 1, last_page: 1, per_page: 15, total: 1 },
+      })
+      .mockResolvedValueOnce({ data: { status: 'failed', error_message: 'Dockerfile not found' } });
+    mockUpload.mockResolvedValue({ message: 'Deploying', container_id: 'abc-123', status: 'building' });
+
+    await expect(
+      deployCommand.parseAsync(['node', 'test', 'my-api', '--dir', testDir]),
+    ).rejects.toThrow(ExitError);
+
+    expect(process.exit).toHaveBeenCalledWith(1);
+    const printed = JSON.parse(consoleErrorSpy.mock.calls.at(-1)![0] as string);
+    expect(printed).toEqual({ code: 'build_failed', message: 'Dockerfile not found' });
+    setJsonMode(false);
+  });
+
+  it('emits build_timeout jsonError and exits 1 on timeout', async () => {
+    const { setJsonMode } = await import('../../../src/lib/json-mode.js');
+    setJsonMode(true);
+    mockGet
+      .mockResolvedValueOnce({
+        data: [makeContainer()],
+        pagination: { current_page: 1, last_page: 1, per_page: 15, total: 1 },
+      })
+      .mockResolvedValue({ data: { status: 'building', build_number: 1 } });
+    mockUpload.mockResolvedValue({ message: 'Deploying', container_id: 'abc-123', status: 'building' });
+
+    const { sleep: sleepFn } = await import('../../../src/lib/sleep.js');
+    const original = Date.now;
+    vi.mocked(sleepFn).mockImplementationOnce(async () => {
+      Date.now = () => original() + POLL_TIMEOUT + 1;
+    });
+
+    try {
+      await expect(
+        deployCommand.parseAsync(['node', 'test', 'my-api', '--dir', testDir]),
+      ).rejects.toThrow(ExitError);
+
+      expect(process.exit).toHaveBeenCalledWith(1);
+      const printed = JSON.parse(consoleErrorSpy.mock.calls.at(-1)![0] as string);
+      expect(printed).toEqual({ code: 'build_timeout', message: 'Timed out waiting for build.' });
+    } finally {
+      Date.now = original;
+      setJsonMode(false);
+    }
+  });
 });

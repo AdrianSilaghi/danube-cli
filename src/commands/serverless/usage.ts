@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { ApiClient } from '../../lib/api-client.js';
 import { resolveContainer } from './resolve.js';
+import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import type { ServerlessUsageResponse } from '../../types/api.js';
 
 export const usageCommand = new Command('usage')
@@ -21,6 +22,11 @@ export const usageCommand = new Command('usage')
     const res = await api.get<ServerlessUsageResponse>(
       `/api/v1/serverless/${container.id}/usage${query}`,
     );
+
+    if (isJsonMode()) {
+      jsonOutput(res);
+      return;
+    }
 
     console.log(chalk.bold(`Usage for ${container.name}`));
     console.log(`  Period:           ${res.period}`);

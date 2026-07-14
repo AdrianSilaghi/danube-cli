@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import { ApiClient } from '../../lib/api-client.js';
 import { statusColor, formatDate } from '../../lib/output.js';
 import { resolveContainer } from './resolve.js';
+import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import type { ServerlessShowResponse } from '../../types/api.js';
 
 export const showCommand = new Command('show')
@@ -15,6 +16,11 @@ export const showCommand = new Command('show')
     const res = await api.get<ServerlessShowResponse>(
       `/api/v1/serverless/${container.id}`,
     );
+
+    if (isJsonMode()) {
+      jsonOutput({ ...res.container, url: res.url, monthly_cost: res.monthly_cost });
+      return;
+    }
 
     const c = res.container;
     console.log(chalk.bold(c.name));

@@ -41,10 +41,11 @@ const listResponse = (overrides = {}) => ({
 
 describe('serverless update command', () => {
   const originalExit = process.exit;
+  let consoleLogSpy: ReturnType<typeof vi.spyOn>;
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    vi.spyOn(console, 'log').mockImplementation(() => {});
+    consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     process.exit = vi.fn().mockImplementation((code: number) => {
       throw new ExitError(code);
@@ -176,5 +177,18 @@ describe('serverless update command', () => {
 
     expect(process.exit).toHaveBeenCalledWith(1);
     expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('No update options'));
+  });
+
+  it('outputs the container as JSON in json mode', async () => {
+    const { setJsonMode } = await import('../../../src/lib/json-mode.js');
+    setJsonMode(true);
+    mockGet.mockResolvedValue(listResponse());
+    mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer({ image: 'node' }) });
+
+    await updateCommand.parseAsync(['node', 'test', 'my-api', '--image', 'node', '--tag', '18']);
+
+    const printed = JSON.parse(consoleLogSpy.mock.calls.at(-1)![0] as string);
+    expect(printed).toMatchObject({ image: 'node' });
+    setJsonMode(false);
   });
 });

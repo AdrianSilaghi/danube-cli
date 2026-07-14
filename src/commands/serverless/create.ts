@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import { select, input } from '@inquirer/prompts';
 import chalk from 'chalk';
 import { ApiClient } from '../../lib/api-client.js';
-import { isJsonMode } from '../../lib/json-mode.js';
+import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import { promptOr } from '../../lib/interactive.js';
 import { teamsArray } from '../../types/api.js';
 import type { TeamsResponse, ServerlessCreateResponse } from '../../types/api.js';
@@ -131,6 +131,10 @@ export const createCommand = new Command('create')
 
     const res = await api.post<ServerlessCreateResponse>('/api/v1/serverless', body);
 
+    if (isJsonMode()) {
+      jsonOutput(res.container);
+      return;
+    }
     console.log(chalk.green(`\nCreated serverless container: ${chalk.bold(res.container.name)}`));
     console.log(`ID: ${res.container.id}`);
     console.log(`Status: ${res.container.status}`);

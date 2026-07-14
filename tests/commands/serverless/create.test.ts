@@ -224,4 +224,25 @@ describe('serverless create command', () => {
     expect(process.exit).toHaveBeenCalledWith(1);
     expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining("Invalid value for port"));
   });
+
+  it('outputs the container as JSON in json mode', async () => {
+    const { setJsonMode } = await import('../../../src/lib/json-mode.js');
+    setJsonMode(true);
+    mockGet.mockResolvedValue(teamsResponse());
+    mockPost.mockResolvedValue(containerResponse());
+
+    await createCommand.parseAsync([
+      'node', 'test',
+      '--name', 'my-api',
+      '--type', 'docker_image',
+      '--image', 'nginx',
+      '--tag', 'latest',
+      '--profile', 'basic',
+      '--port', '3000',
+    ]);
+
+    const printed = JSON.parse(consoleLogSpy.mock.calls.at(-1)![0] as string);
+    expect(printed).toMatchObject({ id: 'abc-123', name: 'my-api' });
+    setJsonMode(false);
+  });
 });
