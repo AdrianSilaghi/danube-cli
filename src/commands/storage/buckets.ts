@@ -4,6 +4,7 @@ import ora from 'ora';
 import { input, select, confirm } from '@inquirer/prompts';
 import { ApiClient } from '../../lib/api-client.js';
 import { fetchAllPages } from '../../lib/paginate.js';
+import { resolveResource } from '../../lib/resolve.js';
 import { formatTable, statusColor, formatBytes, formatDate, formatNumber, formatRelativeTime } from '../../lib/output.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import type {
@@ -132,10 +133,11 @@ const createCommand = new Command('create')
 
 const getCommand = new Command('get')
   .description('Show bucket details')
-  .argument('<bucket-id>', 'Bucket ID')
-  .action(async (bucketId: string) => {
+  .argument('<name-or-id>', 'Bucket name or ID')
+  .action(async (nameOrId: string) => {
     const api = await ApiClient.create();
-    const res = await api.get<{ bucket: StorageBucket }>(`/api/v1/storage/buckets/${bucketId}`);
+    const bucket = await resolveResource<StorageBucket>(api, '/api/v1/storage/buckets', 'bucket', nameOrId);
+    const res = await api.get<{ bucket: StorageBucket }>(`/api/v1/storage/buckets/${bucket.id}`);
 
     if (isJsonMode()) {
       jsonOutput(res.bucket);
@@ -169,7 +171,7 @@ const getCommand = new Command('get')
 
 const updateCommand = new Command('update')
   .description('Update bucket settings')
-  .argument('<bucket-id>', 'Bucket ID')
+  .argument('<name-or-id>', 'Bucket name or ID')
   .option('--display-name <name>', 'Set display name')
   .option('--versioning', 'Enable versioning')
   .option('--no-versioning', 'Disable versioning')
@@ -178,7 +180,7 @@ const updateCommand = new Command('update')
   .option('--encryption', 'Enable encryption (SSE-S3)')
   .option('--no-encryption', 'Disable encryption')
   .option('--size-limit <size>', 'Set size limit (e.g. 1GB, 500MB, 1073741824)')
-  .action(async (bucketId: string, opts: { displayName?: string; versioning?: boolean; public?: boolean; encryption?: boolean; sizeLimit?: string }) => {
+  .action(async (nameOrId: string, opts: { displayName?: string; versioning?: boolean; public?: boolean; encryption?: boolean; sizeLimit?: string }) => {
     const body: Record<string, unknown> = {};
 
     if (opts.displayName !== undefined) body.display_name = opts.displayName;
@@ -197,9 +199,10 @@ const updateCommand = new Command('update')
     }
 
     const api = await ApiClient.create();
+    const bucket = await resolveResource<StorageBucket>(api, '/api/v1/storage/buckets', 'bucket', nameOrId);
     const spinner = isJsonMode() ? null : ora('Updating bucket...').start();
 
-    const res = await api.put<{ message: string; bucket: StorageBucket }>(`/api/v1/storage/buckets/${bucketId}`, body);
+    const res = await api.put<{ message: string; bucket: StorageBucket }>(`/api/v1/storage/buckets/${bucket.id}`, body);
 
     if (isJsonMode()) {
       jsonOutput(res.bucket);
@@ -210,24 +213,26 @@ const updateCommand = new Command('update')
 
 const deleteCommand = new Command('delete')
   .description('Delete a bucket')
-  .argument('<bucket-id>', 'Bucket ID')
+  .argument('<name-or-id>', 'Bucket name or ID')
   .option('--force', 'Skip confirmation')
-  .action(async (bucketId: string, opts: { force?: boolean }) => {
+  .action(async (nameOrId: string, opts: { force?: boolean }) => {
+    const api = await ApiClient.create();
+    const bucket = await resolveResource<StorageBucket>(api, '/api/v1/storage/buckets', 'bucket', nameOrId);
+
     if (!opts.force && !isJsonMode()) {
-      const confirmed = await confirm({ message: `Are you sure you want to delete bucket ${bucketId}?`, default: false });
+      const confirmed = await confirm({ message: `Are you sure you want to delete bucket ${bucket.name} (${bucket.id})?`, default: false });
       if (!confirmed) {
         console.log('Cancelled.');
         return;
       }
     }
 
-    const api = await ApiClient.create();
     const spinner = isJsonMode() ? null : ora('Deleting bucket...').start();
 
-    await api.delete<MessageResponse>(`/api/v1/storage/buckets/${bucketId}`);
+    await api.delete<MessageResponse>(`/api/v1/storage/buckets/${bucket.id}`);
 
     if (isJsonMode()) {
-      jsonOutput({ status: 'deleted', id: bucketId });
+      jsonOutput({ status: 'deleted', id: bucket.id });
       return;
     }
     spinner!.succeed('Bucket deleted');
@@ -235,10 +240,11 @@ const deleteCommand = new Command('delete')
 
 const metricsShowCommand = new Command('show')
   .description('Show current bucket metrics snapshot (default action for `metrics`)')
-  .argument('<bucket-id>', 'Bucket ID')
-  .action(async (bucketId: string) => {
+  .argument('<name-or-id>', 'Bucket name or ID')
+  .action(async (nameOrId: string) => {
     const api = await ApiClient.create();
-    const m = await api.get<StorageMetrics>(`/api/v1/storage/buckets/${bucketId}/metrics`);
+    const bucket = await resolveResource<StorageBucket>(api, '/api/v1/storage/buckets', 'bucket', nameOrId);
+    const m = await api.get<StorageMetrics>(`/api/v1/storage/buckets/${bucket.id}/metrics`);
 
     if (isJsonMode()) {
       jsonOutput(m);
@@ -484,13 +490,13 @@ const healthCommand = new Command('health')
 // `danube storage buckets metrics <id>` keeps working as before.
 const metricsCommand = new Command('metrics')
   .description('Bucket metrics (snapshot + trend + top-objects + health)')
-  .argument('[bucket-id]', 'Bucket ID (runs the `show` subcommand)')
-  .action(async (bucketId: string | undefined, _opts: unknown, cmd: Command) => {
-    if (!bucketId) {
+  .argument('[name-or-id]', 'Bucket name or ID (runs the `show` subcommand)')
+  .action(async (nameOrId: string | undefined, _opts: unknown, cmd: Command) => {
+    if (!nameOrId) {
       cmd.help();
       return;
     }
-    await metricsShowCommand.parseAsync([bucketId], { from: 'user' });
+    await metricsShowCommand.parseAsync([nameOrId], { from: 'user' });
   })
   .addCommand(metricsShowCommand)
   .addCommand(trendCommand)

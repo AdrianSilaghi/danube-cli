@@ -64,10 +64,24 @@ describe('database snapshots', () => {
     });
 
     it('filters by --instance', async () => {
-      mockGet.mockResolvedValue({
-        data: [makeSnapshot(), makeSnapshot({ id: 'snap-2', database_instance_id: 'other', database_instance: { id: 'other', name: 'other' } })],
-      });
+      mockGet
+        .mockResolvedValueOnce({
+          data: [makeSnapshot(), makeSnapshot({ id: 'snap-2', database_instance_id: 'other', database_instance: { id: 'other', name: 'other' } })],
+        })
+        .mockResolvedValueOnce({ data: [{ id: 'db-1', name: 'my-db' }] });
       await snapshotsCommand.parseAsync(['node', 'test', 'ls', '--instance', 'db-1']);
+      const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
+      expect(output).toContain('snap-1');
+      expect(output).not.toContain('snap-2');
+    });
+
+    it('resolves the --instance filter by name', async () => {
+      mockGet
+        .mockResolvedValueOnce({
+          data: [makeSnapshot(), makeSnapshot({ id: 'snap-2', database_instance_id: 'other', database_instance: { id: 'other', name: 'other' } })],
+        })
+        .mockResolvedValueOnce({ data: [{ id: 'db-1', name: 'prod-db' }] });
+      await snapshotsCommand.parseAsync(['node', 'test', 'ls', '--instance', 'prod-db']);
       const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
       expect(output).toContain('snap-1');
       expect(output).not.toContain('snap-2');
@@ -82,6 +96,7 @@ describe('database snapshots', () => {
 
   describe('create', () => {
     it('posts with name', async () => {
+      mockGet.mockResolvedValueOnce({ data: [{ id: 'db-1', name: 'my-db' }] });
       mockPost.mockResolvedValue({ message: 'ok', snapshot: makeSnapshot() });
       await snapshotsCommand.parseAsync(['node', 'test', 'create', 'db-1', '--name', 'nightly', '--description', 'x']);
       expect(mockPost).toHaveBeenCalledWith('/api/v1/snapshots/database', {
@@ -91,8 +106,19 @@ describe('database snapshots', () => {
       });
     });
 
+    it('resolves the target database instance by name', async () => {
+      mockGet.mockResolvedValueOnce({ data: [{ id: 'db-1', name: 'prod-db' }] });
+      mockPost.mockResolvedValue({ message: 'ok', snapshot: makeSnapshot() });
+      await snapshotsCommand.parseAsync(['node', 'test', 'create', 'prod-db', '--name', 'nightly']);
+      expect(mockPost).toHaveBeenCalledWith('/api/v1/snapshots/database', {
+        database_instance_id: 'db-1',
+        name: 'nightly',
+      });
+    });
+
     it('exits without --name', async () => {
       await expect(snapshotsCommand.parseAsync(['node', 'test', 'create', 'db-1'])).rejects.toThrow(ExitError);
+      expect(mockGet).not.toHaveBeenCalled();
     });
   });
 

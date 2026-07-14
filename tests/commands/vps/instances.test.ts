@@ -123,22 +123,39 @@ describe('vps instances', () => {
 
   describe('get', () => {
     it('displays instance details', async () => {
-      mockGet.mockResolvedValue({
-        instance: makeVps(),
-        connection_info: { public_ip: '1.2.3.4', private_ip: null, ipv6_address: null, vnc_access_url: null },
-        monthly_cost: 4.49,
-      });
+      mockGet
+        .mockResolvedValueOnce({ data: [makeVps({ id: 'vps-1' })] })
+        .mockResolvedValueOnce({
+          instance: makeVps(),
+          connection_info: { public_ip: '1.2.3.4', private_ip: null, ipv6_address: null, vnc_access_url: null },
+          monthly_cost: 4.49,
+        });
 
       await getCommand.parseAsync(['node', 'test', 'vps-1']);
 
-      expect(mockGet).toHaveBeenCalledWith('/api/v1/vps/vps-1');
+      expect(mockGet).toHaveBeenLastCalledWith('/api/v1/vps/vps-1');
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('my-vps'));
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('ssh root@1.2.3.4'));
+    });
+
+    it('resolves a VPS by name', async () => {
+      mockGet
+        .mockResolvedValueOnce({ data: [makeVps({ id: 'vps-9', name: 'prod-web' })] })
+        .mockResolvedValueOnce({
+          instance: makeVps({ id: 'vps-9', name: 'prod-web' }),
+          connection_info: { public_ip: '1.2.3.4', private_ip: null, ipv6_address: null, vnc_access_url: null },
+          monthly_cost: 4.49,
+        });
+
+      await getCommand.parseAsync(['node', 'test', 'prod-web']);
+
+      expect(mockGet).toHaveBeenLastCalledWith('/api/v1/vps/vps-9');
     });
   });
 
   describe('update', () => {
     it('updates VPS with flags', async () => {
+      mockGet.mockResolvedValueOnce({ data: [makeVps({ id: 'vps-1' })] });
       mockPut.mockResolvedValue({ message: 'Updated', instance: makeVps() });
 
       await updateCommand.parseAsync(['node', 'test', 'vps-1', '--cpu-cores', '4', '--memory', '8']);
@@ -149,17 +166,20 @@ describe('vps instances', () => {
     it('exits when no flags provided', async () => {
       await expect(updateCommand.parseAsync(['node', 'test', 'vps-1'])).rejects.toThrow(ExitError);
       expect(process.exit).toHaveBeenCalledWith(1);
+      expect(mockGet).not.toHaveBeenCalled();
     });
   });
 
   describe('delete', () => {
     it('deletes with --force', async () => {
+      mockGet.mockResolvedValueOnce({ data: [makeVps({ id: 'vps-1' })] });
       mockDelete.mockResolvedValue({ message: 'Deleted' });
       await deleteCommand.parseAsync(['node', 'test', 'vps-1', '--force']);
       expect(mockDelete).toHaveBeenCalledWith('/api/v1/vps/vps-1');
     });
 
     it('cancels when user declines', async () => {
+      mockGet.mockResolvedValueOnce({ data: [makeVps({ id: 'vps-1' })] });
       mockConfirm.mockResolvedValue(false);
       await deleteCommand.parseAsync(['node', 'test', 'vps-1']);
       expect(consoleLogSpy).toHaveBeenCalledWith('Cancelled.');

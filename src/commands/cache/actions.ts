@@ -3,20 +3,22 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { confirm } from '@inquirer/prompts';
 import { ApiClient } from '../../lib/api-client.js';
+import { resolveResource } from '../../lib/resolve.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import { formatBytes } from '../../lib/output.js';
-import type { CacheConnectionInfo, CacheMetricsResponse } from '../../types/api.js';
+import type { CacheConnectionInfo, CacheMetricsResponse, CacheInstance } from '../../types/api.js';
 
 export const startCommand = new Command('start')
   .description('Start a stopped cache instance')
-  .argument('<id>', 'Cache instance ID')
-  .action(async (id: string) => {
+  .argument('<name-or-id>', 'Cache instance name or ID')
+  .action(async (nameOrId: string) => {
     const api = await ApiClient.create();
+    const instance = await resolveResource<CacheInstance>(api, '/api/v1/cache', 'cache', nameOrId);
     const spinner = isJsonMode() ? null : ora('Starting cache...').start();
-    const res = await api.post<{ message: string; status: string }>(`/api/v1/cache/${id}/start`);
+    const res = await api.post<{ message: string; status: string }>(`/api/v1/cache/${instance.id}/start`);
 
     if (isJsonMode()) {
-      jsonOutput({ status: res.status, message: res.message, id });
+      jsonOutput({ status: res.status, message: res.message, id: instance.id });
       return;
     }
     spinner!.succeed(res.message);
@@ -24,14 +26,15 @@ export const startCommand = new Command('start')
 
 export const stopCommand = new Command('stop')
   .description('Stop a running cache instance')
-  .argument('<id>', 'Cache instance ID')
-  .action(async (id: string) => {
+  .argument('<name-or-id>', 'Cache instance name or ID')
+  .action(async (nameOrId: string) => {
     const api = await ApiClient.create();
+    const instance = await resolveResource<CacheInstance>(api, '/api/v1/cache', 'cache', nameOrId);
     const spinner = isJsonMode() ? null : ora('Stopping cache...').start();
-    const res = await api.post<{ message: string; status: string }>(`/api/v1/cache/${id}/stop`);
+    const res = await api.post<{ message: string; status: string }>(`/api/v1/cache/${instance.id}/stop`);
 
     if (isJsonMode()) {
-      jsonOutput({ status: res.status, message: res.message, id });
+      jsonOutput({ status: res.status, message: res.message, id: instance.id });
       return;
     }
     spinner!.succeed(res.message);
@@ -39,8 +42,8 @@ export const stopCommand = new Command('stop')
 
 export const connectionInfoCommand = new Command('connection-info')
   .description('Show connection URL and password for a cache instance')
-  .argument('<id>', 'Cache instance ID')
-  .action(async (id: string) => {
+  .argument('<name-or-id>', 'Cache instance name or ID')
+  .action(async (nameOrId: string) => {
     if (!isJsonMode()) {
       const confirmed = await confirm({
         message: 'This will display the cache password in your terminal. Continue?',
@@ -53,7 +56,8 @@ export const connectionInfoCommand = new Command('connection-info')
     }
 
     const api = await ApiClient.create();
-    const res = await api.get<CacheConnectionInfo>(`/api/v1/cache/${id}/connection-info`);
+    const instance = await resolveResource<CacheInstance>(api, '/api/v1/cache', 'cache', nameOrId);
+    const res = await api.get<CacheConnectionInfo>(`/api/v1/cache/${instance.id}/connection-info`);
 
     if (isJsonMode()) {
       jsonOutput(res);
@@ -68,10 +72,11 @@ export const connectionInfoCommand = new Command('connection-info')
 
 export const metricsCommand = new Command('metrics')
   .description('Show cache instance metrics summary')
-  .argument('<id>', 'Cache instance ID')
-  .action(async (id: string) => {
+  .argument('<name-or-id>', 'Cache instance name or ID')
+  .action(async (nameOrId: string) => {
     const api = await ApiClient.create();
-    const res = await api.get<CacheMetricsResponse>(`/api/v1/cache/${id}/metrics`);
+    const instance = await resolveResource<CacheInstance>(api, '/api/v1/cache', 'cache', nameOrId);
+    const res = await api.get<CacheMetricsResponse>(`/api/v1/cache/${instance.id}/metrics`);
 
     if (isJsonMode()) {
       jsonOutput(res);
@@ -104,14 +109,15 @@ export const dnsCommand = new Command('dns')
 dnsCommand
   .command('enable')
   .description('Enable public DNS')
-  .argument('<id>', 'Cache instance ID')
-  .action(async (id: string) => {
+  .argument('<name-or-id>', 'Cache instance name or ID')
+  .action(async (nameOrId: string) => {
     const api = await ApiClient.create();
+    const instance = await resolveResource<CacheInstance>(api, '/api/v1/cache', 'cache', nameOrId);
     const spinner = isJsonMode() ? null : ora('Enabling DNS...').start();
-    const res = await api.post<{ message: string }>(`/api/v1/cache/${id}/dns`);
+    const res = await api.post<{ message: string }>(`/api/v1/cache/${instance.id}/dns`);
 
     if (isJsonMode()) {
-      jsonOutput({ id, enabled: true, message: res.message });
+      jsonOutput({ id: instance.id, enabled: true, message: res.message });
       return;
     }
     spinner!.succeed(res.message || 'DNS enabled');
@@ -120,14 +126,15 @@ dnsCommand
 dnsCommand
   .command('disable')
   .description('Disable public DNS')
-  .argument('<id>', 'Cache instance ID')
-  .action(async (id: string) => {
+  .argument('<name-or-id>', 'Cache instance name or ID')
+  .action(async (nameOrId: string) => {
     const api = await ApiClient.create();
+    const instance = await resolveResource<CacheInstance>(api, '/api/v1/cache', 'cache', nameOrId);
     const spinner = isJsonMode() ? null : ora('Disabling DNS...').start();
-    const res = await api.delete<{ message: string }>(`/api/v1/cache/${id}/dns`);
+    const res = await api.delete<{ message: string }>(`/api/v1/cache/${instance.id}/dns`);
 
     if (isJsonMode()) {
-      jsonOutput({ id, enabled: false, message: res.message });
+      jsonOutput({ id: instance.id, enabled: false, message: res.message });
       return;
     }
     spinner!.succeed(res.message || 'DNS disabled');

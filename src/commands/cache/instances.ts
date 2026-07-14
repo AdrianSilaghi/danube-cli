@@ -4,6 +4,7 @@ import ora from 'ora';
 import { input, select, confirm } from '@inquirer/prompts';
 import { ApiClient } from '../../lib/api-client.js';
 import { fetchAllPages } from '../../lib/paginate.js';
+import { resolveResource } from '../../lib/resolve.js';
 import { formatTable, statusColor, formatDate } from '../../lib/output.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import type { CacheInstance, CacheProvider } from '../../types/api.js';
@@ -120,11 +121,12 @@ export const createCommand = new Command('create')
 
 export const getCommand = new Command('get')
   .description('Show cache instance details')
-  .argument('<id>', 'Cache instance ID')
-  .action(async (id: string) => {
+  .argument('<name-or-id>', 'Cache instance name or ID')
+  .action(async (nameOrId: string) => {
     const api = await ApiClient.create();
+    const instance = await resolveResource<CacheInstance>(api, '/api/v1/cache', 'cache', nameOrId);
     const res = await api.get<{ instance: CacheInstance; connection_info: string | null; monthly_cost: number | string }>(
-      `/api/v1/cache/${id}`,
+      `/api/v1/cache/${instance.id}`,
     );
 
     if (isJsonMode()) {
@@ -158,12 +160,12 @@ export const getCommand = new Command('get')
 
 export const updateCommand = new Command('update')
   .description('Update a cache instance')
-  .argument('<id>', 'Cache instance ID')
+  .argument('<name-or-id>', 'Cache instance name or ID')
   .option('--name <name>', 'New name')
   .option('--profile <profile>', 'Resource profile: micro, small, medium, large')
   .option('--snapshots', 'Enable automated snapshots')
   .option('--no-snapshots', 'Disable automated snapshots')
-  .action(async (id: string, opts: { name?: string; profile?: string; snapshots?: boolean }) => {
+  .action(async (nameOrId: string, opts: { name?: string; profile?: string; snapshots?: boolean }) => {
     const body: Record<string, unknown> = {};
     if (opts.name !== undefined) body.name = opts.name;
     if (opts.profile !== undefined) body.resource_profile = opts.profile;
@@ -175,8 +177,9 @@ export const updateCommand = new Command('update')
     }
 
     const api = await ApiClient.create();
+    const instance = await resolveResource<CacheInstance>(api, '/api/v1/cache', 'cache', nameOrId);
     const spinner = isJsonMode() ? null : ora('Updating cache instance...').start();
-    const res = await api.put<{ message: string; instance: CacheInstance }>(`/api/v1/cache/${id}`, body);
+    const res = await api.put<{ message: string; instance: CacheInstance }>(`/api/v1/cache/${instance.id}`, body);
 
     if (isJsonMode()) {
       jsonOutput(res.instance);
@@ -187,12 +190,15 @@ export const updateCommand = new Command('update')
 
 export const rmCommand = new Command('rm')
   .description('Delete a cache instance')
-  .argument('<id>', 'Cache instance ID')
+  .argument('<name-or-id>', 'Cache instance name or ID')
   .option('--force', 'Skip confirmation')
-  .action(async (id: string, opts: { force?: boolean }) => {
+  .action(async (nameOrId: string, opts: { force?: boolean }) => {
+    const api = await ApiClient.create();
+    const instance = await resolveResource<CacheInstance>(api, '/api/v1/cache', 'cache', nameOrId);
+
     if (!opts.force && !isJsonMode()) {
       const confirmed = await confirm({
-        message: `Are you sure you want to delete cache ${id}? This cannot be undone.`,
+        message: `Are you sure you want to delete cache ${instance.name} (${instance.id})? This cannot be undone.`,
         default: false,
       });
       if (!confirmed) {
@@ -201,12 +207,11 @@ export const rmCommand = new Command('rm')
       }
     }
 
-    const api = await ApiClient.create();
     const spinner = isJsonMode() ? null : ora('Deleting cache instance...').start();
-    await api.delete<{ message: string; status: string }>(`/api/v1/cache/${id}`);
+    await api.delete<{ message: string; status: string }>(`/api/v1/cache/${instance.id}`);
 
     if (isJsonMode()) {
-      jsonOutput({ status: 'destroying', id });
+      jsonOutput({ status: 'destroying', id: instance.id });
       return;
     }
     spinner!.succeed('Cache instance deletion initiated');

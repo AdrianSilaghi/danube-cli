@@ -5,6 +5,7 @@ import ora from 'ora';
 import { input, select, password as passwordPrompt, confirm } from '@inquirer/prompts';
 import { ApiClient } from '../../lib/api-client.js';
 import { fetchAllPages } from '../../lib/paginate.js';
+import { resolveResource } from '../../lib/resolve.js';
 import { formatTable, statusColor, formatDate } from '../../lib/output.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import type {
@@ -194,11 +195,12 @@ export const createCommand = new Command('create')
 
 export const getCommand = new Command('get')
   .description('Show VPS instance details')
-  .argument('<id>', 'VPS instance ID')
-  .action(async (id: string) => {
+  .argument('<name-or-id>', 'VPS name or ID')
+  .action(async (nameOrId: string) => {
     const api = await ApiClient.create();
+    const instance = await resolveResource<VpsInstance>(api, '/api/v1/vps', 'VPS', nameOrId);
     const res = await api.get<{ instance: VpsInstance; connection_info: Record<string, unknown>; monthly_cost: number }>(
-      `/api/v1/vps/${id}`,
+      `/api/v1/vps/${instance.id}`,
     );
 
     if (isJsonMode()) {
@@ -236,7 +238,7 @@ export const getCommand = new Command('get')
 
 export const updateCommand = new Command('update')
   .description('Update VPS instance (must be stopped)')
-  .argument('<id>', 'VPS instance ID')
+  .argument('<name-or-id>', 'VPS name or ID')
   .option('--plan <plan>', 'Resource profile')
   .option('--cpu-type <type>', 'CPU allocation: shared or dedicated')
   .option('--cpu-cores <cores>', 'Number of CPU cores')
@@ -244,7 +246,7 @@ export const updateCommand = new Command('update')
   .option('--storage <gb>', 'Storage in GB')
   .option('--snapshots', 'Enable automated snapshots')
   .option('--no-snapshots', 'Disable automated snapshots')
-  .action(async (id: string, opts: {
+  .action(async (nameOrId: string, opts: {
     plan?: string; cpuType?: string; cpuCores?: string;
     memory?: string; storage?: string; snapshots?: boolean;
   }) => {
@@ -263,9 +265,10 @@ export const updateCommand = new Command('update')
     }
 
     const api = await ApiClient.create();
+    const instance = await resolveResource<VpsInstance>(api, '/api/v1/vps', 'VPS', nameOrId);
     const spinner = isJsonMode() ? null : ora('Updating VPS instance...').start();
 
-    const res = await api.put<{ message: string; instance: VpsInstance }>(`/api/v1/vps/${id}`, body);
+    const res = await api.put<{ message: string; instance: VpsInstance }>(`/api/v1/vps/${instance.id}`, body);
 
     if (isJsonMode()) {
       jsonOutput(res.instance);
@@ -276,12 +279,15 @@ export const updateCommand = new Command('update')
 
 export const deleteCommand = new Command('delete')
   .description('Delete a VPS instance')
-  .argument('<id>', 'VPS instance ID')
+  .argument('<name-or-id>', 'VPS name or ID')
   .option('--force', 'Skip confirmation')
-  .action(async (id: string, opts: { force?: boolean }) => {
+  .action(async (nameOrId: string, opts: { force?: boolean }) => {
+    const api = await ApiClient.create();
+    const instance = await resolveResource<VpsInstance>(api, '/api/v1/vps', 'VPS', nameOrId);
+
     if (!opts.force && !isJsonMode()) {
       const confirmed = await confirm({
-        message: `Are you sure you want to delete VPS ${id}? This cannot be undone.`,
+        message: `Are you sure you want to delete VPS ${instance.name} (${instance.id})? This cannot be undone.`,
         default: false,
       });
       if (!confirmed) {
@@ -290,13 +296,12 @@ export const deleteCommand = new Command('delete')
       }
     }
 
-    const api = await ApiClient.create();
     const spinner = isJsonMode() ? null : ora('Deleting VPS instance...').start();
 
-    await api.delete<{ message: string }>(`/api/v1/vps/${id}`);
+    await api.delete<{ message: string }>(`/api/v1/vps/${instance.id}`);
 
     if (isJsonMode()) {
-      jsonOutput({ status: 'deleted', id });
+      jsonOutput({ status: 'deleted', id: instance.id });
       return;
     }
     spinner!.succeed('VPS instance deleted');

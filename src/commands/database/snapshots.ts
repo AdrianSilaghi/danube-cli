@@ -4,20 +4,23 @@ import ora from 'ora';
 import { confirm } from '@inquirer/prompts';
 import { ApiClient } from '../../lib/api-client.js';
 import { fetchAllPages } from '../../lib/paginate.js';
+import { resolveResource } from '../../lib/resolve.js';
 import { formatTable, statusColor, formatDate } from '../../lib/output.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import type { DatabaseSnapshot, DatabaseInstance } from '../../types/api.js';
 
 const lsCommand = new Command('ls')
   .description('List database snapshots')
-  .option('--instance <id>', 'Filter by database instance ID')
+  .option('--instance <name-or-id>', 'Filter by database instance name or ID')
   .action(async (opts: { instance?: string }) => {
     const api = await ApiClient.create();
     const { items, total, truncated } = await fetchAllPages<DatabaseSnapshot>(api, '/api/v1/snapshots/database');
 
-    const rows = opts.instance
-      ? items.filter(s => s.database_instance_id === opts.instance)
-      : items;
+    let rows = items;
+    if (opts.instance) {
+      const instance = await resolveResource<DatabaseInstance>(api, '/api/v1/database', 'database', opts.instance);
+      rows = items.filter(s => s.database_instance_id === instance.id);
+    }
 
     if (isJsonMode()) {
       jsonOutput(rows);
@@ -48,22 +51,24 @@ const lsCommand = new Command('ls')
 
 const createCommand = new Command('create')
   .description('Create a database snapshot')
-  .argument('<instance-id>', 'Database instance ID')
+  .argument('<name-or-id>', 'Database instance name or ID')
   .option('--name <name>', 'Snapshot name')
   .option('--description <text>', 'Optional description')
-  .action(async (instanceId: string, opts: { name?: string; description?: string }) => {
+  .action(async (nameOrId: string, opts: { name?: string; description?: string }) => {
     if (!opts.name) {
       console.error(chalk.red('--name is required.'));
       process.exit(1);
     }
 
+    const api = await ApiClient.create();
+    const instance = await resolveResource<DatabaseInstance>(api, '/api/v1/database', 'database', nameOrId);
+
     const body: Record<string, unknown> = {
-      database_instance_id: instanceId,
+      database_instance_id: instance.id,
       name: opts.name,
     };
     if (opts.description) body.description = opts.description;
 
-    const api = await ApiClient.create();
     const spinner = isJsonMode() ? null : ora('Creating snapshot...').start();
     const res = await api.post<{ message: string; snapshot: DatabaseSnapshot }>('/api/v1/snapshots/database', body);
 

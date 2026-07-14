@@ -28,24 +28,26 @@ describe('cache metrics command', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
   it('fetches and prints summary', async () => {
-    mockGet.mockResolvedValue({
-      summary: {
-        memory_used_bytes: 134217728,
-        memory_used_mb: 128,
-        connected_clients: 5,
-        total_commands_processed: 9999,
-        keyspace_hits: 8500,
-        keyspace_misses: 1499,
-        hit_ratio_percentage: 85.01,
-        retrieved_at: '2026-04-19T10:00:00Z',
-      },
-      health: { is_healthy: true, up_status: true, redis_up: true, checked_at: '2026-04-19T10:00:00Z' },
-      instance: { id: 'cache-1', name: 'my-cache' },
-    });
+    mockGet
+      .mockResolvedValueOnce({ data: [{ id: 'cache-1', name: 'my-cache' }] })
+      .mockResolvedValueOnce({
+        summary: {
+          memory_used_bytes: 134217728,
+          memory_used_mb: 128,
+          connected_clients: 5,
+          total_commands_processed: 9999,
+          keyspace_hits: 8500,
+          keyspace_misses: 1499,
+          hit_ratio_percentage: 85.01,
+          retrieved_at: '2026-04-19T10:00:00Z',
+        },
+        health: { is_healthy: true, up_status: true, redis_up: true, checked_at: '2026-04-19T10:00:00Z' },
+        instance: { id: 'cache-1', name: 'my-cache' },
+      });
 
     await metricsCommand.parseAsync(['node', 'test', 'cache-1']);
 
-    expect(mockGet).toHaveBeenCalledWith('/api/v1/cache/cache-1/metrics');
+    expect(mockGet).toHaveBeenLastCalledWith('/api/v1/cache/cache-1/metrics');
     const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
     expect(output).toContain('128 MB');
     expect(output).toContain('9,999');

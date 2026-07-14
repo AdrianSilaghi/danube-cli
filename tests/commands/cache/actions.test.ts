@@ -24,6 +24,8 @@ vi.mock('@inquirer/prompts', () => ({
 
 const { startCommand, stopCommand, connectionInfoCommand, dnsCommand } = await import('../../../src/commands/cache/actions.js');
 
+const listResponse = (overrides = {}) => ({ data: [{ id: 'cache-1', name: 'my-cache', ...overrides }] });
+
 describe('cache actions', () => {
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
 
@@ -36,14 +38,23 @@ describe('cache actions', () => {
 
   describe('start', () => {
     it('posts to /start', async () => {
+      mockGet.mockResolvedValueOnce(listResponse());
       mockPost.mockResolvedValue({ message: 'Starting', status: 'starting' });
       await startCommand.parseAsync(['node', 'test', 'cache-1']);
       expect(mockPost).toHaveBeenCalledWith('/api/v1/cache/cache-1/start');
+    });
+
+    it('resolves a cache instance by name', async () => {
+      mockGet.mockResolvedValueOnce(listResponse({ id: 'cache-9', name: 'prod-cache' }));
+      mockPost.mockResolvedValue({ message: 'Starting', status: 'starting' });
+      await startCommand.parseAsync(['node', 'test', 'prod-cache']);
+      expect(mockPost).toHaveBeenCalledWith('/api/v1/cache/cache-9/start');
     });
   });
 
   describe('stop', () => {
     it('posts to /stop', async () => {
+      mockGet.mockResolvedValueOnce(listResponse());
       mockPost.mockResolvedValue({ message: 'Stopping', status: 'stopping' });
       await stopCommand.parseAsync(['node', 'test', 'cache-1']);
       expect(mockPost).toHaveBeenCalledWith('/api/v1/cache/cache-1/stop');
@@ -53,7 +64,9 @@ describe('cache actions', () => {
   describe('connection-info', () => {
     it('shows connection and password after confirm', async () => {
       mockConfirm.mockResolvedValue(true);
-      mockGet.mockResolvedValue({ connection_info: 'redis://foo:6379', password: 'secret' });
+      mockGet
+        .mockResolvedValueOnce(listResponse())
+        .mockResolvedValueOnce({ connection_info: 'redis://foo:6379', password: 'secret' });
       await connectionInfoCommand.parseAsync(['node', 'test', 'cache-1']);
       const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
       expect(output).toContain('redis://foo:6379');
@@ -69,12 +82,14 @@ describe('cache actions', () => {
 
   describe('dns', () => {
     it('enables dns', async () => {
+      mockGet.mockResolvedValueOnce(listResponse());
       mockPost.mockResolvedValue({ message: 'DNS enabled' });
       await dnsCommand.parseAsync(['node', 'test', 'enable', 'cache-1']);
       expect(mockPost).toHaveBeenCalledWith('/api/v1/cache/cache-1/dns');
     });
 
     it('disables dns', async () => {
+      mockGet.mockResolvedValueOnce(listResponse());
       mockDelete.mockResolvedValue({ message: 'DNS disabled' });
       await dnsCommand.parseAsync(['node', 'test', 'disable', 'cache-1']);
       expect(mockDelete).toHaveBeenCalledWith('/api/v1/cache/cache-1/dns');

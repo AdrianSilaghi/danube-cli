@@ -65,10 +65,24 @@ describe('cache snapshots', () => {
     });
 
     it('filters by --instance', async () => {
-      mockGet.mockResolvedValue({
-        data: [makeSnapshot(), makeSnapshot({ id: 'snap-2', cache_instance_id: 'other', cache_instance: { id: 'other', name: 'other' } })],
-      });
+      mockGet
+        .mockResolvedValueOnce({
+          data: [makeSnapshot(), makeSnapshot({ id: 'snap-2', cache_instance_id: 'other', cache_instance: { id: 'other', name: 'other' } })],
+        })
+        .mockResolvedValueOnce({ data: [{ id: 'cache-1', name: 'my-cache' }] });
       await snapshotsCommand.parseAsync(['node', 'test', 'ls', '--instance', 'cache-1']);
+      const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
+      expect(output).toContain('snap-1');
+      expect(output).not.toContain('snap-2');
+    });
+
+    it('resolves the --instance filter by name', async () => {
+      mockGet
+        .mockResolvedValueOnce({
+          data: [makeSnapshot(), makeSnapshot({ id: 'snap-2', cache_instance_id: 'other', cache_instance: { id: 'other', name: 'other' } })],
+        })
+        .mockResolvedValueOnce({ data: [{ id: 'cache-1', name: 'prod-cache' }] });
+      await snapshotsCommand.parseAsync(['node', 'test', 'ls', '--instance', 'prod-cache']);
       const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
       expect(output).toContain('snap-1');
       expect(output).not.toContain('snap-2');
@@ -81,10 +95,12 @@ describe('cache snapshots', () => {
     });
 
     it('truncation note reflects the unfiltered total, not the --instance-filtered subset', async () => {
-      mockGet.mockResolvedValue({
-        data: [makeSnapshot(), makeSnapshot({ id: 'snap-2', cache_instance_id: 'other', cache_instance: { id: 'other', name: 'other' } })],
-        pagination: { current_page: 1, last_page: 1, per_page: 100, total: 50 },
-      });
+      mockGet
+        .mockResolvedValueOnce({
+          data: [makeSnapshot(), makeSnapshot({ id: 'snap-2', cache_instance_id: 'other', cache_instance: { id: 'other', name: 'other' } })],
+          pagination: { current_page: 1, last_page: 1, per_page: 100, total: 50 },
+        })
+        .mockResolvedValueOnce({ data: [{ id: 'cache-1', name: 'my-cache' }] });
       await snapshotsCommand.parseAsync(['node', 'test', 'ls', '--instance', 'cache-1']);
       const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
       expect(output).toContain('snap-1');
@@ -95,6 +111,7 @@ describe('cache snapshots', () => {
 
   describe('create', () => {
     it('posts with name and description', async () => {
+      mockGet.mockResolvedValueOnce({ data: [{ id: 'cache-1', name: 'my-cache' }] });
       mockPost.mockResolvedValue({ message: 'ok', snapshot: makeSnapshot() });
       await snapshotsCommand.parseAsync(['node', 'test', 'create', 'cache-1', '--name', 'daily-backup', '--description', 'test']);
       expect(mockPost).toHaveBeenCalledWith('/api/v1/snapshots/cache', {
@@ -104,8 +121,19 @@ describe('cache snapshots', () => {
       });
     });
 
+    it('resolves the target cache instance by name', async () => {
+      mockGet.mockResolvedValueOnce({ data: [{ id: 'cache-1', name: 'prod-cache' }] });
+      mockPost.mockResolvedValue({ message: 'ok', snapshot: makeSnapshot() });
+      await snapshotsCommand.parseAsync(['node', 'test', 'create', 'prod-cache', '--name', 'daily-backup']);
+      expect(mockPost).toHaveBeenCalledWith('/api/v1/snapshots/cache', {
+        cache_instance_id: 'cache-1',
+        name: 'daily-backup',
+      });
+    });
+
     it('exits without --name', async () => {
       await expect(snapshotsCommand.parseAsync(['node', 'test', 'create', 'cache-1'])).rejects.toThrow(ExitError);
+      expect(mockGet).not.toHaveBeenCalled();
     });
   });
 

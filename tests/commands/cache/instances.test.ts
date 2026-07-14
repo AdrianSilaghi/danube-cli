@@ -133,21 +133,36 @@ describe('cache instances', () => {
 
   describe('get', () => {
     it('displays instance details', async () => {
-      mockGet.mockResolvedValue({
-        instance: makeCache(),
-        connection_info: 'redis://my-cache.fsn1.cache.dd:6379',
-        monthly_cost: '4.99',
-      });
+      mockGet
+        .mockResolvedValueOnce({ data: [makeCache({ id: 'cache-1' })] })
+        .mockResolvedValueOnce({
+          instance: makeCache(),
+          connection_info: 'redis://my-cache.fsn1.cache.dd:6379',
+          monthly_cost: '4.99',
+        });
       await getCommand.parseAsync(['node', 'test', 'cache-1']);
       const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
       expect(output).toContain('cache-1');
       expect(output).toContain('my-cache');
       expect(output).toContain('redis://my-cache.fsn1.cache.dd:6379');
     });
+
+    it('resolves a cache instance by name', async () => {
+      mockGet
+        .mockResolvedValueOnce({ data: [makeCache({ id: 'cache-9', name: 'prod-cache' })] })
+        .mockResolvedValueOnce({
+          instance: makeCache({ id: 'cache-9', name: 'prod-cache' }),
+          connection_info: 'redis://prod-cache.fsn1.cache.dd:6379',
+          monthly_cost: '4.99',
+        });
+      await getCommand.parseAsync(['node', 'test', 'prod-cache']);
+      expect(mockGet).toHaveBeenLastCalledWith('/api/v1/cache/cache-9');
+    });
   });
 
   describe('update', () => {
     it('updates profile', async () => {
+      mockGet.mockResolvedValueOnce({ data: [makeCache({ id: 'cache-1' })] });
       mockPut.mockResolvedValue({ message: 'ok', instance: makeCache({ resource_profile: 'large' }) });
       await updateCommand.parseAsync(['node', 'test', 'cache-1', '--profile', 'large']);
       expect(mockPut).toHaveBeenCalledWith('/api/v1/cache/cache-1', { resource_profile: 'large' });
@@ -155,11 +170,13 @@ describe('cache instances', () => {
 
     it('exits when no options are passed', async () => {
       await expect(updateCommand.parseAsync(['node', 'test', 'cache-1'])).rejects.toThrow(ExitError);
+      expect(mockGet).not.toHaveBeenCalled();
     });
   });
 
   describe('rm', () => {
     it('skips confirm with --force', async () => {
+      mockGet.mockResolvedValueOnce({ data: [makeCache({ id: 'cache-1' })] });
       mockDelete.mockResolvedValue({ message: 'ok', status: 'destroying' });
       await rmCommand.parseAsync(['node', 'test', 'cache-1', '--force']);
       expect(mockDelete).toHaveBeenCalledWith('/api/v1/cache/cache-1');
@@ -167,6 +184,7 @@ describe('cache instances', () => {
     });
 
     it('cancels when confirm returns false', async () => {
+      mockGet.mockResolvedValueOnce({ data: [makeCache({ id: 'cache-1' })] });
       mockConfirm.mockResolvedValue(false);
       await rmCommand.parseAsync(['node', 'test', 'cache-1']);
       expect(mockDelete).not.toHaveBeenCalled();

@@ -4,6 +4,7 @@ import ora from 'ora';
 import { input, select, confirm } from '@inquirer/prompts';
 import { ApiClient } from '../../lib/api-client.js';
 import { fetchAllPages } from '../../lib/paginate.js';
+import { resolveResource } from '../../lib/resolve.js';
 import { formatTable, statusColor, formatDate } from '../../lib/output.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import type { DatabaseInstance, DatabaseProvider } from '../../types/api.js';
@@ -121,11 +122,12 @@ export const createCommand = new Command('create')
 
 export const getCommand = new Command('get')
   .description('Show database instance details')
-  .argument('<id>', 'Database instance ID')
-  .action(async (id: string) => {
+  .argument('<name-or-id>', 'Database instance name or ID')
+  .action(async (nameOrId: string) => {
     const api = await ApiClient.create();
+    const instance = await resolveResource<DatabaseInstance>(api, '/api/v1/database', 'database', nameOrId);
     const res = await api.get<{ instance: DatabaseInstance; connection_info: string | null; monthly_cost: number | string }>(
-      `/api/v1/database/${id}`,
+      `/api/v1/database/${instance.id}`,
     );
 
     if (isJsonMode()) {
@@ -162,12 +164,12 @@ export const getCommand = new Command('get')
 
 export const updateCommand = new Command('update')
   .description('Update a database instance')
-  .argument('<id>', 'Database instance ID')
+  .argument('<name-or-id>', 'Database instance name or ID')
   .option('--name <name>', 'New name')
   .option('--profile <profile>', 'Resource profile: micro, small, medium, large')
   .option('--snapshots', 'Enable automated snapshots')
   .option('--no-snapshots', 'Disable automated snapshots')
-  .action(async (id: string, opts: { name?: string; profile?: string; snapshots?: boolean }) => {
+  .action(async (nameOrId: string, opts: { name?: string; profile?: string; snapshots?: boolean }) => {
     const body: Record<string, unknown> = {};
     if (opts.name !== undefined) body.name = opts.name;
     if (opts.profile !== undefined) body.resource_profile = opts.profile;
@@ -179,8 +181,9 @@ export const updateCommand = new Command('update')
     }
 
     const api = await ApiClient.create();
+    const instance = await resolveResource<DatabaseInstance>(api, '/api/v1/database', 'database', nameOrId);
     const spinner = isJsonMode() ? null : ora('Updating database instance...').start();
-    const res = await api.put<{ message: string; instance: DatabaseInstance }>(`/api/v1/database/${id}`, body);
+    const res = await api.put<{ message: string; instance: DatabaseInstance }>(`/api/v1/database/${instance.id}`, body);
 
     if (isJsonMode()) {
       jsonOutput(res.instance);
@@ -191,12 +194,15 @@ export const updateCommand = new Command('update')
 
 export const rmCommand = new Command('rm')
   .description('Delete a database instance')
-  .argument('<id>', 'Database instance ID')
+  .argument('<name-or-id>', 'Database instance name or ID')
   .option('--force', 'Skip confirmation')
-  .action(async (id: string, opts: { force?: boolean }) => {
+  .action(async (nameOrId: string, opts: { force?: boolean }) => {
+    const api = await ApiClient.create();
+    const instance = await resolveResource<DatabaseInstance>(api, '/api/v1/database', 'database', nameOrId);
+
     if (!opts.force && !isJsonMode()) {
       const confirmed = await confirm({
-        message: `Are you sure you want to delete database ${id}? This cannot be undone.`,
+        message: `Are you sure you want to delete database ${instance.name} (${instance.id})? This cannot be undone.`,
         default: false,
       });
       if (!confirmed) {
@@ -205,12 +211,11 @@ export const rmCommand = new Command('rm')
       }
     }
 
-    const api = await ApiClient.create();
     const spinner = isJsonMode() ? null : ora('Deleting database instance...').start();
-    await api.delete<{ message: string; status: string }>(`/api/v1/database/${id}`);
+    await api.delete<{ message: string; status: string }>(`/api/v1/database/${instance.id}`);
 
     if (isJsonMode()) {
-      jsonOutput({ status: 'destroying', id });
+      jsonOutput({ status: 'destroying', id: instance.id });
       return;
     }
     spinner!.succeed('Database instance deletion initiated');

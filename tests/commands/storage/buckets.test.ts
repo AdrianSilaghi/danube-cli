@@ -152,17 +152,30 @@ describe('buckets command', () => {
 
   describe('get', () => {
     it('displays bucket details', async () => {
-      mockGet.mockResolvedValue({ bucket: makeBucket() });
+      mockGet
+        .mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] })
+        .mockResolvedValueOnce({ bucket: makeBucket() });
 
       await bucketsCommand.parseAsync(['node', 'test', 'get', 'bucket-1']);
 
-      expect(mockGet).toHaveBeenCalledWith('/api/v1/storage/buckets/bucket-1');
+      expect(mockGet).toHaveBeenLastCalledWith('/api/v1/storage/buckets/bucket-1');
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('my-bucket'));
+    });
+
+    it('resolves a bucket by name', async () => {
+      mockGet
+        .mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-9', name: 'prod-assets' })] })
+        .mockResolvedValueOnce({ bucket: makeBucket({ id: 'bucket-9', name: 'prod-assets' }) });
+
+      await bucketsCommand.parseAsync(['node', 'test', 'get', 'prod-assets']);
+
+      expect(mockGet).toHaveBeenLastCalledWith('/api/v1/storage/buckets/bucket-9');
     });
   });
 
   describe('update', () => {
     it('updates bucket with flags', async () => {
+      mockGet.mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] });
       mockPut.mockResolvedValue({
         message: 'Updated',
         bucket: makeBucket({ versioning_enabled: true }),
@@ -176,6 +189,7 @@ describe('buckets command', () => {
     });
 
     it('updates bucket with size limit', async () => {
+      mockGet.mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] });
       mockPut.mockResolvedValue({
         message: 'Updated',
         bucket: makeBucket({ size_limit_bytes: 1073741824 }),
@@ -195,11 +209,13 @@ describe('buckets command', () => {
 
       expect(process.exit).toHaveBeenCalledWith(1);
       expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('At least one option'));
+      expect(mockGet).not.toHaveBeenCalled();
     });
   });
 
   describe('delete', () => {
     it('deletes bucket with --force', async () => {
+      mockGet.mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] });
       mockDelete.mockResolvedValue({ message: 'Deleted' });
 
       await bucketsCommand.parseAsync(['node', 'test', 'delete', 'bucket-1', '--force']);
@@ -208,6 +224,7 @@ describe('buckets command', () => {
     });
 
     it('asks for confirmation and deletes', async () => {
+      mockGet.mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] });
       mockConfirm.mockResolvedValue(true);
       mockDelete.mockResolvedValue({ message: 'Deleted' });
 
@@ -218,6 +235,7 @@ describe('buckets command', () => {
     });
 
     it('cancels when user declines', async () => {
+      mockGet.mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] });
       mockConfirm.mockResolvedValue(false);
 
       await bucketsCommand.parseAsync(['node', 'test', 'delete', 'bucket-1']);
@@ -229,22 +247,24 @@ describe('buckets command', () => {
 
   describe('metrics', () => {
     it('displays bucket metrics with requests and egress', async () => {
-      mockGet.mockResolvedValue({
-        size_bytes: 167_203_942_400,
-        size_human: '155.7 GB',
-        object_count: 18368,
-        requests_24h: 12401,
-        requests_24h_by_method: { GET: 9800, PUT: 2100, DELETE: 50, HEAD: 451 },
-        egress_bytes_24h: 987_654_321,
-        egress_human_24h: '0.92 GB',
-        monthly_cost_cents: 399,
-        monthly_cost_dollars: '3.99',
-        last_sync_at: new Date(Date.now() - 2 * 60_000).toISOString(),
-      });
+      mockGet
+        .mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] })
+        .mockResolvedValueOnce({
+          size_bytes: 167_203_942_400,
+          size_human: '155.7 GB',
+          object_count: 18368,
+          requests_24h: 12401,
+          requests_24h_by_method: { GET: 9800, PUT: 2100, DELETE: 50, HEAD: 451 },
+          egress_bytes_24h: 987_654_321,
+          egress_human_24h: '0.92 GB',
+          monthly_cost_cents: 399,
+          monthly_cost_dollars: '3.99',
+          last_sync_at: new Date(Date.now() - 2 * 60_000).toISOString(),
+        });
 
       await bucketsCommand.parseAsync(['node', 'test', 'metrics', 'bucket-1']);
 
-      expect(mockGet).toHaveBeenCalledWith('/api/v1/storage/buckets/bucket-1/metrics');
+      expect(mockGet).toHaveBeenLastCalledWith('/api/v1/storage/buckets/bucket-1/metrics');
 
       const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
       expect(output).toContain('155.7 GB');
@@ -260,18 +280,20 @@ describe('buckets command', () => {
     });
 
     it('shows em-dash when requests_24h is null (loki unreachable)', async () => {
-      mockGet.mockResolvedValue({
-        size_bytes: 0,
-        size_human: '0 B',
-        object_count: 0,
-        requests_24h: null,
-        requests_24h_by_method: null,
-        egress_bytes_24h: 0,
-        egress_human_24h: '0 B',
-        monthly_cost_cents: 399,
-        monthly_cost_dollars: '3.99',
-        last_sync_at: null,
-      });
+      mockGet
+        .mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] })
+        .mockResolvedValueOnce({
+          size_bytes: 0,
+          size_human: '0 B',
+          object_count: 0,
+          requests_24h: null,
+          requests_24h_by_method: null,
+          egress_bytes_24h: 0,
+          egress_human_24h: '0 B',
+          monthly_cost_cents: 399,
+          monthly_cost_dollars: '3.99',
+          last_sync_at: null,
+        });
 
       await bucketsCommand.parseAsync(['node', 'test', 'metrics', 'bucket-1']);
 

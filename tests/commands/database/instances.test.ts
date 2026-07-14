@@ -131,20 +131,35 @@ describe('database instances', () => {
 
   describe('get', () => {
     it('displays details', async () => {
-      mockGet.mockResolvedValue({
-        instance: makeDatabase(),
-        connection_info: 'mysql://root@my-db.fsn1.db.dd:3306',
-        monthly_cost: '19.99',
-      });
+      mockGet
+        .mockResolvedValueOnce({ data: [makeDatabase({ id: 'db-1' })] })
+        .mockResolvedValueOnce({
+          instance: makeDatabase(),
+          connection_info: 'mysql://root@my-db.fsn1.db.dd:3306',
+          monthly_cost: '19.99',
+        });
       await getCommand.parseAsync(['node', 'test', 'db-1']);
       const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
       expect(output).toContain('db-1');
       expect(output).toContain('mysql://root@my-db.fsn1.db.dd:3306');
     });
+
+    it('resolves a database instance by name', async () => {
+      mockGet
+        .mockResolvedValueOnce({ data: [makeDatabase({ id: 'db-9', name: 'prod-db' })] })
+        .mockResolvedValueOnce({
+          instance: makeDatabase({ id: 'db-9', name: 'prod-db' }),
+          connection_info: 'mysql://root@prod-db.fsn1.db.dd:3306',
+          monthly_cost: '19.99',
+        });
+      await getCommand.parseAsync(['node', 'test', 'prod-db']);
+      expect(mockGet).toHaveBeenLastCalledWith('/api/v1/database/db-9');
+    });
   });
 
   describe('update', () => {
     it('updates profile', async () => {
+      mockGet.mockResolvedValueOnce({ data: [makeDatabase({ id: 'db-1' })] });
       mockPut.mockResolvedValue({ message: 'ok', instance: makeDatabase({ resource_profile: 'large' }) });
       await updateCommand.parseAsync(['node', 'test', 'db-1', '--profile', 'large']);
       expect(mockPut).toHaveBeenCalledWith('/api/v1/database/db-1', { resource_profile: 'large' });
@@ -152,11 +167,13 @@ describe('database instances', () => {
 
     it('exits without options', async () => {
       await expect(updateCommand.parseAsync(['node', 'test', 'db-1'])).rejects.toThrow(ExitError);
+      expect(mockGet).not.toHaveBeenCalled();
     });
   });
 
   describe('rm', () => {
     it('skips confirm with --force', async () => {
+      mockGet.mockResolvedValueOnce({ data: [makeDatabase({ id: 'db-1' })] });
       mockDelete.mockResolvedValue({ message: 'ok', status: 'destroying' });
       await rmCommand.parseAsync(['node', 'test', 'db-1', '--force']);
       expect(mockDelete).toHaveBeenCalledWith('/api/v1/database/db-1');
