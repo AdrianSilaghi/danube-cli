@@ -289,6 +289,20 @@ export interface VpsImageGroup {
   images: VpsImage[];
 }
 
+export interface PlansResponse<T> {
+  plans: T[];
+}
+
+export interface VpsPlanInfo {
+  slug: string;
+  display_name: string;
+  type: 'shared' | 'dedicated';
+  cpu_cores: number;
+  memory_gb: number;
+  storage_gb: number;
+  monthly_cost: number;
+}
+
 // ---------------------------------------------------------------------------
 // Cache
 // ---------------------------------------------------------------------------
@@ -335,6 +349,16 @@ export interface CacheSnapshot {
   cache_instance?: { id: string; name: string };
   created_at: string;
   updated_at: string;
+}
+
+export interface CachePlanInfo {
+  slug: string;
+  display_name: string;
+  provider: string;
+  cpu_cores: number;
+  memory_mb: number;
+  storage_gb: number;
+  monthly_cost: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -430,6 +454,15 @@ export interface DatabaseSnapshot {
   database_instance?: { id: string; name: string };
   created_at: string;
   updated_at: string;
+}
+
+export interface DatabasePlanInfo {
+  slug: string;
+  display_name: string;
+  cpu_cores: number;
+  memory_mb: number;
+  storage_gb: number;
+  monthly_cost: number;
 }
 
 // ---------------------------------------------------------------------------

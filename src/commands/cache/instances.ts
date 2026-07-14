@@ -8,14 +8,7 @@ import { resolveResource } from '../../lib/resolve.js';
 import { formatTable, statusColor, formatDate, printDetails } from '../../lib/output.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import { promptOr, confirmDestruction } from '../../lib/interactive.js';
-import type { CacheInstance, CacheProvider } from '../../types/api.js';
-
-const CACHE_PLANS: Array<{ name: string; value: string }> = [
-  { name: 'micro  — 0.25 GB RAM, 1 vCPU  — starter', value: 'micro' },
-  { name: 'small  — 1 GB RAM,   1 vCPU  — balanced', value: 'small' },
-  { name: 'medium — 3 GB RAM,   1 vCPU  — production', value: 'medium' },
-  { name: 'large  — 6 GB RAM,   1 vCPU  — performance', value: 'large' },
-];
+import type { CacheInstance, CacheProvider, CachePlanInfo, PlansResponse } from '../../types/api.js';
 
 const CACHE_DATACENTERS = ['fsn1', 'nbg1', 'hel1', 'ash'];
 const CACHE_PROVIDERS: CacheProvider[] = ['redis', 'valkey', 'dragonfly'];
@@ -74,6 +67,8 @@ export const createCommand = new Command('create')
       process.exit(1);
     }
 
+    const api = await ApiClient.create();
+
     const name = await promptOr('--name', opts.name, () => input({
       message: 'Instance name:',
       validate: (v: string) => /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(v.trim()) || 'Lowercase letters, numbers, and hyphens only',
@@ -84,10 +79,16 @@ export const createCommand = new Command('create')
       choices: CACHE_PROVIDERS.map(p => ({ name: p, value: p })),
     }));
 
-    const profile = await promptOr('--profile', opts.profile, () => select({
-      message: 'Resource profile:',
-      choices: CACHE_PLANS,
-    }));
+    const profile = await promptOr('--profile', opts.profile, async () => {
+      const plansRes = await api.get<PlansResponse<CachePlanInfo>>(`/api/v1/cache/plans?provider=${provider}`);
+      return select({
+        message: 'Resource profile:',
+        choices: plansRes.plans.map((p) => ({
+          name: `${p.display_name} — ${(p.memory_mb / 1024).toFixed(2)} GB RAM, ${p.cpu_cores} vCPU — \u20AC${p.monthly_cost.toFixed(2)}/mo`,
+          value: p.slug,
+        })),
+      });
+    });
 
     if (!CACHE_DATACENTERS.includes(opts.datacenter)) {
       console.error(chalk.red(`Invalid datacenter "${opts.datacenter}". Valid: ${CACHE_DATACENTERS.join(', ')}`));
@@ -102,7 +103,6 @@ export const createCommand = new Command('create')
     };
     if (opts.version) body.version = opts.version;
 
-    const api = await ApiClient.create();
     const spinner = isJsonMode() ? null : ora('Creating cache instance...').start();
     const res = await api.post<{ message: string; instance: CacheInstance }>('/api/v1/cache', body);
 

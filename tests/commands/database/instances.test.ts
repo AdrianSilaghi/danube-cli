@@ -133,6 +133,21 @@ describe('database instances', () => {
         'node', 'test', '--name', 'x', '--provider', 'mysql', '--datacenter', 'ash', '--profile', 'small',
       ])).rejects.toThrow(ExitError);
     });
+
+    it('fetches plans from the API for the interactive picker', async () => {
+      mockInput.mockResolvedValueOnce('my-db');              // name
+      mockSelect.mockResolvedValueOnce('postgresql');         // provider
+      mockGet.mockResolvedValueOnce({ plans: [{ slug: 'small', display_name: 'Small', cpu_cores: 1, memory_mb: 2048, storage_gb: 20, monthly_cost: 9.99 }] });
+      mockSelect.mockResolvedValueOnce('small');               // profile
+      mockPost.mockResolvedValue({ message: 'ok', instance: makeDatabase() });
+
+      await createCommand.parseAsync(['node', 'test']);
+
+      expect(mockGet).toHaveBeenCalledWith('/api/v1/database/plans');
+      const planChoices = mockSelect.mock.calls.find(c => (c[0] as { message: string }).message === 'Resource profile:')![0] as { choices: Array<{ name: string; value: string }> };
+      expect(planChoices.choices[0]!.name).toContain('€9.99/mo');
+      expect(planChoices.choices[0]!.value).toBe('small');
+    });
   });
 
   describe('get', () => {

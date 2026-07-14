@@ -8,14 +8,7 @@ import { resolveResource } from '../../lib/resolve.js';
 import { formatTable, statusColor, formatDate, printDetails } from '../../lib/output.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import { promptOr, confirmDestruction } from '../../lib/interactive.js';
-import type { DatabaseInstance, DatabaseProvider } from '../../types/api.js';
-
-const DATABASE_PLANS: Array<{ name: string; value: string }> = [
-  { name: 'micro  — starter', value: 'micro' },
-  { name: 'small  — balanced', value: 'small' },
-  { name: 'medium — production', value: 'medium' },
-  { name: 'large  — performance', value: 'large' },
-];
+import type { DatabaseInstance, DatabaseProvider, DatabasePlanInfo, PlansResponse } from '../../types/api.js';
 
 const DATABASE_DATACENTERS = ['fsn1', 'nbg1', 'hel1'];
 const DATABASE_PROVIDERS: DatabaseProvider[] = ['mysql', 'postgresql', 'mariadb'];
@@ -77,6 +70,8 @@ export const createCommand = new Command('create')
       process.exit(1);
     }
 
+    const api = await ApiClient.create();
+
     const name = await promptOr('--name', opts.name, () => input({
       message: 'Instance name:',
       validate: (v: string) => /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(v.trim()) || 'Lowercase letters, numbers, and hyphens only',
@@ -87,7 +82,16 @@ export const createCommand = new Command('create')
       choices: DATABASE_PROVIDERS.map(p => ({ name: p, value: p })),
     }));
 
-    const profile = await promptOr('--profile', opts.profile, () => select({ message: 'Resource profile:', choices: DATABASE_PLANS }));
+    const profile = await promptOr('--profile', opts.profile, async () => {
+      const plansRes = await api.get<PlansResponse<DatabasePlanInfo>>('/api/v1/database/plans');
+      return select({
+        message: 'Resource profile:',
+        choices: plansRes.plans.map((p) => ({
+          name: `${p.display_name} — ${(p.memory_mb / 1024).toFixed(2)} GB RAM, ${p.cpu_cores} vCPU — \u20AC${p.monthly_cost.toFixed(2)}/mo`,
+          value: p.slug,
+        })),
+      });
+    });
 
     if (!DATABASE_DATACENTERS.includes(opts.datacenter)) {
       console.error(chalk.red(`Invalid datacenter "${opts.datacenter}". Valid: ${DATABASE_DATACENTERS.join(', ')}`));
@@ -103,7 +107,6 @@ export const createCommand = new Command('create')
     if (opts.version) body.version = opts.version;
     if (opts.databaseName) body.database_name = opts.databaseName;
 
-    const api = await ApiClient.create();
     const spinner = isJsonMode() ? null : ora('Creating database instance...').start();
     const res = await api.post<{ message: string; instance: DatabaseInstance }>('/api/v1/database', body);
 

@@ -15,6 +15,8 @@ import type {
   VpsConnectionInfo,
   VpsImage,
   VpsImageGroup,
+  VpsPlanInfo,
+  PlansResponse,
 } from '../../types/api.js';
 
 function generatePassword(length = 24): string {
@@ -98,21 +100,16 @@ export const createCommand = new Command('create')
       return select({ message: 'Operating system:', choices: imageChoices });
     });
 
-    const plan = await promptOr('--plan', opts.plan, () => select({
-      message: 'Plan:',
-      choices: [
-          { name: 'DD Litcov   — 2 vCPU, 2GB RAM, 40GB   — \u20AC4.49/mo (shared)', value: 'nano_shared' },
-          { name: 'DD Maliuc   — 3 vCPU, 4GB RAM, 60GB   — \u20AC7.49/mo (shared)', value: 'micro_shared' },
-          { name: 'DD Crisan   — 4 vCPU, 8GB RAM, 80GB   — \u20AC12.49/mo (shared)', value: 'small_shared' },
-          { name: 'DD Caraorman — 8 vCPU, 16GB RAM, 160GB — \u20AC24.99/mo (shared)', value: 'medium_shared' },
-          { name: 'DD Dunavat  — 16 vCPU, 32GB RAM, 320GB — \u20AC49.99/mo (shared)', value: 'large_shared' },
-          { name: 'DD Litcov   — 2 vCPU, 2GB RAM, 40GB   — \u20AC8.99/mo (dedicated)', value: 'nano' },
-          { name: 'DD Maliuc   — 3 vCPU, 4GB RAM, 80GB   — \u20AC14.99/mo (dedicated)', value: 'micro' },
-          { name: 'DD Crisan   — 4 vCPU, 8GB RAM, 160GB  — \u20AC24.99/mo (dedicated)', value: 'small' },
-          { name: 'DD Caraorman — 8 vCPU, 16GB RAM, 320GB — \u20AC49.99/mo (dedicated)', value: 'medium' },
-          { name: 'DD Dunavat  — 16 vCPU, 32GB RAM, 640GB — \u20AC99.99/mo (dedicated)', value: 'large' },
-      ],
-    }));
+    const plan = await promptOr('--plan', opts.plan, async () => {
+      const plansRes = await api.get<PlansResponse<VpsPlanInfo>>('/api/v1/vps/plans');
+      return select({
+        message: 'Plan:',
+        choices: plansRes.plans.map((p) => ({
+          name: `${p.display_name} — ${p.cpu_cores} vCPU, ${p.memory_gb}GB RAM, ${p.storage_gb}GB — \u20AC${p.monthly_cost.toFixed(2)}/mo (${p.type})`,
+          value: p.slug,
+        })),
+      });
+    });
 
     const cpuType = opts.cpuType || (plan.endsWith('_shared') ? 'shared' : 'dedicated');
 

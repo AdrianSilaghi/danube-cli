@@ -118,7 +118,9 @@ describe('cache instances', () => {
 
     it('prompts for missing name, provider, and profile', async () => {
       mockInput.mockResolvedValueOnce('prompted-cache');
-      mockSelect.mockResolvedValueOnce('valkey').mockResolvedValueOnce('medium');
+      mockSelect.mockResolvedValueOnce('valkey');
+      mockGet.mockResolvedValueOnce({ plans: [{ slug: 'medium', display_name: 'Medium', provider: 'valkey', cpu_cores: 1, memory_mb: 3072, storage_gb: 20, monthly_cost: 9.99 }] });
+      mockSelect.mockResolvedValueOnce('medium');
       mockPost.mockResolvedValue({ message: 'ok', instance: makeCache() });
 
       await createCommand.parseAsync(['node', 'test']);
@@ -128,6 +130,21 @@ describe('cache instances', () => {
         provider: 'valkey',
         resource_profile: 'medium',
       }));
+    });
+
+    it('fetches plans from the API for the interactive picker', async () => {
+      mockInput.mockResolvedValueOnce('my-cache');          // name
+      mockSelect.mockResolvedValueOnce('redis');             // provider
+      mockGet.mockResolvedValueOnce({ plans: [{ slug: 'small', display_name: 'Small', provider: 'redis', cpu_cores: 1, memory_mb: 1024, storage_gb: 10, monthly_cost: 4.99 }] });
+      mockSelect.mockResolvedValueOnce('small');             // profile
+      mockPost.mockResolvedValue({ message: 'ok', instance: makeCache() });
+
+      await createCommand.parseAsync(['node', 'test']);
+
+      expect(mockGet).toHaveBeenCalledWith('/api/v1/cache/plans?provider=redis');
+      const planChoices = mockSelect.mock.calls.find(c => (c[0] as { message: string }).message === 'Resource profile:')![0] as { choices: Array<{ name: string; value: string }> };
+      expect(planChoices.choices[0]!.name).toContain('€4.99/mo');
+      expect(planChoices.choices[0]!.value).toBe('small');
     });
 
     it('rejects invalid provider with exit 1', async () => {

@@ -126,6 +126,26 @@ describe('vps instances', () => {
         password_confirmation: 'MyStr0ngP@ssw0rd!',
       }));
     });
+
+    it('fetches plans from the API for the interactive picker', async () => {
+      mockGet
+        .mockResolvedValueOnce({ groups: [{ label: 'Ubuntu', images: [{ id: 'ubuntu-24.04', label: 'Ubuntu 24.04', default_user: 'root' }] }] })
+        .mockResolvedValueOnce({ plans: [{ slug: 'nano_shared', display_name: 'DD Litcov', type: 'shared', cpu_cores: 2, memory_gb: 2, storage_gb: 40, monthly_cost: 4.49 }] });
+      mockInput.mockResolvedValueOnce('my-vps');           // name
+      mockSelect
+        .mockResolvedValueOnce('ubuntu-24.04')             // image
+        .mockResolvedValueOnce('nano_shared')              // plan
+        .mockResolvedValueOnce('ssh_key');                 // auth method
+      mockInput.mockResolvedValueOnce('key-1');            // ssh key id
+      mockPost.mockResolvedValue({ message: 'ok', instance: makeVps() });
+
+      await createCommand.parseAsync(['node', 'test']);
+
+      expect(mockGet).toHaveBeenCalledWith('/api/v1/vps/plans');
+      const planChoices = mockSelect.mock.calls.find(c => (c[0] as { message: string }).message === 'Plan:')![0] as { choices: Array<{ name: string; value: string }> };
+      expect(planChoices.choices[0]!.name).toContain('€4.49/mo');
+      expect(planChoices.choices[0]!.value).toBe('nano_shared');
+    });
   });
 
   describe('get', () => {
