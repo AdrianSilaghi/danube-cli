@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { NotAuthenticatedError, NotLinkedError, ApiError, MissingFlagsError, ConfirmationRequiredError } from '../src/lib/errors.js';
+import { NotAuthenticatedError, NotLinkedError, ApiError, MissingFlagsError, ConfirmationRequiredError, ResourceNotFoundError } from '../src/lib/errors.js';
 
 describe('errors', () => {
   it('NotAuthenticatedError has correct message and name', () => {
@@ -46,5 +46,14 @@ describe('ConfirmationRequiredError', () => {
     const err = new ConfirmationRequiredError('VPS vps-1');
     expect(err.message).toContain('--force');
     expect(err.name).toBe('ConfirmationRequiredError');
+  });
+});
+
+describe('ResourceNotFoundError', () => {
+  it('has correct message and name', () => {
+    const err = new ResourceNotFoundError("VPS 'nonexistent' not found.");
+    expect(err.message).toBe("VPS 'nonexistent' not found.");
+    expect(err.name).toBe('ResourceNotFoundError');
+    expect(err).toBeInstanceOf(Error);
   });
 });

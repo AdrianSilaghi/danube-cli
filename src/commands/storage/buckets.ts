@@ -298,7 +298,7 @@ const metricsShowCommand = new Command('show')
       console.log(`${chalk.dim(label!.padEnd(maxLabel))}  ${value}`);
     }
 
-    if (m.freshness === 'stale') process.exitCode = 3;
+    if (m.freshness === 'stale') process.exitCode = 8;
   });
 
 const trendCommand = new Command('trend')
@@ -316,10 +316,10 @@ const trendCommand = new Command('trend')
     const qs = new URLSearchParams(params).toString();
     const t = await api.get<BucketTrendResponse>(`/api/v1/storage/buckets/${bucket.id}/metrics/trend?${qs}`);
 
-    // Exit code 3 on stale data is set regardless of output format so
+    // Exit code 8 on stale data is set regardless of output format so
     // scripts/agents that pipe the output (csv/table) can still branch
     // on staleness without parsing the body.
-    if (t.freshness === 'stale') process.exitCode = 3;
+    if (t.freshness === 'stale') process.exitCode = 8;
 
     if (isJsonMode() || opts.format === 'json') {
       jsonOutput(t);
@@ -433,7 +433,7 @@ const topCommand = new Command('top')
 
     if (res.items.length === 0) {
       console.log(chalk.dim('No top-objects data available yet for this bucket/dimension.'));
-      process.exitCode = 3;
+      process.exitCode = 8;
       return;
     }
 
@@ -459,7 +459,7 @@ const healthCommand = new Command('health')
 
     if (isJsonMode()) {
       jsonOutput(h);
-      if (h.freshness === 'stale') process.exitCode = 3;
+      if (h.freshness === 'stale') process.exitCode = 8;
       return;
     }
 
@@ -484,7 +484,7 @@ const healthCommand = new Command('health')
       console.log(`${chalk.dim(label.padEnd(maxLabel))}  ${value}`);
     }
 
-    if (h.freshness === 'stale') process.exitCode = 3;
+    if (h.freshness === 'stale') process.exitCode = 8;
   });
 
 // Parent `metrics` command — default action runs the show subcommand so

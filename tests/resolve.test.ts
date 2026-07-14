@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { resolveResource } from '../src/lib/resolve.js';
+import { ResourceNotFoundError } from '../src/lib/errors.js';
 import type { ApiClient } from '../src/lib/api-client.js';
 
 const listOf = (items: unknown[], total = items.length) => ({
@@ -37,5 +38,18 @@ describe('resolveResource', () => {
   it('mentions truncation when not everything was searched', async () => {
     const api = apiWith([{ id: 'abc', name: 'x' }], 5000);
     await expect(resolveResource(api, '/api/v1/vps', 'VPS', 'nope')).rejects.toThrow(/of 5000/);
+  });
+
+  it('throws ResourceNotFoundError when nothing matches', async () => {
+    const api = apiWith([{ id: 'abc', name: 'x' }]);
+    await expect(resolveResource(api, '/api/v1/vps', 'VPS', 'nope')).rejects.toThrow(ResourceNotFoundError);
+    await expect(resolveResource(api, '/api/v1/vps', 'VPS', 'nope')).rejects.toThrow("VPS 'nope' not found.");
+  });
+
+  it('rejects an empty or whitespace-only name/ID without calling the API', async () => {
+    const api = apiWith([{ id: 'abc', name: 'x' }]);
+    await expect(resolveResource(api, '/api/v1/vps', 'VPS', '')).rejects.toThrow(/Empty name/);
+    await expect(resolveResource(api, '/api/v1/vps', 'VPS', '   ')).rejects.toThrow(/Empty name/);
+    expect(api.get).not.toHaveBeenCalled();
   });
 });

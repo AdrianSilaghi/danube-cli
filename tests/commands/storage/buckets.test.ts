@@ -68,6 +68,7 @@ describe('buckets command', () => {
       throw new ExitError(code);
     }) as never;
     Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+    process.exitCode = undefined;
     mockGet.mockReset();
     mockPost.mockReset();
     mockPut.mockReset();
@@ -80,6 +81,7 @@ describe('buckets command', () => {
   afterEach(() => {
     process.exit = originalExit;
     Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
+    process.exitCode = undefined;
     vi.restoreAllMocks();
   });
 
@@ -406,6 +408,80 @@ describe('buckets command', () => {
       expect(mockGet).toHaveBeenLastCalledWith('/api/v1/storage/buckets/bucket-1/metrics/health');
       const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
       expect(output).toContain('Pending multipart');
+    });
+
+    it('sets exit code 8 (not 3) when snapshot metrics are stale', async () => {
+      mockGet
+        .mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] })
+        .mockResolvedValueOnce({
+          size_bytes: 0, size_human: '0 B', object_count: 0,
+          requests_24h: null, requests_24h_by_method: null,
+          egress_bytes_24h: 0, egress_human_24h: '0 B',
+          monthly_cost_cents: 399, monthly_cost_dollars: '3.99',
+          last_sync_at: null, freshness: 'stale',
+        });
+
+      await bucketsCommand.parseAsync(['node', 'test', 'metrics', 'bucket-1']);
+
+      expect(process.exitCode).toBe(8);
+    });
+
+    it('sets exit code 8 (not 3) when trend data is stale', async () => {
+      mockGet
+        .mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] })
+        .mockResolvedValueOnce({
+          bucket_id: 'bucket-1', window: '24h', resolution: '1h', source: 'deltas',
+          freshness: 'stale', generated_at: '2024-01-01T00:00:00Z', data: [],
+        });
+
+      await bucketsCommand.parseAsync(['node', 'test', 'metrics', 'trend', 'bucket-1']);
+
+      expect(process.exitCode).toBe(8);
+    });
+
+    it('sets exit code 8 (not 3) when no top-objects data is available', async () => {
+      mockGet
+        .mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] })
+        .mockResolvedValueOnce({
+          bucket_id: 'bucket-1', dimension: 'size', recorded_at: null, items: [],
+        });
+
+      await bucketsCommand.parseAsync(['node', 'test', 'metrics', 'top', 'bucket-1']);
+
+      expect(process.exitCode).toBe(8);
+      const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
+      expect(output).toContain('No top-objects data available yet');
+    });
+
+    it('sets exit code 8 (not 3) when health data is stale in JSON mode', async () => {
+      const { setJsonMode } = await import('../../../src/lib/json-mode.js');
+      setJsonMode(true);
+      mockGet
+        .mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] })
+        .mockResolvedValueOnce({
+          bucket_id: 'bucket-1', pending_multipart_count: null, pending_multipart_bytes: null,
+          deleted_size_bytes: null, freshness: 'stale', metrics_precomputed_at: null,
+          last_health_check_at: null, health_check_status: 'ok',
+        });
+
+      await bucketsCommand.parseAsync(['node', 'test', 'metrics', 'health', 'bucket-1']);
+
+      expect(process.exitCode).toBe(8);
+      setJsonMode(false);
+    });
+
+    it('sets exit code 8 (not 3) when health data is stale in human mode', async () => {
+      mockGet
+        .mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] })
+        .mockResolvedValueOnce({
+          bucket_id: 'bucket-1', pending_multipart_count: null, pending_multipart_bytes: null,
+          deleted_size_bytes: null, freshness: 'stale', metrics_precomputed_at: null,
+          last_health_check_at: null, health_check_status: 'ok',
+        });
+
+      await bucketsCommand.parseAsync(['node', 'test', 'metrics', 'health', 'bucket-1']);
+
+      expect(process.exitCode).toBe(8);
     });
   });
 });

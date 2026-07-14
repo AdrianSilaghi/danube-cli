@@ -156,6 +156,19 @@ describe('cache snapshots', () => {
       await snapshotsCommand.parseAsync(['node', 'test', 'restore', 'snap-1', '--force']);
       expect(mockConfirm).not.toHaveBeenCalled();
     });
+
+    it('refuses JSON-mode restore without --force', async () => {
+      const { setJsonMode } = await import('../../../src/lib/json-mode.js');
+      setJsonMode(true);
+      try {
+        await expect(
+          snapshotsCommand.parseAsync(['node', 'test', 'restore', 'snap-1']),
+        ).rejects.toThrow(/without --force/);
+        expect(mockPost).not.toHaveBeenCalled();
+      } finally {
+        setJsonMode(false);
+      }
+    });
   });
 
   describe('clone', () => {

@@ -36,3 +36,10 @@ export class ConfirmationRequiredError extends Error {
     this.name = 'ConfirmationRequiredError';
   }
 }
+
+export class ResourceNotFoundError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ResourceNotFoundError';
+  }
+}

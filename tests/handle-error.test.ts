@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { handleError } from '../src/lib/handle-error.js';
 import { setJsonMode } from '../src/lib/json-mode.js';
-import { NotAuthenticatedError, ApiError, MissingFlagsError, ConfirmationRequiredError } from '../src/lib/errors.js';
+import { NotAuthenticatedError, ApiError, MissingFlagsError, ConfirmationRequiredError, ResourceNotFoundError } from '../src/lib/errors.js';
 
 class ExitError extends Error {
   constructor(public code: number) { super(`exit(${code})`); }
@@ -47,6 +47,17 @@ describe('handleError', () => {
 
   it('exits 5 on ConfirmationRequiredError', () => {
     expect(exitCodeOf(new ConfirmationRequiredError('VPS vps-1'))).toBe(5);
+  });
+
+  it('exits 4 on ResourceNotFoundError', () => {
+    expect(exitCodeOf(new ResourceNotFoundError("VPS 'x' not found."))).toBe(4);
+  });
+
+  it('emits code "not_found" for ResourceNotFoundError in JSON mode', () => {
+    setJsonMode(true);
+    expect(exitCodeOf(new ResourceNotFoundError("VPS 'x' not found."))).toBe(4);
+    const payload = JSON.parse((errorSpy.mock.calls.at(-1)![0]) as string);
+    expect(payload).toMatchObject({ code: 'not_found', message: "VPS 'x' not found." });
   });
 
   it('exits 130 with "Cancelled." on aborted prompt', () => {

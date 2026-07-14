@@ -74,7 +74,7 @@ program.addCommand(serverlessCommand);
 
 // Graceful SIGINT fallback — clean exit when Ctrl+C is pressed outside polling loops
 process.on('SIGINT', () => {
-  console.log('');
+  if (!isJsonMode()) console.log('');
   process.exit(130);
 });
 

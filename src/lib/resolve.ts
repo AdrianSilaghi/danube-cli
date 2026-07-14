@@ -1,5 +1,6 @@
 import type { ApiClient } from './api-client.js';
 import { fetchAllPages } from './paginate.js';
+import { ResourceNotFoundError } from './errors.js';
 
 export interface ResolvableResource {
   id: string;
@@ -13,6 +14,10 @@ export async function resolveResource<T extends ResolvableResource>(
   kind: string,
   nameOrId: string,
 ): Promise<T> {
+  if (!nameOrId.trim()) {
+    throw new Error('Empty name or ID given. Provide a resource name, slug, or ID.');
+  }
+
   const { items, total } = await fetchAllPages<T>(api, listPath);
 
   const matches = items.filter(
@@ -23,7 +28,7 @@ export async function resolveResource<T extends ResolvableResource>(
     const suffix = total > items.length
       ? ` Note: only ${items.length} of ${total} were searched. Try the full ID.`
       : '';
-    throw new Error(`${kind} '${nameOrId}' not found.${suffix}`);
+    throw new ResourceNotFoundError(`${kind} '${nameOrId}' not found.${suffix}`);
   }
 
   if (matches.length > 1) {

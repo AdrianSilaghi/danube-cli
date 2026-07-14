@@ -56,7 +56,7 @@ danube pages deploy
 Pass `--json` (any position) for machine-readable output. In JSON mode the CLI never prompts:
 missing required flags fail with `{"code":"missing_required_flag","flags":[...]}` (exit 2) and
 destructive commands require `--force`/`--yes` or fail with `{"code":"confirmation_required"}` (exit 5).
-Errors are single-line JSON on stderr; results are JSON on stdout. (A few inline flag-value
+Errors are single-line JSON on stderr; results are JSON on stdout. (Some inline
 validation errors still print plain text; they always exit non-zero.) List commands return the
 complete collection (all pages).
 
@@ -70,6 +70,7 @@ complete collection (all pages).
 | 3 | Not authenticated |
 | 4 | Resource not found |
 | 5 | Confirmation required (add `--force`) |
+| 8 | Bucket metrics stale or unavailable |
 | 130 | Cancelled (Ctrl+C) |
 
 ## Commands
@@ -285,6 +286,22 @@ danube pages deploy              # Deploy current directory
 danube pages deploy --dir dist   # Deploy a specific directory
 danube pages deploy --no-wait    # Don't wait for build
 ```
+
+### Rapids Containers (`danube rapids`)
+
+Knative-based serverless containers with scale-to-zero.
+
+| Command | Description |
+|---|---|
+| `danube rapids ls` | List serverless containers |
+| `danube rapids get <name-or-id>` | Show serverless container details |
+| `danube rapids create` | Create a new serverless container |
+| `danube rapids deploy <name-or-id>` | Deploy a serverless container from local directory |
+| `danube rapids redeploy <name-or-id>` | Redeploy a container with its current image (rolls out a new zero-downtime revision) |
+| `danube rapids update <name-or-id>` | Update a serverless container |
+| `danube rapids rm <name-or-id>` | Delete a serverless container |
+| `danube rapids deployments <name-or-id>` | List deployments for a serverless container |
+| `danube rapids usage <name-or-id>` | Show usage and billing for a serverless container |
 
 ## Configuration
 

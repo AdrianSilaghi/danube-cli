@@ -1,5 +1,5 @@
 import chalk from 'chalk';
-import { NotAuthenticatedError, NotLinkedError, ApiError, MissingFlagsError, ConfirmationRequiredError } from './errors.js';
+import { NotAuthenticatedError, NotLinkedError, ApiError, MissingFlagsError, ConfirmationRequiredError, ResourceNotFoundError } from './errors.js';
 import { isJsonMode, jsonError } from './json-mode.js';
 
 export function handleError(err: unknown): never {
@@ -27,6 +27,10 @@ export function handleError(err: unknown): never {
       jsonError({ code: 'confirmation_required', message: err.message });
       process.exit(5);
     }
+    if (err instanceof ResourceNotFoundError) {
+      jsonError({ code: 'not_found', message: err.message });
+      process.exit(4);
+    }
     if (err instanceof ApiError) {
       jsonError({ code: 'api_error', message: err.message, status: err.statusCode, ...(err.errors && { errors: err.errors }) });
       process.exit(err.statusCode === 404 ? 4 : 1);
@@ -50,6 +54,10 @@ export function handleError(err: unknown): never {
   if (err instanceof ConfirmationRequiredError) {
     console.error(chalk.red(err.message));
     process.exit(5);
+  }
+  if (err instanceof ResourceNotFoundError) {
+    console.error(chalk.red(err.message));
+    process.exit(4);
   }
   if (err instanceof ApiError) {
     console.error(chalk.red(`API Error (${err.statusCode}): ${err.message}`));

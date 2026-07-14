@@ -80,6 +80,20 @@ describe('vps actions', () => {
     expect(mockPost).toHaveBeenCalledWith('/api/v1/vps/vps-1/reinstall', { image: 'debian-12' });
   });
 
+  it('refuses JSON-mode reinstall without --force', async () => {
+    const { setJsonMode } = await import('../../../src/lib/json-mode.js');
+    setJsonMode(true);
+    try {
+      mockGet.mockResolvedValueOnce(listResponse());
+      await expect(
+        reinstallCommand.parseAsync(['node', 'test', 'vps-1', '--image', 'debian-12']),
+      ).rejects.toThrow(/without --force/);
+      expect(mockPost).not.toHaveBeenCalled();
+    } finally {
+      setJsonMode(false);
+    }
+  });
+
   it('cancels reinstall when user declines', async () => {
     mockGet
       .mockResolvedValueOnce(listResponse())
