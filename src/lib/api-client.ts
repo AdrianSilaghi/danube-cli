@@ -73,7 +73,7 @@ export class ApiClient {
       if (err instanceof TypeError && err.message === 'fetch failed') {
         const cause = (err as { cause?: { code?: string; message?: string } }).cause;
         const detail = cause?.code ?? cause?.message ?? 'network error';
-        throw new Error(`Could not reach ${url} (${detail}). Check your connection and DANUBE_API_BASE.`);
+        throw new Error(`Could not reach ${method} ${url} (${detail}). Check your connection and DANUBE_API_BASE.`);
       }
       throw err;
     } finally {

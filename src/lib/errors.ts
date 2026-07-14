@@ -32,7 +32,7 @@ export class MissingFlagsError extends Error {
 
 export class ConfirmationRequiredError extends Error {
   constructor(what: string) {
-    super(`Refusing to delete ${what} without --force in non-interactive mode.`);
+    super(`Refusing to proceed with ${what} without --force in non-interactive mode.`);
     this.name = 'ConfirmationRequiredError';
   }
 }

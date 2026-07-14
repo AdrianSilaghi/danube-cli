@@ -255,7 +255,8 @@ describe('ApiClient', () => {
     globalThis.fetch = vi.fn().mockRejectedValue(Object.assign(new TypeError('fetch failed'), { cause }));
 
     const client = new ApiClient('tok', 'http://127.0.0.1:9');
-    await expect(client.get('/api/v1/vps')).rejects.toThrow(/ECONNREFUSED/);
-    await expect(client.get('/api/v1/vps')).rejects.toThrow(/127\.0\.0\.1:9/);
+    await expect(client.get('/api/v1/vps')).rejects.toThrow(
+      /GET http:\/\/127\.0\.0\.1:9\/api\/v1\/vps \(ECONNREFUSED\)/,
+    );
   });
 });
