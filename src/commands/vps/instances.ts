@@ -4,6 +4,7 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { input, select, password as passwordPrompt, confirm } from '@inquirer/prompts';
 import { ApiClient } from '../../lib/api-client.js';
+import { fetchAllPages } from '../../lib/paginate.js';
 import { formatTable, statusColor, formatDate } from '../../lib/output.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import type {
@@ -11,7 +12,6 @@ import type {
   VpsConnectionInfo,
   VpsImage,
   VpsImageGroup,
-  PaginatedResponse,
 } from '../../types/api.js';
 
 function generatePassword(length = 24): string {
@@ -24,19 +24,19 @@ export const lsCommand = new Command('ls')
   .description('List all VPS instances')
   .action(async () => {
     const api = await ApiClient.create();
-    const res = await api.get<PaginatedResponse<VpsInstance>>('/api/v1/vps');
+    const { items, total, truncated } = await fetchAllPages<VpsInstance>(api, '/api/v1/vps');
 
     if (isJsonMode()) {
-      jsonOutput(res.data);
+      jsonOutput(items);
       return;
     }
 
-    if (res.data.length === 0) {
+    if (items.length === 0) {
       console.log('No VPS instances found.');
       return;
     }
 
-    const rows = res.data.map(v => [
+    const rows = items.map(v => [
       v.id,
       v.name,
       statusColor(v.status),
@@ -53,6 +53,10 @@ export const lsCommand = new Command('ls')
       ['ID', 'NAME', 'STATUS', 'IP', 'PLAN', 'CPU', 'RAM', 'DISK', 'COST/MO', 'CREATED'],
       rows,
     ));
+
+    if (truncated) {
+      console.log(chalk.dim(`Showing ${items.length} of ${total}. Refine with the web console for the full list.`));
+    }
   });
 
 export const createCommand = new Command('create')

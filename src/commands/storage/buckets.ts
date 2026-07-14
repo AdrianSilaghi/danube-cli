@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { input, select, confirm } from '@inquirer/prompts';
 import { ApiClient } from '../../lib/api-client.js';
+import { fetchAllPages } from '../../lib/paginate.js';
 import { formatTable, statusColor, formatBytes, formatDate, formatNumber, formatRelativeTime } from '../../lib/output.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import type {
@@ -11,7 +12,6 @@ import type {
   BucketTrendResponse,
   BucketTopObjectsResponse,
   BucketHealthResponse,
-  PaginatedResponse,
   MessageWithDataResponse,
   MessageResponse,
 } from '../../types/api.js';
@@ -49,19 +49,19 @@ const lsCommand = new Command('ls')
   .description('List all buckets')
   .action(async () => {
     const api = await ApiClient.create();
-    const res = await api.get<PaginatedResponse<StorageBucket>>('/api/v1/storage/buckets');
+    const { items, total, truncated } = await fetchAllPages<StorageBucket>(api, '/api/v1/storage/buckets');
 
     if (isJsonMode()) {
-      jsonOutput(res.data);
+      jsonOutput(items);
       return;
     }
 
-    if (res.data.length === 0) {
+    if (items.length === 0) {
       console.log('No buckets found.');
       return;
     }
 
-    const rows = res.data.map(b => [
+    const rows = items.map(b => [
       b.id,
       b.minio_bucket_name ?? b.name,
       b.name,
@@ -73,6 +73,10 @@ const lsCommand = new Command('ls')
     ]);
 
     console.log(formatTable(['ID', 'BUCKET', 'NAME', 'STATUS', 'REGION', 'SIZE', 'OBJECTS', 'CREATED'], rows));
+
+    if (truncated) {
+      console.log(chalk.dim(`Showing ${items.length} of ${total}. Refine with the web console for the full list.`));
+    }
   });
 
 const createCommand = new Command('create')

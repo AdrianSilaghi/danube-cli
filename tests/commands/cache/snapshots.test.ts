@@ -79,6 +79,18 @@ describe('cache snapshots', () => {
       await snapshotsCommand.parseAsync(['node', 'test', 'ls']);
       expect(consoleLogSpy).toHaveBeenCalledWith('No cache snapshots found.');
     });
+
+    it('truncation note reflects the unfiltered total, not the --instance-filtered subset', async () => {
+      mockGet.mockResolvedValue({
+        data: [makeSnapshot(), makeSnapshot({ id: 'snap-2', cache_instance_id: 'other', cache_instance: { id: 'other', name: 'other' } })],
+        pagination: { current_page: 1, last_page: 1, per_page: 100, total: 50 },
+      });
+      await snapshotsCommand.parseAsync(['node', 'test', 'ls', '--instance', 'cache-1']);
+      const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
+      expect(output).toContain('snap-1');
+      expect(output).not.toContain('snap-2');
+      expect(output).toContain('Showing 2 of 50');
+    });
   });
 
   describe('create', () => {

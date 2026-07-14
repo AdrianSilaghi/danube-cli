@@ -3,9 +3,10 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { input, select, confirm } from '@inquirer/prompts';
 import { ApiClient } from '../../lib/api-client.js';
+import { fetchAllPages } from '../../lib/paginate.js';
 import { formatTable, statusColor, formatDate } from '../../lib/output.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
-import type { CacheInstance, CacheProvider, PaginatedResponse } from '../../types/api.js';
+import type { CacheInstance, CacheProvider } from '../../types/api.js';
 
 const CACHE_PLANS: Array<{ name: string; value: string }> = [
   { name: 'micro  — 0.25 GB RAM, 1 vCPU  — starter', value: 'micro' },
@@ -21,19 +22,19 @@ export const lsCommand = new Command('ls')
   .description('List all cache instances')
   .action(async () => {
     const api = await ApiClient.create();
-    const res = await api.get<PaginatedResponse<CacheInstance>>('/api/v1/cache');
+    const { items, total, truncated } = await fetchAllPages<CacheInstance>(api, '/api/v1/cache');
 
     if (isJsonMode()) {
-      jsonOutput(res.data);
+      jsonOutput(items);
       return;
     }
 
-    if (res.data.length === 0) {
+    if (items.length === 0) {
       console.log('No cache instances found.');
       return;
     }
 
-    const rows = res.data.map(c => [
+    const rows = items.map(c => [
       c.id,
       c.name,
       c.provider?.type ?? '-',
@@ -49,6 +50,10 @@ export const lsCommand = new Command('ls')
       ['ID', 'NAME', 'PROVIDER', 'STATUS', 'PROFILE', 'MEMORY', 'ENDPOINT', 'COST/MO', 'CREATED'],
       rows,
     ));
+
+    if (truncated) {
+      console.log(chalk.dim(`Showing ${items.length} of ${total}. Refine with the web console for the full list.`));
+    }
   });
 
 export const createCommand = new Command('create')

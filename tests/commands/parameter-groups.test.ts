@@ -61,7 +61,7 @@ describe('parameter-groups command', () => {
     it('lists groups with optional filters', async () => {
       mockGet.mockResolvedValue({ data: [makeGroup(), makeGroup({ id: 2, name: 'sys', is_system: true })] });
       await parameterGroupsCommand.parseAsync(['node', 'test', 'ls', '--type', 'cache', '--provider', 'redis']);
-      expect(mockGet).toHaveBeenCalledWith('/api/v1/parameter-groups?type=cache&provider_type=redis');
+      expect(mockGet).toHaveBeenCalledWith('/api/v1/parameter-groups?type=cache&provider_type=redis&per_page=100&page=1');
       const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
       expect(output).toContain('my-group');
       expect(output).toContain('sys');
@@ -70,6 +70,17 @@ describe('parameter-groups command', () => {
     it('rejects invalid --type', async () => {
       await expect(parameterGroupsCommand.parseAsync(['node', 'test', 'ls', '--type', 'bogus']))
         .rejects.toThrow(ExitError);
+    });
+
+    it('shows a truncation note alongside an existing query filter', async () => {
+      mockGet.mockResolvedValue({
+        data: [makeGroup()],
+        pagination: { current_page: 1, last_page: 1, per_page: 100, total: 30 },
+      });
+      await parameterGroupsCommand.parseAsync(['node', 'test', 'ls', '--type', 'cache']);
+      expect(mockGet).toHaveBeenCalledWith('/api/v1/parameter-groups?type=cache&per_page=100&page=1');
+      const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
+      expect(output).toContain('Showing 1 of 30');
     });
   });
 

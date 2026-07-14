@@ -76,6 +76,17 @@ describe('vps instances', () => {
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('NAME'));
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('my-vps'));
     });
+
+    it('fetches every page and shows a truncation note when capped', async () => {
+      mockGet.mockResolvedValue({
+        data: [makeVps()],
+        pagination: { current_page: 1, last_page: 1, per_page: 100, total: 250 },
+      });
+      await lsCommand.parseAsync(['node', 'test']);
+      expect(mockGet).toHaveBeenCalledWith('/api/v1/vps?per_page=100&page=1');
+      const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
+      expect(output).toContain('Showing 1 of 250');
+    });
   });
 
   describe('create', () => {

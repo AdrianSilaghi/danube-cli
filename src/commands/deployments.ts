@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
 import { ApiClient } from '../lib/api-client.js';
+import { fetchAllPages } from '../lib/paginate.js';
 import { readProjectConfig } from '../lib/project.js';
 import { NotLinkedError } from '../lib/errors.js';
 import { formatTable, statusColor, formatDate } from '../lib/output.js';
@@ -49,12 +50,13 @@ const rollbackCommand = new Command('rollback')
 
     const api = await ApiClient.create();
 
-    // Find deployment by revision (high per_page to avoid pagination issues)
-    const deploymentsRes = await api.get<PaginatedResponse<StaticSiteDeployment>>(
-      `/api/v1/static-sites/${project.siteId}/deployments?per_page=200`,
+    // Find deployment by revision (walks every page — no truncation)
+    const { items } = await fetchAllPages<StaticSiteDeployment>(
+      api,
+      `/api/v1/static-sites/${project.siteId}/deployments`,
     );
 
-    const deployment = deploymentsRes.data.find(d => d.revision_number === Number(revision));
+    const deployment = items.find(d => d.revision_number === Number(revision));
     if (!deployment) {
       console.error(chalk.red(`Deployment revision ${revision} not found.`));
       process.exit(1);

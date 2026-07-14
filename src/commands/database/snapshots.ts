@@ -3,20 +3,21 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { confirm } from '@inquirer/prompts';
 import { ApiClient } from '../../lib/api-client.js';
+import { fetchAllPages } from '../../lib/paginate.js';
 import { formatTable, statusColor, formatDate } from '../../lib/output.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
-import type { DatabaseSnapshot, DatabaseInstance, PaginatedResponse } from '../../types/api.js';
+import type { DatabaseSnapshot, DatabaseInstance } from '../../types/api.js';
 
 const lsCommand = new Command('ls')
   .description('List database snapshots')
   .option('--instance <id>', 'Filter by database instance ID')
   .action(async (opts: { instance?: string }) => {
     const api = await ApiClient.create();
-    const res = await api.get<PaginatedResponse<DatabaseSnapshot>>('/api/v1/snapshots/database');
+    const { items, total, truncated } = await fetchAllPages<DatabaseSnapshot>(api, '/api/v1/snapshots/database');
 
     const rows = opts.instance
-      ? res.data.filter(s => s.database_instance_id === opts.instance)
-      : res.data;
+      ? items.filter(s => s.database_instance_id === opts.instance)
+      : items;
 
     if (isJsonMode()) {
       jsonOutput(rows);
@@ -39,6 +40,10 @@ const lsCommand = new Command('ls')
         formatDate(s.created_at),
       ]),
     ));
+
+    if (truncated) {
+      console.log(chalk.dim(`Showing ${items.length} of ${total}. Refine with the web console for the full list.`));
+    }
   });
 
 const createCommand = new Command('create')

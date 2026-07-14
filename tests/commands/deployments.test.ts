@@ -117,5 +117,26 @@ describe('deployments command', () => {
 
       expect(mockPost).toHaveBeenCalledWith('/api/v1/static-sites/1/deployments/5/activate');
     });
+
+    it('walks multiple pages to find a revision beyond the first page', async () => {
+      mockReadProjectConfig.mockResolvedValue({ siteId: 1, teamId: 1, siteName: 'test' });
+      mockGet
+        .mockResolvedValueOnce({
+          data: [{ id: 1, revision_number: 3 }],
+          pagination: { current_page: 1, last_page: 2, per_page: 100, total: 2 },
+        })
+        .mockResolvedValueOnce({
+          data: [{ id: 2, revision_number: 2 }],
+          pagination: { current_page: 2, last_page: 2, per_page: 100, total: 2 },
+        });
+      mockPost.mockResolvedValue({ message: 'Activated' });
+
+      await deploymentsCommand.parseAsync(['node', 'test', 'rollback', '2']);
+
+      expect(mockGet).toHaveBeenCalledTimes(2);
+      expect(mockGet).toHaveBeenNthCalledWith(1, '/api/v1/static-sites/1/deployments?per_page=100&page=1');
+      expect(mockGet).toHaveBeenNthCalledWith(2, '/api/v1/static-sites/1/deployments?per_page=100&page=2');
+      expect(mockPost).toHaveBeenCalledWith('/api/v1/static-sites/1/deployments/2/activate');
+    });
   });
 });

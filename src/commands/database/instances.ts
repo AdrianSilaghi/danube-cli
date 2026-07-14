@@ -3,9 +3,10 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { input, select, confirm } from '@inquirer/prompts';
 import { ApiClient } from '../../lib/api-client.js';
+import { fetchAllPages } from '../../lib/paginate.js';
 import { formatTable, statusColor, formatDate } from '../../lib/output.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
-import type { DatabaseInstance, DatabaseProvider, PaginatedResponse } from '../../types/api.js';
+import type { DatabaseInstance, DatabaseProvider } from '../../types/api.js';
 
 const DATABASE_PLANS: Array<{ name: string; value: string }> = [
   { name: 'micro  — starter', value: 'micro' },
@@ -21,19 +22,19 @@ export const lsCommand = new Command('ls')
   .description('List all database instances')
   .action(async () => {
     const api = await ApiClient.create();
-    const res = await api.get<PaginatedResponse<DatabaseInstance>>('/api/v1/database');
+    const { items, total, truncated } = await fetchAllPages<DatabaseInstance>(api, '/api/v1/database');
 
     if (isJsonMode()) {
-      jsonOutput(res.data);
+      jsonOutput(items);
       return;
     }
 
-    if (res.data.length === 0) {
+    if (items.length === 0) {
       console.log('No database instances found.');
       return;
     }
 
-    const rows = res.data.map(d => [
+    const rows = items.map(d => [
       d.id,
       d.name,
       d.provider?.type ?? '-',
@@ -50,6 +51,10 @@ export const lsCommand = new Command('ls')
       ['ID', 'NAME', 'ENGINE', 'STATUS', 'PROFILE', 'MEMORY', 'STORAGE', 'ENDPOINT', 'COST/MO', 'CREATED'],
       rows,
     ));
+
+    if (truncated) {
+      console.log(chalk.dim(`Showing ${items.length} of ${total}. Refine with the web console for the full list.`));
+    }
   });
 
 export const createCommand = new Command('create')

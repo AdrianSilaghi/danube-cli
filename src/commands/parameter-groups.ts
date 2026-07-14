@@ -4,9 +4,10 @@ import ora from 'ora';
 import { confirm } from '@inquirer/prompts';
 import fs from 'node:fs';
 import { ApiClient } from '../lib/api-client.js';
+import { fetchAllPages } from '../lib/paginate.js';
 import { formatTable, formatDate } from '../lib/output.js';
 import { isJsonMode, jsonOutput } from '../lib/json-mode.js';
-import type { ParameterGroup, ParameterGroupType, PaginatedResponse } from '../types/api.js';
+import type { ParameterGroup, ParameterGroupType } from '../types/api.js';
 
 const VALID_TYPES: ParameterGroupType[] = ['cache', 'database', 'queue'];
 
@@ -49,21 +50,24 @@ const lsCommand = new Command('ls')
     const query = params.toString();
 
     const api = await ApiClient.create();
-    const res = await api.get<PaginatedResponse<ParameterGroup>>(`/api/v1/parameter-groups${query ? `?${query}` : ''}`);
+    const { items, total, truncated } = await fetchAllPages<ParameterGroup>(
+      api,
+      `/api/v1/parameter-groups${query ? `?${query}` : ''}`,
+    );
 
     if (isJsonMode()) {
-      jsonOutput(res.data);
+      jsonOutput(items);
       return;
     }
 
-    if (res.data.length === 0) {
+    if (items.length === 0) {
       console.log('No parameter groups found.');
       return;
     }
 
     console.log(formatTable(
       ['ID', 'NAME', 'TYPE', 'PROVIDER', 'SYSTEM', 'DEFAULT', 'CREATED'],
-      res.data.map(g => [
+      items.map(g => [
         String(g.id),
         g.name,
         g.type,
@@ -73,6 +77,10 @@ const lsCommand = new Command('ls')
         g.created_at ? formatDate(g.created_at) : '-',
       ]),
     ));
+
+    if (truncated) {
+      console.log(chalk.dim(`Showing ${items.length} of ${total}. Refine with the web console for the full list.`));
+    }
   });
 
 const createCommand = new Command('create')
