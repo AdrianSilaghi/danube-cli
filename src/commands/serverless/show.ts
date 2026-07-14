@@ -6,7 +6,8 @@ import { resolveContainer } from './resolve.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import type { ServerlessShowResponse } from '../../types/api.js';
 
-export const showCommand = new Command('show')
+export const showCommand = new Command('get')
+  .alias('show')
   .description('Show serverless container details')
   .argument('<name-or-id>', 'Container name or ID')
   .action(async (nameOrId: string) => {

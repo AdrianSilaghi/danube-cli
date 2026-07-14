@@ -94,4 +94,9 @@ describe('serverless show command', () => {
     expect(printed).toMatchObject({ url: 'https://x', monthly_cost: 1.5 });
     setJsonMode(false);
   });
+
+  it('is invocable as `get`', () => {
+    expect(showCommand.name()).toBe('get');
+    expect(showCommand.aliases()).toContain('show');
+  });
 });

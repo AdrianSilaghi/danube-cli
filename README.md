@@ -53,6 +53,8 @@ danube pages deploy
 
 ## Commands
 
+`show` and `delete` remain accepted aliases of `get` and `rm` everywhere.
+
 ### General
 
 | Command | Description |
@@ -68,16 +70,16 @@ danube pages deploy
 |---|---|
 | `danube vps ls` | List all VPS instances |
 | `danube vps create` | Create a new VPS (interactive or flags) |
-| `danube vps get <id>` | Show VPS details and connection info |
-| `danube vps update <id>` | Update VPS config (must be stopped) |
-| `danube vps delete <id>` | Delete a VPS instance |
-| `danube vps start <id>` | Start a stopped VPS |
-| `danube vps stop <id>` | Stop a running VPS |
-| `danube vps reboot <id>` | Reboot a running VPS |
-| `danube vps reinstall <id>` | Reinstall OS (destroys all data) |
-| `danube vps status <id>` | Show current status and capabilities |
-| `danube vps metrics <id>` | Show CPU/memory/storage/network usage |
-| `danube vps password <id>` | Show SSH password (with confirmation) |
+| `danube vps get <name-or-id>` | Show VPS details and connection info |
+| `danube vps update <name-or-id>` | Update VPS config (must be stopped) |
+| `danube vps rm <name-or-id>` | Delete a VPS instance |
+| `danube vps start <name-or-id>` | Start a stopped VPS |
+| `danube vps stop <name-or-id>` | Stop a running VPS |
+| `danube vps reboot <name-or-id>` | Reboot a running VPS |
+| `danube vps reinstall <name-or-id>` | Reinstall OS (destroys all data) |
+| `danube vps status <name-or-id>` | Show current status and capabilities |
+| `danube vps metrics <name-or-id>` | Show CPU/memory/storage/network usage |
+| `danube vps password <name-or-id>` | Show SSH password (with confirmation) |
 | `danube vps images` | List available OS images |
 
 #### Create a VPS
@@ -97,9 +99,9 @@ danube vps create \
 #### Power management
 
 ```bash
-danube vps stop <id>
-danube vps start <id>
-danube vps reboot <id>
+danube vps stop <name-or-id>
+danube vps start <name-or-id>
+danube vps reboot <name-or-id>
 ```
 
 ### Object Storage (`danube storage`)
@@ -108,10 +110,10 @@ danube vps reboot <id>
 |---|---|
 | `danube storage buckets ls` | List all buckets |
 | `danube storage buckets create` | Create a new bucket |
-| `danube storage buckets get <id>` | Show bucket details |
-| `danube storage buckets update <id>` | Update bucket settings |
-| `danube storage buckets delete <id>` | Delete a bucket |
-| `danube storage buckets metrics <id>` | Show bucket metrics |
+| `danube storage buckets get <name-or-id>` | Show bucket details |
+| `danube storage buckets update <name-or-id>` | Update bucket settings |
+| `danube storage buckets rm <name-or-id>` | Delete a bucket |
+| `danube storage buckets metrics <name-or-id>` | Show bucket metrics |
 | `danube storage keys ls` | List all access keys |
 | `danube storage keys create` | Create a new access key |
 | `danube storage keys get <id>` | Show access key details |
@@ -130,8 +132,8 @@ danube storage buckets create --name my-bucket --region fsn1 --versioning
 #### Update bucket settings
 
 ```bash
-danube storage buckets update <id> --size-limit 10GB --encryption
-danube storage buckets update <id> --public --display-name "My Assets"
+danube storage buckets update <name-or-id> --size-limit 10GB --encryption
+danube storage buckets update <name-or-id> --public --display-name "My Assets"
 ```
 
 #### Manage access keys
@@ -150,17 +152,17 @@ Managed Redis / Valkey / Dragonfly in-memory stores.
 |---|---|
 | `danube cache ls` | List all cache instances |
 | `danube cache create` | Create a new cache (interactive or flags) |
-| `danube cache get <id>` | Show cache details |
-| `danube cache update <id>` | Update resource profile or name |
-| `danube cache rm <id>` | Delete a cache instance |
-| `danube cache start <id>` | Start a stopped cache |
-| `danube cache stop <id>` | Stop a running cache |
-| `danube cache connection-info <id>` | Show connection URL and password |
-| `danube cache metrics <id>` | Show memory, connections, hit ratio, and health |
-| `danube cache dns enable <id>` | Enable public DNS |
-| `danube cache dns disable <id>` | Disable public DNS |
-| `danube cache snapshots ls` | List snapshots (optional `--instance <id>`) |
-| `danube cache snapshots create <instance-id> --name <name>` | Create a snapshot |
+| `danube cache get <name-or-id>` | Show cache details |
+| `danube cache update <name-or-id>` | Update resource profile or name |
+| `danube cache rm <name-or-id>` | Delete a cache instance |
+| `danube cache start <name-or-id>` | Start a stopped cache |
+| `danube cache stop <name-or-id>` | Stop a running cache |
+| `danube cache connection-info <name-or-id>` | Show connection URL and password |
+| `danube cache metrics <name-or-id>` | Show memory, connections, hit ratio, and health |
+| `danube cache dns enable <name-or-id>` | Enable public DNS |
+| `danube cache dns disable <name-or-id>` | Disable public DNS |
+| `danube cache snapshots ls` | List snapshots (optional `--instance <name-or-id>`) |
+| `danube cache snapshots create <name-or-id> --name <name>` | Create a snapshot |
 | `danube cache snapshots restore <snapshot-id>` | Restore into source instance |
 | `danube cache snapshots clone <snapshot-id> --name <new>` | Clone into a new instance |
 | `danube cache snapshots rm <snapshot-id>` | Delete a snapshot |
@@ -175,7 +177,7 @@ danube cache create
 danube cache create --name my-cache --provider redis --datacenter fsn1 --profile small
 ```
 
-### Database Instances (`danube database`)
+### Database Instances (`danube database` / `danube db`)
 
 Managed MySQL / PostgreSQL / MariaDB with read-replica support.
 
@@ -183,21 +185,21 @@ Managed MySQL / PostgreSQL / MariaDB with read-replica support.
 |---|---|
 | `danube database ls` | List all database instances |
 | `danube database create` | Create a new database (interactive or flags) |
-| `danube database get <id>` | Show database details |
-| `danube database update <id>` | Update resource profile or name |
-| `danube database rm <id>` | Delete a database instance |
-| `danube database start <id>` | Start a stopped database |
-| `danube database stop <id>` | Stop a running database |
-| `danube database credentials <id>` | Show connection URL, username, and password |
-| `danube database metrics <id>` | Show memory, connections, query throughput, and health |
-| `danube database dns enable <id>` | Enable public DNS |
-| `danube database dns disable <id>` | Disable public DNS |
-| `danube database replicas ls <instance-id>` | List read replicas |
-| `danube database replicas add <instance-id> --count <n>` | Add one or more replicas |
-| `danube database replicas rm <instance-id> <index>` | Remove replica by index |
-| `danube database replicas status <instance-id>` | Show per-replica replication lag |
-| `danube database snapshots ls` | List snapshots (optional `--instance <id>`) |
-| `danube database snapshots create <instance-id> --name <name>` | Create a snapshot |
+| `danube database get <name-or-id>` | Show database details |
+| `danube database update <name-or-id>` | Update resource profile or name |
+| `danube database rm <name-or-id>` | Delete a database instance |
+| `danube database start <name-or-id>` | Start a stopped database |
+| `danube database stop <name-or-id>` | Stop a running database |
+| `danube database credentials <name-or-id>` | Show connection URL, username, and password |
+| `danube database metrics <name-or-id>` | Show memory, connections, query throughput, and health |
+| `danube database dns enable <name-or-id>` | Enable public DNS |
+| `danube database dns disable <name-or-id>` | Disable public DNS |
+| `danube database replicas ls <name-or-id>` | List read replicas |
+| `danube database replicas add <name-or-id> --count <n>` | Add one or more replicas |
+| `danube database replicas rm <name-or-id> <index>` | Remove replica by index |
+| `danube database replicas status <name-or-id>` | Show per-replica replication lag |
+| `danube database snapshots ls` | List snapshots (optional `--instance <name-or-id>`) |
+| `danube database snapshots create <name-or-id> --name <name>` | Create a snapshot |
 | `danube database snapshots restore <snapshot-id>` | Restore into source instance |
 | `danube database snapshots clone <snapshot-id> --name <new> [--database-name <db>]` | Clone into a new instance |
 | `danube database snapshots rm <snapshot-id>` | Delete a snapshot |

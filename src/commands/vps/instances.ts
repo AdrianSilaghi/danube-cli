@@ -270,7 +270,8 @@ export const updateCommand = new Command('update')
     spinner!.succeed(`Updated VPS ${chalk.bold(res.instance.name)}`);
   });
 
-export const deleteCommand = new Command('delete')
+export const deleteCommand = new Command('rm')
+  .alias('delete')
   .description('Delete a VPS instance')
   .argument('<name-or-id>', 'VPS name or ID')
   .option('-f, --force', 'Skip confirmation')

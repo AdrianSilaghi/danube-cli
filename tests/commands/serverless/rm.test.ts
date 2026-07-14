@@ -102,4 +102,9 @@ describe('serverless rm command', () => {
     expect(printed).toEqual({ status: 'deleted', id: 'abc-123' });
     setJsonMode(false);
   });
+
+  it('is canonical `rm` with a `delete` alias', () => {
+    expect(rmCommand.name()).toBe('rm');
+    expect(rmCommand.aliases()).toContain('delete');
+  });
 });

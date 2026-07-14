@@ -5,6 +5,7 @@ import { replicasCommand } from './replicas.js';
 import { snapshotsCommand } from './snapshots.js';
 
 export const databaseCommand = new Command('database')
+  .alias('db')
   .description('Manage database instances (MySQL / PostgreSQL / MariaDB)')
   .addCommand(lsCommand)
   .addCommand(createCommand)

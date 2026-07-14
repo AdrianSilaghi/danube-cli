@@ -190,6 +190,7 @@ export const updateCommand = new Command('update')
   });
 
 export const rmCommand = new Command('rm')
+  .alias('delete')
   .description('Delete a database instance')
   .argument('<name-or-id>', 'Database instance name or ID')
   .option('-f, --force', 'Skip confirmation')

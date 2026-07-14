@@ -55,7 +55,7 @@ export const deployCommand = new Command('deploy')
         jsonOutput({ id: container.id, name: container.name, status: 'building' });
         return;
       }
-      console.log(chalk.green('\nBuild started. Check status with: danube rapids show ' + container.name));
+      console.log(chalk.green('\nBuild started. Check status with: danube rapids get ' + container.name));
       return;
     }
 
@@ -133,7 +133,7 @@ export const deployCommand = new Command('deploy')
         }
       }
 
-      pollSpinner?.warn('Timed out waiting for build. Check status with: danube rapids show ' + container.name);
+      pollSpinner?.warn('Timed out waiting for build. Check status with: danube rapids get ' + container.name);
       if (isJsonMode()) {
         jsonError({ code: 'build_timeout', message: 'Timed out waiting for build.' });
         process.exit(1);

@@ -72,6 +72,7 @@ const addCommand = new Command('add')
   });
 
 const rmCommand = new Command('rm')
+  .alias('delete')
   .description('Remove a replica by index')
   .argument('<name-or-id>', 'Database instance name or ID')
   .argument('<index>', 'Replica index (1-based)')

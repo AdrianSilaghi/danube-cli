@@ -289,6 +289,21 @@ describe('buckets command', () => {
       expect(mockDelete).not.toHaveBeenCalled();
       setJsonMode(false);
     });
+
+    it('delete is canonical rm with delete alias', () => {
+      const deleteCmd = bucketsCommand.commands.find((c) => c.name() === 'rm');
+      expect(deleteCmd?.name()).toBe('rm');
+      expect(deleteCmd?.aliases()).toContain('delete');
+    });
+
+    it('deletes bucket via canonical `rm`', async () => {
+      mockGet.mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] });
+      mockDelete.mockResolvedValue({ message: 'Deleted' });
+
+      await bucketsCommand.parseAsync(['node', 'test', 'rm', 'bucket-1', '--force']);
+
+      expect(mockDelete).toHaveBeenCalledWith('/api/v1/storage/buckets/bucket-1');
+    });
   });
 
   describe('metrics', () => {

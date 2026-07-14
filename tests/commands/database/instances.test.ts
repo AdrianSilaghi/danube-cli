@@ -225,5 +225,10 @@ describe('database instances', () => {
       expect(mockDelete).not.toHaveBeenCalled();
       setJsonMode(false);
     });
+
+    it('rm gains a delete alias', () => {
+      expect(rmCommand.name()).toBe('rm');
+      expect(rmCommand.aliases()).toContain('delete');
+    });
   });
 });

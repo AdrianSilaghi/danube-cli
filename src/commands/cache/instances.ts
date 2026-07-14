@@ -183,6 +183,7 @@ export const updateCommand = new Command('update')
   });
 
 export const rmCommand = new Command('rm')
+  .alias('delete')
   .description('Delete a cache instance')
   .argument('<name-or-id>', 'Cache instance name or ID')
   .option('-f, --force', 'Skip confirmation')

@@ -205,7 +205,8 @@ const updateCommand = new Command('update')
     spinner!.succeed(`Updated bucket ${chalk.bold(res.bucket.name)}`);
   });
 
-const deleteCommand = new Command('delete')
+const deleteCommand = new Command('rm')
+  .alias('delete')
   .description('Delete a bucket')
   .argument('<name-or-id>', 'Bucket name or ID')
   .option('-f, --force', 'Skip confirmation')

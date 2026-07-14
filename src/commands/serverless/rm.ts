@@ -8,6 +8,7 @@ import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import type { MessageResponse } from '../../types/api.js';
 
 export const rmCommand = new Command('rm')
+  .alias('delete')
   .description('Delete a serverless container')
   .argument('<name-or-id>', 'Container name or ID')
   .option('-f, --force', 'Skip confirmation')

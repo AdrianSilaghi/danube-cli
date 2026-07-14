@@ -136,6 +136,7 @@ const cloneCommand = new Command('clone')
   });
 
 const rmCommand = new Command('rm')
+  .alias('delete')
   .description('Delete a cache snapshot')
   .argument('<snapshot-id>', 'Snapshot ID')
   .option('-f, --force', 'Skip confirmation')

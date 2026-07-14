@@ -246,5 +246,10 @@ describe('vps instances', () => {
       expect(mockDelete).not.toHaveBeenCalled();
       setJsonMode(false);
     });
+
+    it('delete is canonical rm with delete alias', () => {
+      expect(deleteCommand.name()).toBe('rm');
+      expect(deleteCommand.aliases()).toContain('delete');
+    });
   });
 });

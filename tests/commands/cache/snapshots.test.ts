@@ -189,5 +189,10 @@ describe('cache snapshots', () => {
       expect(mockDelete).not.toHaveBeenCalled();
       setJsonMode(false);
     });
+
+    it('gains a delete alias', () => {
+      const rmCmd = snapshotsCommand.commands.find((c) => c.name() === 'rm');
+      expect(rmCmd?.aliases()).toContain('delete');
+    });
   });
 });

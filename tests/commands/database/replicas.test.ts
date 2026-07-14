@@ -146,6 +146,11 @@ describe('database replicas', () => {
       expect(mockDelete).not.toHaveBeenCalled();
       setJsonMode(false);
     });
+
+    it('gains a delete alias', () => {
+      const rmCmd = replicasCommand.commands.find((c) => c.name() === 'rm');
+      expect(rmCmd?.aliases()).toContain('delete');
+    });
   });
 
   describe('status', () => {
