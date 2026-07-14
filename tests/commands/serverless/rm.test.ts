@@ -58,6 +58,6 @@ describe('serverless rm command', () => {
   it('throws when container not found', async () => {
     mockGet.mockResolvedValue({ data: [], pagination: { current_page: 1, last_page: 1, per_page: 15, total: 0 } });
 
-    await expect(rmCommand.parseAsync(['node', 'test', 'nonexistent', '--yes'])).rejects.toThrow("Container 'nonexistent' not found.");
+    await expect(rmCommand.parseAsync(['node', 'test', 'nonexistent', '--yes'])).rejects.toThrow("container 'nonexistent' not found.");
   });
 });

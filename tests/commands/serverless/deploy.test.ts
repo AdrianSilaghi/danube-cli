@@ -156,7 +156,7 @@ describe('serverless deploy command', () => {
 
     await expect(
       deployCommand.parseAsync(['node', 'test', 'nonexistent', '--dir', testDir, '--no-wait']),
-    ).rejects.toThrow("Container 'nonexistent' not found.");
+    ).rejects.toThrow("container 'nonexistent' not found.");
   });
 
   it('exits with code 1 on timeout', async () => {
