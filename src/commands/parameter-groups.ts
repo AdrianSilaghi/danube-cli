@@ -1,12 +1,12 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { confirm } from '@inquirer/prompts';
 import fs from 'node:fs';
 import { ApiClient } from '../lib/api-client.js';
 import { fetchAllPages } from '../lib/paginate.js';
 import { formatTable, formatDate } from '../lib/output.js';
 import { isJsonMode, jsonOutput } from '../lib/json-mode.js';
+import { confirmDestruction } from '../lib/interactive.js';
 import type { ParameterGroup, ParameterGroupType } from '../types/api.js';
 
 const VALID_TYPES: ParameterGroupType[] = ['cache', 'database', 'queue'];
@@ -212,16 +212,16 @@ const rmCommand = new Command('rm')
   .description('Delete a parameter group (non-system, not in use)')
   .argument('<id>', 'Parameter group ID')
   .option('--force', 'Skip confirmation')
-  .action(async (id: string, opts: { force?: boolean }) => {
-    if (!opts.force && !isJsonMode()) {
-      const confirmed = await confirm({
-        message: `Delete parameter group ${id}?`,
-        default: false,
-      });
-      if (!confirmed) {
-        console.log('Cancelled.');
-        return;
-      }
+  .option('-y, --yes', 'Alias for --force')
+  .action(async (id: string, opts: { force?: boolean; yes?: boolean }) => {
+    const proceed = await confirmDestruction(
+      `deletion of parameter group ${id}`,
+      `Are you sure you want to delete parameter group ${id}? This cannot be undone.`,
+      opts.force || opts.yes,
+    );
+    if (!proceed) {
+      console.log('Cancelled.');
+      return;
     }
 
     const api = await ApiClient.create();

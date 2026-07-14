@@ -140,6 +140,15 @@ describe('parameter-groups command', () => {
       await parameterGroupsCommand.parseAsync(['node', 'test', 'rm', '1', '--force']);
       expect(mockDelete).toHaveBeenCalledWith('/api/v1/parameter-groups/1');
     });
+
+    it('refuses JSON-mode rm without --force', async () => {
+      const { setJsonMode } = await import('../../src/lib/json-mode.js');
+      setJsonMode(true);
+      await expect(parameterGroupsCommand.parseAsync(['node', 'test', 'rm', '1']))
+        .rejects.toThrow(/without --force/);
+      expect(mockDelete).not.toHaveBeenCalled();
+      setJsonMode(false);
+    });
   });
 
   describe('clone', () => {
