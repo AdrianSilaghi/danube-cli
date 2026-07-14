@@ -6,7 +6,7 @@ import { input, select, password as passwordPrompt } from '@inquirer/prompts';
 import { ApiClient } from '../../lib/api-client.js';
 import { fetchAllPages } from '../../lib/paginate.js';
 import { resolveResource } from '../../lib/resolve.js';
-import { formatTable, statusColor, formatDate } from '../../lib/output.js';
+import { formatTable, statusColor, formatDate, printDetails } from '../../lib/output.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import { canPrompt, promptOr, confirmDestruction } from '../../lib/interactive.js';
 import { MissingFlagsError } from '../../lib/errors.js';
@@ -193,7 +193,7 @@ export const getCommand = new Command('get')
   .action(async (nameOrId: string) => {
     const api = await ApiClient.create();
     const instance = await resolveResource<VpsInstance>(api, '/api/v1/vps', 'VPS', nameOrId);
-    const res = await api.get<{ instance: VpsInstance; connection_info: Record<string, unknown>; monthly_cost: number }>(
+    const res = await api.get<{ instance: VpsInstance; connection_info: VpsConnectionInfo; monthly_cost: number }>(
       `/api/v1/vps/${instance.id}`,
     );
 
@@ -205,7 +205,7 @@ export const getCommand = new Command('get')
     const v = res.instance;
     const sshCmd = v.public_ip ? `ssh root@${v.public_ip}` : '-';
 
-    const lines = [
+    const lines: Array<[string, string]> = [
       ['ID', v.id],
       ['Name', v.name],
       ['Status', statusColor(v.status)],
@@ -217,6 +217,8 @@ export const getCommand = new Command('get')
       ['Datacenter', v.datacenter],
       ['IPv4', v.public_ip || '-'],
       ['IPv6', v.ipv6_address || '-'],
+      ['Private IP', res.connection_info.private_ip ?? '-'],
+      ['Internal DNS', res.connection_info.internal_fqdn ?? '-'],
       ['SSH', sshCmd],
       ['VNC', v.vnc_access_url || '-'],
       ['Cost', `\u20AC${res.monthly_cost ?? v.monthly_cost_dollars}/mo`],
@@ -224,10 +226,7 @@ export const getCommand = new Command('get')
       ['Deployed', v.deployed_at ? formatDate(v.deployed_at) : '-'],
     ];
 
-    const maxLabel = Math.max(...lines.map(([l]) => l!.length));
-    for (const [label, value] of lines) {
-      console.log(`${chalk.dim(label!.padEnd(maxLabel))}  ${value}`);
-    }
+    printDetails(lines);
   });
 
 export const updateCommand = new Command('update')

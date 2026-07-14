@@ -5,7 +5,7 @@ import { input, select } from '@inquirer/prompts';
 import { ApiClient } from '../../lib/api-client.js';
 import { fetchAllPages } from '../../lib/paginate.js';
 import { resolveResource } from '../../lib/resolve.js';
-import { formatTable, statusColor, formatDate } from '../../lib/output.js';
+import { formatTable, statusColor, formatDate, printDetails } from '../../lib/output.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import { promptOr, confirmDestruction } from '../../lib/interactive.js';
 import type { CacheInstance, CacheProvider } from '../../types/api.js';
@@ -129,7 +129,7 @@ export const getCommand = new Command('get')
     }
 
     const c = res.instance;
-    const lines = [
+    const lines: Array<[string, string]> = [
       ['ID', c.id],
       ['Name', c.name],
       ['Status', statusColor(c.status)],
@@ -146,10 +146,7 @@ export const getCommand = new Command('get')
       ['Deployed', c.deployed_at ? formatDate(c.deployed_at) : '-'],
     ];
 
-    const maxLabel = Math.max(...lines.map(([l]) => l!.length));
-    for (const [label, value] of lines) {
-      console.log(`${chalk.dim(label!.padEnd(maxLabel))}  ${value}`);
-    }
+    printDetails(lines);
   });
 
 export const updateCommand = new Command('update')

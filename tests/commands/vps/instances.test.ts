@@ -158,6 +158,20 @@ describe('vps instances', () => {
 
       expect(mockGet).toHaveBeenLastCalledWith('/api/v1/vps/vps-9');
     });
+
+    it('shows private IP and internal DNS from connection_info', async () => {
+      mockGet
+        .mockResolvedValueOnce({ data: [makeVps()] })
+        .mockResolvedValueOnce({
+          instance: makeVps(),
+          connection_info: { public_ip: '1.2.3.4', private_ip: '10.0.0.5', ipv6_address: null, vnc_access_url: null, internal_dns: 'vm-abc', internal_fqdn: 'vm-abc.tenant-1.svc.cluster.local' },
+          monthly_cost: 4.49,
+        });
+      await getCommand.parseAsync(['node', 'test', 'vps-1']);
+      const all = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
+      expect(all).toContain('10.0.0.5');
+      expect(all).toContain('vm-abc.tenant-1.svc.cluster.local');
+    });
   });
 
   describe('update', () => {

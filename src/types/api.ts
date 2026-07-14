@@ -247,6 +247,8 @@ export interface VpsConnectionInfo {
   private_ip: string | null;
   ipv6_address: string | null;
   vnc_access_url: string | null;
+  internal_dns: string | null;
+  internal_fqdn: string | null;
 }
 
 export interface VpsStatus {

@@ -5,7 +5,7 @@ import { input, select, confirm } from '@inquirer/prompts';
 import { ApiClient } from '../../lib/api-client.js';
 import { fetchAllPages } from '../../lib/paginate.js';
 import { resolveResource } from '../../lib/resolve.js';
-import { formatTable, statusColor, formatBytes, formatDate, formatNumber, formatRelativeTime } from '../../lib/output.js';
+import { formatTable, statusColor, formatBytes, formatDate, formatNumber, formatRelativeTime, printDetails } from '../../lib/output.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import { canPrompt, promptOr, confirmDestruction } from '../../lib/interactive.js';
 import type {
@@ -143,7 +143,7 @@ const getCommand = new Command('get')
 
     const b = res.bucket;
 
-    const lines = [
+    const lines: Array<[string, string]> = [
       ['ID', b.id],
       ['Bucket', b.minio_bucket_name ?? b.name],
       ['Name', b.name],
@@ -160,10 +160,7 @@ const getCommand = new Command('get')
       ['Created', formatDate(b.created_at)],
     ];
 
-    const maxLabel = Math.max(...lines.map(([l]) => l!.length));
-    for (const [label, value] of lines) {
-      console.log(`${chalk.dim(label!.padEnd(maxLabel))}  ${value}`);
-    }
+    printDetails(lines);
   });
 
 const updateCommand = new Command('update')

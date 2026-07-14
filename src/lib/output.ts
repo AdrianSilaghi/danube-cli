@@ -86,3 +86,10 @@ export function formatRelativeTime(iso: string | null): string {
   if (diffSec < 7 * 86_400) return `${Math.round(diffSec / 86_400)}d ago`;
   return new Date(iso).toLocaleString();
 }
+
+export function printDetails(lines: Array<[string, string]>): void {
+  const maxLabel = Math.max(...lines.map(([label]) => label.length));
+  for (const [label, value] of lines) {
+    console.log(`${chalk.dim(label.padEnd(maxLabel))}  ${value}`);
+  }
+}
