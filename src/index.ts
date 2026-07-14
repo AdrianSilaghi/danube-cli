@@ -84,7 +84,7 @@ process.on('unhandledRejection', (err) => handleError(err));
 
 program.parseAsync()
   .then(async () => {
-    if (!isJsonMode()) {
+    if (!isJsonMode() && process.stderr.isTTY) {
       const result = await checkForUpdate();
       if (result?.updateAvailable) {
         printUpdateNotification(result.current, result.latest);

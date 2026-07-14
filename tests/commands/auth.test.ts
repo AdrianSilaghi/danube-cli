@@ -10,8 +10,12 @@ vi.mock('../../src/lib/sleep.js', () => ({
   sleep: () => Promise.resolve(),
 }));
 
+const mockSpawn = vi.fn(() => ({
+  unref: vi.fn(),
+}));
+
 vi.mock('node:child_process', () => ({
-  exec: vi.fn(),
+  spawn: mockSpawn,
 }));
 
 const { authCommand } = await import('../../src/commands/auth.js');
@@ -171,5 +175,28 @@ describe('auth command', () => {
     expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('timed out'));
 
     Date.now = realDateNow;
+  });
+
+  it('opens the browser via spawn with an args array', async () => {
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/cli/poll')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ token: 'test-token' }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ id: 1, name: 'Test User', email: 'test@example.com' }),
+      });
+    });
+
+    await authCommand.parseAsync(['node', 'test']);
+
+    expect(mockSpawn).toHaveBeenCalledWith(
+      process.platform === 'darwin' ? 'open' : expect.any(String),
+      expect.arrayContaining([expect.stringContaining('/cli/authorize?state=')]),
+      expect.objectContaining({ stdio: 'ignore', detached: true }),
+    );
   });
 });

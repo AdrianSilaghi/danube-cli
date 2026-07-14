@@ -157,16 +157,25 @@ describe('version', () => {
 
   describe('printUpdateNotification', () => {
     it('prints update message to console', () => {
-      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
       printUpdateNotification('0.1.0', '1.0.0');
 
-      const output = logSpy.mock.calls.map(c => c[0]).join('\n');
+      const output = errSpy.mock.calls.map(c => c[0]).join('\n');
       expect(output).toContain('0.1.0');
       expect(output).toContain('1.0.0');
       expect(output).toContain('npm install -g @danubedata/cli');
 
-      logSpy.mockRestore();
+      errSpy.mockRestore();
+    });
+
+    it('prints the update notification to stderr', () => {
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      printUpdateNotification('1.0.0', '1.1.0');
+      expect(errSpy).toHaveBeenCalled();
+      expect(logSpy).not.toHaveBeenCalled();
+      errSpy.mockRestore(); logSpy.mockRestore();
     });
   });
 });

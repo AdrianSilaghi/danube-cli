@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { randomUUID } from 'node:crypto';
-import { exec } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import chalk from 'chalk';
 import { writeConfig, getApiBase } from '../lib/config.js';
 import { ApiError } from '../lib/errors.js';
@@ -11,12 +11,12 @@ const AUTH_TIMEOUT = 120_000; // 2 minutes
 const POLL_INTERVAL = 2_000; // 2 seconds
 
 function openBrowser(url: string): void {
-  const cmd =
-    process.platform === 'darwin' ? 'open' :
-    process.platform === 'win32' ? 'start' :
-    'xdg-open';
+  const [cmd, args] =
+    process.platform === 'darwin' ? ['open', [url]] as const :
+    process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]] as const :
+    ['xdg-open', [url]] as const;
 
-  exec(`${cmd} "${url}"`);
+  spawn(cmd, args, { stdio: 'ignore', detached: true }).unref();
 }
 
 export const authCommand = new Command('auth')
