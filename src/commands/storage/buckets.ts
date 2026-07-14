@@ -305,17 +305,18 @@ const metricsShowCommand = new Command('show')
 
 const trendCommand = new Command('trend')
   .description('Show bucket metrics trend (time-series)')
-  .argument('<bucket-id>', 'Bucket ID')
+  .argument('<name-or-id>', 'Bucket name or ID')
   .option('-w, --window <window>', 'Window: 24h | 7d | 30d', '24h')
   .option('-r, --resolution <resolution>', 'Resolution: 1m | 5m | 1h | 1d (auto by default)')
   .option('-f, --format <format>', 'Output format: sparkline | table | csv | json', 'sparkline')
-  .action(async (bucketId: string, opts: { window: string; resolution?: string; format: string }) => {
+  .action(async (nameOrId: string, opts: { window: string; resolution?: string; format: string }) => {
     const api = await ApiClient.create();
+    const bucket = await resolveResource<StorageBucket>(api, '/api/v1/storage/buckets', 'bucket', nameOrId);
     const params: Record<string, string> = { window: opts.window };
     if (opts.resolution) params.resolution = opts.resolution;
 
     const qs = new URLSearchParams(params).toString();
-    const t = await api.get<BucketTrendResponse>(`/api/v1/storage/buckets/${bucketId}/metrics/trend?${qs}`);
+    const t = await api.get<BucketTrendResponse>(`/api/v1/storage/buckets/${bucket.id}/metrics/trend?${qs}`);
 
     // Exit code 3 on stale data is set regardless of output format so
     // scripts/agents that pipe the output (csv/table) can still branch
@@ -344,7 +345,7 @@ const trendCommand = new Command('trend')
 
     const n = t.data.length;
 
-    console.log(chalk.bold(`Trend for ${bucketId}  (${t.window} @ ${t.resolution}, source=${t.source})  ${freshnessBadge(t.freshness)}`));
+    console.log(chalk.bold(`Trend for ${bucket.name}  (${t.window} @ ${t.resolution}, source=${t.source})  ${freshnessBadge(t.freshness)}`));
     console.log(chalk.dim(`${n} datapoints, generated at ${t.generated_at}`));
     console.log('');
 
@@ -418,13 +419,14 @@ const trendCommand = new Command('trend')
 
 const topCommand = new Command('top')
   .description('Top-N objects in a bucket by size / egress / requests')
-  .argument('<bucket-id>', 'Bucket ID')
+  .argument('<name-or-id>', 'Bucket name or ID')
   .option('-b, --by <dimension>', 'Dimension: size | egress | requests', 'size')
   .option('-l, --limit <n>', 'Number of objects to return', '10')
-  .action(async (bucketId: string, opts: { by: string; limit: string }) => {
+  .action(async (nameOrId: string, opts: { by: string; limit: string }) => {
     const api = await ApiClient.create();
+    const bucket = await resolveResource<StorageBucket>(api, '/api/v1/storage/buckets', 'bucket', nameOrId);
     const qs = new URLSearchParams({ dimension: opts.by, limit: opts.limit }).toString();
-    const res = await api.get<BucketTopObjectsResponse>(`/api/v1/storage/buckets/${bucketId}/metrics/top-objects?${qs}`);
+    const res = await api.get<BucketTopObjectsResponse>(`/api/v1/storage/buckets/${bucket.id}/metrics/top-objects?${qs}`);
 
     if (isJsonMode()) {
       jsonOutput(res);
@@ -437,7 +439,7 @@ const topCommand = new Command('top')
       return;
     }
 
-    console.log(chalk.bold(`Top ${res.items.length} objects in ${bucketId} by ${res.dimension}`));
+    console.log(chalk.bold(`Top ${res.items.length} objects in ${bucket.name} by ${res.dimension}`));
     if (res.recorded_at) console.log(chalk.dim(`Snapshot: ${res.recorded_at}`));
     console.log('');
 
@@ -451,10 +453,11 @@ const topCommand = new Command('top')
 
 const healthCommand = new Command('health')
   .description('Show bucket hygiene (pending multipart, deleted versions, last check)')
-  .argument('<bucket-id>', 'Bucket ID')
-  .action(async (bucketId: string) => {
+  .argument('<name-or-id>', 'Bucket name or ID')
+  .action(async (nameOrId: string) => {
     const api = await ApiClient.create();
-    const h = await api.get<BucketHealthResponse>(`/api/v1/storage/buckets/${bucketId}/metrics/health`);
+    const bucket = await resolveResource<StorageBucket>(api, '/api/v1/storage/buckets', 'bucket', nameOrId);
+    const h = await api.get<BucketHealthResponse>(`/api/v1/storage/buckets/${bucket.id}/metrics/health`);
 
     if (isJsonMode()) {
       jsonOutput(h);

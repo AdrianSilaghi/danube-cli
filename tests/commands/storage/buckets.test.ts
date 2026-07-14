@@ -300,5 +300,51 @@ describe('buckets command', () => {
       const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
       expect(output).toMatch(/Requests \(24h\)\s+\S*—/);
     });
+
+    it('trend resolves the bucket before fetching the time-series', async () => {
+      mockGet
+        .mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] })
+        .mockResolvedValueOnce({
+          bucket_id: 'bucket-1', window: '24h', resolution: '1h', source: 'deltas',
+          freshness: 'fresh', generated_at: '2024-01-01T00:00:00Z', data: [],
+        });
+
+      await bucketsCommand.parseAsync(['node', 'test', 'metrics', 'trend', 'bucket-1']);
+
+      expect(mockGet).toHaveBeenLastCalledWith('/api/v1/storage/buckets/bucket-1/metrics/trend?window=24h');
+      const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
+      expect(output).toContain('No data points in this window.');
+    });
+
+    it('top resolves the bucket before fetching top objects', async () => {
+      mockGet
+        .mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] })
+        .mockResolvedValueOnce({
+          bucket_id: 'bucket-1', dimension: 'size', recorded_at: null,
+          items: [{ rank: 1, object_key: 'backups/db.tar.gz', value: 1048576 }],
+        });
+
+      await bucketsCommand.parseAsync(['node', 'test', 'metrics', 'top', 'bucket-1']);
+
+      expect(mockGet).toHaveBeenLastCalledWith('/api/v1/storage/buckets/bucket-1/metrics/top-objects?dimension=size&limit=10');
+      const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
+      expect(output).toContain('backups/db.tar.gz');
+    });
+
+    it('health resolves the bucket before fetching hygiene info', async () => {
+      mockGet
+        .mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] })
+        .mockResolvedValueOnce({
+          bucket_id: 'bucket-1', pending_multipart_count: null, pending_multipart_bytes: null,
+          deleted_size_bytes: null, freshness: 'fresh', metrics_precomputed_at: null,
+          last_health_check_at: null, health_check_status: 'ok',
+        });
+
+      await bucketsCommand.parseAsync(['node', 'test', 'metrics', 'health', 'bucket-1']);
+
+      expect(mockGet).toHaveBeenLastCalledWith('/api/v1/storage/buckets/bucket-1/metrics/health');
+      const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
+      expect(output).toContain('Pending multipart');
+    });
   });
 });
