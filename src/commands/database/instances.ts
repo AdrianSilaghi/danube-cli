@@ -59,7 +59,7 @@ export const createCommand = new Command('create')
   .option('--version <version>', 'Specific provider version (optional)')
   .option('--database-name <name>', 'Initial database name (optional)')
   .option('--datacenter <dc>', 'Datacenter region', 'fsn1')
-  .option('--profile <profile>', 'Resource profile: micro, small, medium, large')
+  .option('--profile <profile>', 'Resource profile slug (run interactively to list available plans)')
   .action(async (opts: {
     name?: string; provider?: string; version?: string; databaseName?: string;
     datacenter: string; profile?: string;
@@ -84,6 +84,9 @@ export const createCommand = new Command('create')
 
     const profile = await promptOr('--profile', opts.profile, async () => {
       const plansRes = await api.get<PlansResponse<DatabasePlanInfo>>('/api/v1/database/plans');
+      if (plansRes.plans.length === 0) {
+        throw new Error('No database plans are currently available from the API. Try again later or contact support.');
+      }
       return select({
         message: 'Resource profile:',
         choices: plansRes.plans.map((p) => ({

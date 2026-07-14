@@ -146,6 +146,17 @@ describe('vps instances', () => {
       expect(planChoices.choices[0]!.name).toContain('€4.49/mo');
       expect(planChoices.choices[0]!.value).toBe('nano_shared');
     });
+
+    it('rejects with a clear error when the API returns no plans', async () => {
+      mockGet
+        .mockResolvedValueOnce({ groups: [{ label: 'Ubuntu', images: [{ id: 'ubuntu-24.04', label: 'Ubuntu 24.04', default_user: 'root' }] }] })
+        .mockResolvedValueOnce({ plans: [] });
+      mockInput.mockResolvedValueOnce('my-vps');           // name
+      mockSelect.mockResolvedValueOnce('ubuntu-24.04');    // image
+
+      await expect(createCommand.parseAsync(['node', 'test'])).rejects.toThrow(/No .* plans/);
+      expect(mockPost).not.toHaveBeenCalled();
+    });
   });
 
   describe('get', () => {

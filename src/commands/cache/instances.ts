@@ -57,7 +57,7 @@ export const createCommand = new Command('create')
   .option('--provider <provider>', 'Provider: redis, valkey, or dragonfly')
   .option('--version <version>', 'Specific provider version (optional)')
   .option('--datacenter <dc>', 'Datacenter region', 'fsn1')
-  .option('--profile <profile>', 'Resource profile: micro, small, medium, large')
+  .option('--profile <profile>', 'Resource profile slug (run interactively to list available plans)')
   .action(async (opts: {
     name?: string; provider?: string; version?: string; datacenter: string; profile?: string;
   }) => {
@@ -81,6 +81,9 @@ export const createCommand = new Command('create')
 
     const profile = await promptOr('--profile', opts.profile, async () => {
       const plansRes = await api.get<PlansResponse<CachePlanInfo>>(`/api/v1/cache/plans?provider=${provider}`);
+      if (plansRes.plans.length === 0) {
+        throw new Error('No cache plans are currently available from the API. Try again later or contact support.');
+      }
       return select({
         message: 'Resource profile:',
         choices: plansRes.plans.map((p) => ({

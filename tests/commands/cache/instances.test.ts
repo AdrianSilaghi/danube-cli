@@ -147,6 +147,15 @@ describe('cache instances', () => {
       expect(planChoices.choices[0]!.value).toBe('small');
     });
 
+    it('rejects with a clear error when the API returns no plans', async () => {
+      mockInput.mockResolvedValueOnce('my-cache');          // name
+      mockSelect.mockResolvedValueOnce('redis');             // provider
+      mockGet.mockResolvedValueOnce({ plans: [] });
+
+      await expect(createCommand.parseAsync(['node', 'test'])).rejects.toThrow(/No .* plans/);
+      expect(mockPost).not.toHaveBeenCalled();
+    });
+
     it('rejects invalid provider with exit 1', async () => {
       await expect(createCommand.parseAsync([
         'node', 'test', '--name', 'x', '--provider', 'memcached', '--datacenter', 'fsn1', '--profile', 'small',

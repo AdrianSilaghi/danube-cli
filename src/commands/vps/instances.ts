@@ -68,7 +68,7 @@ export const createCommand = new Command('create')
   .description('Create a new VPS instance')
   .option('--name <name>', 'Instance name (lowercase, alphanumeric, hyphens)')
   .option('--image <image>', 'OS image ID (e.g. ubuntu-24.04)')
-  .option('--plan <plan>', 'Resource profile (e.g. nano_shared, small)')
+  .option('--plan <plan>', 'Resource profile slug (run interactively to list available plans)')
   .option('--cpu-type <type>', 'CPU allocation: shared or dedicated')
   .option('--network <stack>', 'Network stack: dual_stack, ipv4_only, ipv6_only')
   .option('--ssh-key-id <id>', 'SSH key ID for authentication')
@@ -102,6 +102,9 @@ export const createCommand = new Command('create')
 
     const plan = await promptOr('--plan', opts.plan, async () => {
       const plansRes = await api.get<PlansResponse<VpsPlanInfo>>('/api/v1/vps/plans');
+      if (plansRes.plans.length === 0) {
+        throw new Error('No VPS plans are currently available from the API. Try again later or contact support.');
+      }
       return select({
         message: 'Plan:',
         choices: plansRes.plans.map((p) => ({

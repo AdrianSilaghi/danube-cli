@@ -148,6 +148,15 @@ describe('database instances', () => {
       expect(planChoices.choices[0]!.name).toContain('€9.99/mo');
       expect(planChoices.choices[0]!.value).toBe('small');
     });
+
+    it('rejects with a clear error when the API returns no plans', async () => {
+      mockInput.mockResolvedValueOnce('my-db');              // name
+      mockSelect.mockResolvedValueOnce('postgresql');         // provider
+      mockGet.mockResolvedValueOnce({ plans: [] });
+
+      await expect(createCommand.parseAsync(['node', 'test'])).rejects.toThrow(/No .* plans/);
+      expect(mockPost).not.toHaveBeenCalled();
+    });
   });
 
   describe('get', () => {
