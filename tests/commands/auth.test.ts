@@ -11,6 +11,7 @@ vi.mock('../../src/lib/sleep.js', () => ({
 }));
 
 const mockSpawn = vi.fn(() => ({
+  on: vi.fn(),
   unref: vi.fn(),
 }));
 
@@ -198,5 +199,31 @@ describe('auth command', () => {
       expect.arrayContaining([expect.stringContaining('/cli/authorize?state=')]),
       expect.objectContaining({ stdio: 'ignore', detached: true }),
     );
+  });
+
+  it('registers a no-op error handler on the spawned browser process', async () => {
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/cli/poll')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ token: 'test-token' }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ id: 1, name: 'Test User', email: 'test@example.com' }),
+      });
+    });
+
+    await authCommand.parseAsync(['node', 'test']);
+
+    const child = mockSpawn.mock.results[mockSpawn.mock.results.length - 1]!.value as {
+      on: ReturnType<typeof vi.fn>;
+      unref: ReturnType<typeof vi.fn>;
+    };
+    const errorCall = child.on.mock.calls.find((call: unknown[]) => call[0] === 'error');
+    expect(errorCall).toBeDefined();
+    expect(() => (errorCall![1] as (err: Error) => void)(new Error('ENOENT'))).not.toThrow();
+    expect(child.unref).toHaveBeenCalled();
   });
 });

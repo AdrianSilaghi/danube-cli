@@ -16,7 +16,11 @@ function openBrowser(url: string): void {
     process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]] as const :
     ['xdg-open', [url]] as const;
 
-  spawn(cmd, args, { stdio: 'ignore', detached: true }).unref();
+  const child = spawn(cmd, args, { stdio: 'ignore', detached: true });
+  child.on('error', () => {
+    // Browser launch is best-effort — the authorize URL is already printed for manual use.
+  });
+  child.unref();
 }
 
 export const authCommand = new Command('auth')
