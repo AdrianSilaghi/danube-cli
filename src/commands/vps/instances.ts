@@ -2,12 +2,14 @@ import { Command } from 'commander';
 import { randomBytes } from 'node:crypto';
 import chalk from 'chalk';
 import ora from 'ora';
-import { input, select, password as passwordPrompt, confirm } from '@inquirer/prompts';
+import { input, select, password as passwordPrompt } from '@inquirer/prompts';
 import { ApiClient } from '../../lib/api-client.js';
 import { fetchAllPages } from '../../lib/paginate.js';
 import { resolveResource } from '../../lib/resolve.js';
 import { formatTable, statusColor, formatDate } from '../../lib/output.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
+import { canPrompt, promptOr, confirmDestruction } from '../../lib/interactive.js';
+import { MissingFlagsError } from '../../lib/errors.js';
 import type {
   VpsInstance,
   VpsConnectionInfo,
@@ -74,24 +76,18 @@ export const createCommand = new Command('create')
     name?: string; image?: string; plan?: string; cpuType?: string;
     network?: string; sshKeyId?: string; password?: string; datacenter: string;
   }) => {
-    let name = opts.name;
-    let image = opts.image;
-    let plan = opts.plan;
-    let cpuType = opts.cpuType;
-    let authMethod: string;
     let sshKeyId = opts.sshKeyId;
     let pass = opts.password;
+    let authMethod: string;
 
     const api = await ApiClient.create();
 
-    if (!name) {
-      name = await input({
-        message: 'Instance name:',
-        validate: (v: string) => /^[a-z0-9-]+$/.test(v.trim()) || 'Lowercase letters, numbers, and hyphens only',
-      });
-    }
+    const name = await promptOr('--name', opts.name, () => input({
+      message: 'Instance name:',
+      validate: (v: string) => /^[a-z0-9-]+$/.test(v.trim()) || 'Lowercase letters, numbers, and hyphens only',
+    }));
 
-    if (!image) {
+    const image = await promptOr('--image', opts.image, async () => {
       const groupsRes = await api.get<{ groups: VpsImageGroup[] }>('/api/v1/vps/images/grouped');
       const imageChoices = groupsRes.groups.flatMap(g =>
         g.images.map(img => ({
@@ -99,13 +95,12 @@ export const createCommand = new Command('create')
           value: img.id,
         })),
       );
-      image = await select({ message: 'Operating system:', choices: imageChoices });
-    }
+      return select({ message: 'Operating system:', choices: imageChoices });
+    });
 
-    if (!plan) {
-      plan = await select({
-        message: 'Plan:',
-        choices: [
+    const plan = await promptOr('--plan', opts.plan, () => select({
+      message: 'Plan:',
+      choices: [
           { name: 'DD Litcov   — 2 vCPU, 2GB RAM, 40GB   — \u20AC4.49/mo (shared)', value: 'nano_shared' },
           { name: 'DD Maliuc   — 3 vCPU, 4GB RAM, 60GB   — \u20AC7.49/mo (shared)', value: 'micro_shared' },
           { name: 'DD Crisan   — 4 vCPU, 8GB RAM, 80GB   — \u20AC12.49/mo (shared)', value: 'small_shared' },
@@ -116,15 +111,14 @@ export const createCommand = new Command('create')
           { name: 'DD Crisan   — 4 vCPU, 8GB RAM, 160GB  — \u20AC24.99/mo (dedicated)', value: 'small' },
           { name: 'DD Caraorman — 8 vCPU, 16GB RAM, 320GB — \u20AC49.99/mo (dedicated)', value: 'medium' },
           { name: 'DD Dunavat  — 16 vCPU, 32GB RAM, 640GB — \u20AC99.99/mo (dedicated)', value: 'large' },
-        ],
-      });
-    }
+      ],
+    }));
 
-    if (!cpuType) {
-      cpuType = plan.endsWith('_shared') ? 'shared' : 'dedicated';
-    }
+    const cpuType = opts.cpuType || (plan.endsWith('_shared') ? 'shared' : 'dedicated');
 
     if (!sshKeyId && !pass) {
+      if (!canPrompt()) throw new MissingFlagsError(['--ssh-key-id or --password']);
+
       authMethod = await select({
         message: 'Authentication method:',
         choices: [
@@ -280,20 +274,20 @@ export const updateCommand = new Command('update')
 export const deleteCommand = new Command('delete')
   .description('Delete a VPS instance')
   .argument('<name-or-id>', 'VPS name or ID')
-  .option('--force', 'Skip confirmation')
-  .action(async (nameOrId: string, opts: { force?: boolean }) => {
+  .option('-f, --force', 'Skip confirmation')
+  .option('-y, --yes', 'Alias for --force')
+  .action(async (nameOrId: string, opts: { force?: boolean; yes?: boolean }) => {
     const api = await ApiClient.create();
     const instance = await resolveResource<VpsInstance>(api, '/api/v1/vps', 'VPS', nameOrId);
 
-    if (!opts.force && !isJsonMode()) {
-      const confirmed = await confirm({
-        message: `Are you sure you want to delete VPS ${instance.name} (${instance.id})? This cannot be undone.`,
-        default: false,
-      });
-      if (!confirmed) {
-        console.log('Cancelled.');
-        return;
-      }
+    const proceed = await confirmDestruction(
+      `deletion of VPS ${instance.name}`,
+      `Are you sure you want to delete VPS ${instance.name} (${instance.id})? This cannot be undone.`,
+      opts.force || opts.yes,
+    );
+    if (!proceed) {
+      console.log('Cancelled.');
+      return;
     }
 
     const spinner = isJsonMode() ? null : ora('Deleting VPS instance...').start();

@@ -60,4 +60,30 @@ describe('serverless rm command', () => {
 
     await expect(rmCommand.parseAsync(['node', 'test', 'nonexistent', '--yes'])).rejects.toThrow("container 'nonexistent' not found.");
   });
+
+  it('accepts --force as an alias for --yes', async () => {
+    mockGet.mockResolvedValue({
+      data: [makeContainer()],
+      pagination: { current_page: 1, last_page: 1, per_page: 15, total: 1 },
+    });
+    mockDelete.mockResolvedValue({ message: 'Deleted' });
+
+    await rmCommand.parseAsync(['node', 'test', 'my-api', '--force']);
+
+    expect(mockDelete).toHaveBeenCalledWith('/api/v1/serverless/abc-123');
+  });
+
+  it('refuses JSON-mode delete without --force/--yes', async () => {
+    const { setJsonMode } = await import('../../../src/lib/json-mode.js');
+    setJsonMode(true);
+    mockGet.mockResolvedValue({
+      data: [makeContainer()],
+      pagination: { current_page: 1, last_page: 1, per_page: 15, total: 1 },
+    });
+
+    await expect(rmCommand.parseAsync(['node', 'test', 'my-api'])).rejects.toThrow(/without --force/);
+
+    expect(mockDelete).not.toHaveBeenCalled();
+    setJsonMode(false);
+  });
 });

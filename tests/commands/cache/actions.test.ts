@@ -27,14 +27,19 @@ const { startCommand, stopCommand, connectionInfoCommand, dnsCommand } = await i
 const listResponse = (overrides = {}) => ({ data: [{ id: 'cache-1', name: 'my-cache', ...overrides }] });
 
 describe('cache actions', () => {
+  const originalIsTTY = process.stdin.isTTY;
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
     mockGet.mockReset(); mockPost.mockReset(); mockDelete.mockReset(); mockConfirm.mockReset();
   });
 
-  afterEach(() => { vi.restoreAllMocks(); });
+  afterEach(() => {
+    Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
+    vi.restoreAllMocks();
+  });
 
   describe('start', () => {
     it('posts to /start', async () => {
@@ -74,9 +79,20 @@ describe('cache actions', () => {
     });
 
     it('cancels if confirm returns false', async () => {
+      mockGet.mockResolvedValueOnce(listResponse());
       mockConfirm.mockResolvedValue(false);
       await connectionInfoCommand.parseAsync(['node', 'test', 'cache-1']);
-      expect(mockGet).not.toHaveBeenCalled();
+      // Resolution (list) happens before the confirm, but the reveal call itself must not.
+      expect(mockGet).toHaveBeenCalledTimes(1);
+    });
+
+    it('refuses JSON-mode reveal without --force', async () => {
+      const { setJsonMode } = await import('../../../src/lib/json-mode.js');
+      setJsonMode(true);
+      mockGet.mockResolvedValueOnce(listResponse());
+      await expect(connectionInfoCommand.parseAsync(['node', 'test', 'cache-1'])).rejects.toThrow(/without --force/);
+      expect(mockGet).toHaveBeenCalledTimes(1);
+      setJsonMode(false);
     });
   });
 

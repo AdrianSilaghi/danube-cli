@@ -1,12 +1,13 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { input, select, confirm } from '@inquirer/prompts';
+import { input, select } from '@inquirer/prompts';
 import { ApiClient } from '../../lib/api-client.js';
 import { fetchAllPages } from '../../lib/paginate.js';
 import { resolveResource } from '../../lib/resolve.js';
 import { formatTable, statusColor, formatDate } from '../../lib/output.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
+import { promptOr, confirmDestruction } from '../../lib/interactive.js';
 import type { CacheInstance, CacheProvider } from '../../types/api.js';
 
 const CACHE_PLANS: Array<{ name: string; value: string }> = [
@@ -67,33 +68,26 @@ export const createCommand = new Command('create')
   .action(async (opts: {
     name?: string; provider?: string; version?: string; datacenter: string; profile?: string;
   }) => {
-    let name = opts.name;
-    let provider = opts.provider as CacheProvider | undefined;
-    let profile = opts.profile;
-
-    if (!name) {
-      name = await input({
-        message: 'Instance name:',
-        validate: (v: string) => /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(v.trim()) || 'Lowercase letters, numbers, and hyphens only',
-      });
-    }
-
-    if (!provider) {
-      provider = await select<CacheProvider>({
-        message: 'Provider:',
-        choices: CACHE_PROVIDERS.map(p => ({ name: p, value: p })),
-      });
-    } else if (!CACHE_PROVIDERS.includes(provider)) {
-      console.error(chalk.red(`Invalid provider "${provider}". Valid: ${CACHE_PROVIDERS.join(', ')}`));
+    // Validate a provider passed via flag before we'd otherwise prompt for it.
+    if (opts.provider && !CACHE_PROVIDERS.includes(opts.provider as CacheProvider)) {
+      console.error(chalk.red(`Invalid provider "${opts.provider}". Valid: ${CACHE_PROVIDERS.join(', ')}`));
       process.exit(1);
     }
 
-    if (!profile) {
-      profile = await select({
-        message: 'Resource profile:',
-        choices: CACHE_PLANS,
-      });
-    }
+    const name = await promptOr('--name', opts.name, () => input({
+      message: 'Instance name:',
+      validate: (v: string) => /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(v.trim()) || 'Lowercase letters, numbers, and hyphens only',
+    }));
+
+    const provider = await promptOr('--provider', opts.provider as CacheProvider | undefined, () => select<CacheProvider>({
+      message: 'Provider:',
+      choices: CACHE_PROVIDERS.map(p => ({ name: p, value: p })),
+    }));
+
+    const profile = await promptOr('--profile', opts.profile, () => select({
+      message: 'Resource profile:',
+      choices: CACHE_PLANS,
+    }));
 
     if (!CACHE_DATACENTERS.includes(opts.datacenter)) {
       console.error(chalk.red(`Invalid datacenter "${opts.datacenter}". Valid: ${CACHE_DATACENTERS.join(', ')}`));
@@ -191,20 +185,20 @@ export const updateCommand = new Command('update')
 export const rmCommand = new Command('rm')
   .description('Delete a cache instance')
   .argument('<name-or-id>', 'Cache instance name or ID')
-  .option('--force', 'Skip confirmation')
-  .action(async (nameOrId: string, opts: { force?: boolean }) => {
+  .option('-f, --force', 'Skip confirmation')
+  .option('-y, --yes', 'Alias for --force')
+  .action(async (nameOrId: string, opts: { force?: boolean; yes?: boolean }) => {
     const api = await ApiClient.create();
     const instance = await resolveResource<CacheInstance>(api, '/api/v1/cache', 'cache', nameOrId);
 
-    if (!opts.force && !isJsonMode()) {
-      const confirmed = await confirm({
-        message: `Are you sure you want to delete cache ${instance.name} (${instance.id})? This cannot be undone.`,
-        default: false,
-      });
-      if (!confirmed) {
-        console.log('Cancelled.');
-        return;
-      }
+    const proceed = await confirmDestruction(
+      `deletion of cache ${instance.name}`,
+      `Are you sure you want to delete cache ${instance.name} (${instance.id})? This cannot be undone.`,
+      opts.force || opts.yes,
+    );
+    if (!proceed) {
+      console.log('Cancelled.');
+      return;
     }
 
     const spinner = isJsonMode() ? null : ora('Deleting cache instance...').start();

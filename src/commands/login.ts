@@ -3,23 +3,22 @@ import { password } from '@inquirer/prompts';
 import chalk from 'chalk';
 import { writeConfig, getApiBase } from '../lib/config.js';
 import { ApiError } from '../lib/errors.js';
+import { canPrompt, promptOr } from '../lib/interactive.js';
 import type { User } from '../types/api.js';
 
 export const loginCommand = new Command('login')
   .description('Authenticate with DanubeData')
   .option('--token <token>', 'API token (prefer DANUBE_TOKEN env var in CI to avoid shell history exposure)')
   .action(async (opts: { token?: string }) => {
-    let token = opts.token;
-
-    if (!token) {
+    if (!opts.token && canPrompt()) {
       console.log(chalk.bold('Log in to DanubeData\n'));
       console.log(`Create an API token at: ${chalk.cyan(`${getApiBase()}/user/api-tokens`)}\n`);
-
-      token = await password({
-        message: 'Paste your API token:',
-        mask: '*',
-      });
     }
+
+    let token = await promptOr('--token', opts.token, () => password({
+      message: 'Paste your API token:',
+      mask: '*',
+    }));
 
     if (!token?.trim()) {
       console.error(chalk.red('No token provided.'));

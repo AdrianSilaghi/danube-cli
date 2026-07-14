@@ -27,14 +27,19 @@ const { startCommand, stopCommand, credentialsCommand, dnsCommand } = await impo
 const listResponse = (overrides = {}) => ({ data: [{ id: 'db-1', name: 'my-db', ...overrides }] });
 
 describe('database actions', () => {
+  const originalIsTTY = process.stdin.isTTY;
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
     mockGet.mockReset(); mockPost.mockReset(); mockDelete.mockReset(); mockConfirm.mockReset();
   });
 
-  afterEach(() => { vi.restoreAllMocks(); });
+  afterEach(() => {
+    Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
+    vi.restoreAllMocks();
+  });
 
   it('starts', async () => {
     mockGet.mockResolvedValueOnce(listResponse());
@@ -71,9 +76,20 @@ describe('database actions', () => {
     });
 
     it('cancels on declined confirm', async () => {
+      mockGet.mockResolvedValueOnce(listResponse());
       mockConfirm.mockResolvedValue(false);
       await credentialsCommand.parseAsync(['node', 'test', 'db-1']);
-      expect(mockGet).not.toHaveBeenCalled();
+      // Resolution (list) happens before the confirm, but the credentials fetch itself must not.
+      expect(mockGet).toHaveBeenCalledTimes(1);
+    });
+
+    it('refuses JSON-mode reveal without --force', async () => {
+      const { setJsonMode } = await import('../../../src/lib/json-mode.js');
+      setJsonMode(true);
+      mockGet.mockResolvedValueOnce(listResponse());
+      await expect(credentialsCommand.parseAsync(['node', 'test', 'db-1'])).rejects.toThrow(/without --force/);
+      expect(mockGet).toHaveBeenCalledTimes(1);
+      setJsonMode(false);
     });
   });
 

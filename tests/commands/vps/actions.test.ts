@@ -30,15 +30,20 @@ const makeVps = (overrides = {}) => ({ id: 'vps-1', name: 'my-vps', ...overrides
 const listResponse = (overrides = {}) => ({ data: [makeVps(overrides)] });
 
 describe('vps actions', () => {
+  const originalIsTTY = process.stdin.isTTY;
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
     mockGet.mockReset(); mockPost.mockReset(); mockSelect.mockReset(); mockConfirm.mockReset();
   });
 
-  afterEach(() => { vi.restoreAllMocks(); });
+  afterEach(() => {
+    Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
+    vi.restoreAllMocks();
+  });
 
   it('starts a VPS', async () => {
     mockGet.mockResolvedValueOnce(listResponse());
@@ -125,9 +130,20 @@ describe('vps actions', () => {
   });
 
   it('cancels password display when user declines', async () => {
+    mockGet.mockResolvedValueOnce(listResponse());
     mockConfirm.mockResolvedValue(false);
     await passwordCommand.parseAsync(['node', 'test', 'vps-1']);
     expect(consoleLogSpy).toHaveBeenCalledWith('Cancelled.');
-    expect(mockGet).not.toHaveBeenCalled();
+    // Resolution (list) happens before the confirm, but the password reveal itself must not.
+    expect(mockGet).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses JSON-mode password reveal without --force', async () => {
+    const { setJsonMode } = await import('../../../src/lib/json-mode.js');
+    setJsonMode(true);
+    mockGet.mockResolvedValueOnce(listResponse());
+    await expect(passwordCommand.parseAsync(['node', 'test', 'vps-1'])).rejects.toThrow(/without --force/);
+    expect(mockGet).toHaveBeenCalledTimes(1);
+    setJsonMode(false);
   });
 });

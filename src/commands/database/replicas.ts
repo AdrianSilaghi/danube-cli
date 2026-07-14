@@ -1,11 +1,11 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { confirm } from '@inquirer/prompts';
 import { ApiClient } from '../../lib/api-client.js';
 import { resolveResource } from '../../lib/resolve.js';
 import { formatTable, statusColor } from '../../lib/output.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
+import { confirmDestruction } from '../../lib/interactive.js';
 import type { DatabaseInstance, DatabaseReplicaList, DatabaseReplicationStatus } from '../../types/api.js';
 
 const lsCommand = new Command('ls')
@@ -75,20 +75,20 @@ const rmCommand = new Command('rm')
   .description('Remove a replica by index')
   .argument('<name-or-id>', 'Database instance name or ID')
   .argument('<index>', 'Replica index (1-based)')
-  .option('--force', 'Skip confirmation')
-  .action(async (nameOrId: string, index: string, opts: { force?: boolean }) => {
+  .option('-f, --force', 'Skip confirmation')
+  .option('-y, --yes', 'Alias for --force')
+  .action(async (nameOrId: string, index: string, opts: { force?: boolean; yes?: boolean }) => {
     const api = await ApiClient.create();
     const instance = await resolveResource<DatabaseInstance>(api, '/api/v1/database', 'database', nameOrId);
 
-    if (!opts.force && !isJsonMode()) {
-      const confirmed = await confirm({
-        message: `Remove replica #${index} from database ${instance.name} (${instance.id})?`,
-        default: false,
-      });
-      if (!confirmed) {
-        console.log('Cancelled.');
-        return;
-      }
+    const proceed = await confirmDestruction(
+      `removal of replica #${index} from database ${instance.name}`,
+      `Remove replica #${index} from database ${instance.name} (${instance.id})?`,
+      opts.force || opts.yes,
+    );
+    if (!proceed) {
+      console.log('Cancelled.');
+      return;
     }
 
     const spinner = isJsonMode() ? null : ora('Removing replica...').start();

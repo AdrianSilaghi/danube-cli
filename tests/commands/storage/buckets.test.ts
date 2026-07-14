@@ -57,6 +57,7 @@ const makeBucket = (overrides = {}) => ({
 
 describe('buckets command', () => {
   const originalExit = process.exit;
+  const originalIsTTY = process.stdin.isTTY;
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
@@ -66,6 +67,7 @@ describe('buckets command', () => {
     process.exit = vi.fn().mockImplementation((code: number) => {
       throw new ExitError(code);
     }) as never;
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
     mockGet.mockReset();
     mockPost.mockReset();
     mockPut.mockReset();
@@ -77,6 +79,7 @@ describe('buckets command', () => {
 
   afterEach(() => {
     process.exit = originalExit;
+    Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
     vi.restoreAllMocks();
   });
 
@@ -145,6 +148,38 @@ describe('buckets command', () => {
         name: 'prompted-bucket',
         region: 'fsn1',
         versioning_enabled: true,
+        public_access: false,
+      });
+    });
+
+    it('defaults versioning/public to false in JSON mode instead of prompting', async () => {
+      const { setJsonMode } = await import('../../../src/lib/json-mode.js');
+      setJsonMode(true);
+      mockPost.mockResolvedValue({ message: 'Created', bucket: makeBucket({ name: 'json-bucket' }) });
+
+      await bucketsCommand.parseAsync(['node', 'test', 'create', '--name', 'json-bucket', '--region', 'fsn1']);
+
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(mockPost).toHaveBeenCalledWith('/api/v1/storage/buckets', {
+        name: 'json-bucket',
+        region: 'fsn1',
+        versioning_enabled: false,
+        public_access: false,
+      });
+      setJsonMode(false);
+    });
+
+    it('defaults versioning/public to false without a TTY instead of hanging on a prompt', async () => {
+      Object.defineProperty(process.stdin, 'isTTY', { value: undefined, configurable: true });
+      mockPost.mockResolvedValue({ message: 'Created', bucket: makeBucket({ name: 'piped-bucket' }) });
+
+      await bucketsCommand.parseAsync(['node', 'test', 'create', '--name', 'piped-bucket', '--region', 'fsn1']);
+
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(mockPost).toHaveBeenCalledWith('/api/v1/storage/buckets', {
+        name: 'piped-bucket',
+        region: 'fsn1',
+        versioning_enabled: false,
         public_access: false,
       });
     });
@@ -242,6 +277,17 @@ describe('buckets command', () => {
 
       expect(consoleLogSpy).toHaveBeenCalledWith('Cancelled.');
       expect(mockDelete).not.toHaveBeenCalled();
+    });
+
+    it('refuses JSON-mode delete without --force', async () => {
+      const { setJsonMode } = await import('../../../src/lib/json-mode.js');
+      setJsonMode(true);
+      mockGet.mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] });
+
+      await expect(bucketsCommand.parseAsync(['node', 'test', 'delete', 'bucket-1'])).rejects.toThrow(/without --force/);
+
+      expect(mockDelete).not.toHaveBeenCalled();
+      setJsonMode(false);
     });
   });
 

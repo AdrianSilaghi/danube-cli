@@ -2,6 +2,8 @@ import { Command } from 'commander';
 import { select, input } from '@inquirer/prompts';
 import chalk from 'chalk';
 import { ApiClient } from '../../lib/api-client.js';
+import { isJsonMode } from '../../lib/json-mode.js';
+import { promptOr } from '../../lib/interactive.js';
 import { teamsArray } from '../../types/api.js';
 import type { TeamsResponse, ServerlessCreateResponse } from '../../types/api.js';
 
@@ -17,6 +19,7 @@ export const createCommand = new Command('create')
   .option('--port <port>', 'Container port', '8080')
   .option('--min-scale <n>', 'Minimum scale')
   .option('--max-scale <n>', 'Maximum scale')
+  .option('--team <id>', 'Team ID (required with multiple teams in non-interactive mode)')
   .action(async (opts) => {
     const api = await ApiClient.create();
 
@@ -34,34 +37,33 @@ export const createCommand = new Command('create')
     const teams = teamsArray(teamsRes);
 
     let teamId: number;
-    if (teams.length === 1) {
+    if (opts.team) {
+      teamId = parseIntOption(opts.team, 'team');
+    } else if (teams.length === 1) {
       teamId = teams[0]!.id;
-      console.log(`Team: ${chalk.bold(teams[0]!.name)}`);
+      if (!isJsonMode()) console.log(`Team: ${chalk.bold(teams[0]!.name)}`);
     } else {
-      teamId = await select({
+      teamId = await promptOr('--team', undefined, () => select({
         message: 'Select a team:',
         choices: teams.map((t) => ({ name: t.name, value: t.id })),
-      });
+      }));
     }
 
     // Get name
-    const name = opts.name || await input({
+    const name = await promptOr('--name', opts.name, () => input({
       message: 'Container name:',
       validate: (v: string) => v.trim().length > 0 || 'Name is required',
-    });
+    }));
 
     // Get deployment type
-    let deploymentType = opts.type;
-    if (!deploymentType) {
-      deploymentType = await select({
-        message: 'Deployment type:',
-        choices: [
-          { name: 'Docker Image', value: 'docker_image' },
-          { name: 'Git Repository', value: 'git_repository' },
-          { name: 'Local (ZIP upload)', value: 'zip_upload' },
-        ],
-      });
-    }
+    let deploymentType = await promptOr('--type', opts.type, () => select({
+      message: 'Deployment type:',
+      choices: [
+        { name: 'Docker Image', value: 'docker_image' },
+        { name: 'Git Repository', value: 'git_repository' },
+        { name: 'Local (ZIP upload)', value: 'zip_upload' },
+      ],
+    }));
     if (deploymentType === 'local') deploymentType = 'zip_upload';
 
     // Build request body
@@ -78,40 +80,40 @@ export const createCommand = new Command('create')
 
     // Type-specific fields
     if (deploymentType === 'docker_image') {
-      body.image = opts.image || await input({
+      body.image = await promptOr('--image', opts.image, () => input({
         message: 'Docker image:',
         validate: (v: string) => v.trim().length > 0 || 'Image is required',
-      });
-      body.image_tag = opts.tag || await input({
+      }));
+      body.image_tag = await promptOr('--tag', opts.tag, () => input({
         message: 'Image tag:',
         default: 'latest',
-      });
+      }));
     } else if (deploymentType === 'git_repository') {
-      body.repository_url = opts.repo || await input({
+      body.repository_url = await promptOr('--repo', opts.repo, () => input({
         message: 'Git repository URL:',
         validate: (v: string) => v.trim().length > 0 || 'URL is required',
-      });
-      body.source_type = opts.sourceType || await select({
+      }));
+      body.source_type = await promptOr('--source-type', opts.sourceType, () => select({
         message: 'Build type:',
         choices: [
           { name: 'Dockerfile', value: 'dockerfile' },
           { name: 'Buildpack', value: 'buildpack' },
         ],
-      });
+      }));
       body.git_auth_type = 'none';
     } else if (deploymentType === 'zip_upload') {
-      body.source_type = opts.sourceType || await select({
+      body.source_type = await promptOr('--source-type', opts.sourceType, () => select({
         message: 'Build type:',
         choices: [
           { name: 'Dockerfile', value: 'dockerfile' },
           { name: 'Buildpack', value: 'buildpack' },
         ],
-      });
+      }));
     }
 
     // Get resource profile if not set
     if (!body.resource_profile) {
-      body.resource_profile = await select({
+      body.resource_profile = await promptOr('--profile', opts.profile, () => select({
         message: 'Resource profile:',
         choices: [
           { name: 'Free (0.01-0.1 vCPU, 64-128MB) - 2M req/mo included', value: 'free' },
@@ -119,7 +121,7 @@ export const createCommand = new Command('create')
           { name: 'Medium (1-2 vCPU, 512MB-1GB) - pay per use', value: 'medium' },
           { name: 'Large (2-4 vCPU, 1-2GB) - pay per use', value: 'large' },
         ],
-      });
+      }));
     }
 
     // Free tier has a max_replicas limit of 3

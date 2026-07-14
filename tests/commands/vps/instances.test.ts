@@ -50,6 +50,7 @@ const makeVps = (overrides = {}) => ({
 
 describe('vps instances', () => {
   const originalExit = process.exit;
+  const originalIsTTY = process.stdin.isTTY;
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
@@ -57,11 +58,17 @@ describe('vps instances', () => {
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     process.exit = vi.fn().mockImplementation((code: number) => { throw new ExitError(code); }) as never;
+    // Prompt-driven paths need a "TTY" so canPrompt() lets them through.
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
     mockGet.mockReset(); mockPost.mockReset(); mockPut.mockReset(); mockDelete.mockReset();
     mockInput.mockReset(); mockSelect.mockReset(); mockConfirm.mockReset(); mockPassword.mockReset();
   });
 
-  afterEach(() => { process.exit = originalExit; vi.restoreAllMocks(); });
+  afterEach(() => {
+    process.exit = originalExit;
+    Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
+    vi.restoreAllMocks();
+  });
 
   describe('ls', () => {
     it('shows message when no instances', async () => {
@@ -184,6 +191,15 @@ describe('vps instances', () => {
       await deleteCommand.parseAsync(['node', 'test', 'vps-1']);
       expect(consoleLogSpy).toHaveBeenCalledWith('Cancelled.');
       expect(mockDelete).not.toHaveBeenCalled();
+    });
+
+    it('refuses JSON-mode delete without --force', async () => {
+      const { setJsonMode } = await import('../../../src/lib/json-mode.js');
+      setJsonMode(true);
+      mockGet.mockResolvedValueOnce({ data: [makeVps()] });
+      await expect(deleteCommand.parseAsync(['node', 'test', 'vps-1'])).rejects.toThrow(/without --force/);
+      expect(mockDelete).not.toHaveBeenCalled();
+      setJsonMode(false);
     });
   });
 });

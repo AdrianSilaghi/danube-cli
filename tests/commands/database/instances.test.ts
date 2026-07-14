@@ -65,6 +65,7 @@ const makeDatabase = (overrides = {}) => ({
 
 describe('database instances', () => {
   const originalExit = process.exit;
+  const originalIsTTY = process.stdin.isTTY;
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
@@ -72,11 +73,16 @@ describe('database instances', () => {
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     process.exit = vi.fn().mockImplementation((code: number) => { throw new ExitError(code); }) as never;
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
     mockGet.mockReset(); mockPost.mockReset(); mockPut.mockReset(); mockDelete.mockReset();
     mockInput.mockReset(); mockSelect.mockReset(); mockConfirm.mockReset();
   });
 
-  afterEach(() => { process.exit = originalExit; vi.restoreAllMocks(); });
+  afterEach(() => {
+    process.exit = originalExit;
+    Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
+    vi.restoreAllMocks();
+  });
 
   describe('ls', () => {
     it('shows message when no instances', async () => {
@@ -177,6 +183,23 @@ describe('database instances', () => {
       mockDelete.mockResolvedValue({ message: 'ok', status: 'destroying' });
       await rmCommand.parseAsync(['node', 'test', 'db-1', '--force']);
       expect(mockDelete).toHaveBeenCalledWith('/api/v1/database/db-1');
+    });
+
+    it('cancels when confirm returns false', async () => {
+      mockGet.mockResolvedValueOnce({ data: [makeDatabase({ id: 'db-1' })] });
+      mockConfirm.mockResolvedValue(false);
+      await rmCommand.parseAsync(['node', 'test', 'db-1']);
+      expect(consoleLogSpy).toHaveBeenCalledWith('Cancelled.');
+      expect(mockDelete).not.toHaveBeenCalled();
+    });
+
+    it('refuses JSON-mode rm without --force', async () => {
+      const { setJsonMode } = await import('../../../src/lib/json-mode.js');
+      setJsonMode(true);
+      mockGet.mockResolvedValueOnce({ data: [makeDatabase({ id: 'db-1' })] });
+      await expect(rmCommand.parseAsync(['node', 'test', 'db-1'])).rejects.toThrow(/without --force/);
+      expect(mockDelete).not.toHaveBeenCalled();
+      setJsonMode(false);
     });
   });
 });

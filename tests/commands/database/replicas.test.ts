@@ -32,6 +32,7 @@ const listResponse = (overrides = {}) => ({ data: [{ id: 'db-1', name: 'my-db', 
 
 describe('database replicas', () => {
   const originalExit = process.exit;
+  const originalIsTTY = process.stdin.isTTY;
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
@@ -39,10 +40,15 @@ describe('database replicas', () => {
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     process.exit = vi.fn().mockImplementation((code: number) => { throw new ExitError(code); }) as never;
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
     mockGet.mockReset(); mockPost.mockReset(); mockDelete.mockReset(); mockConfirm.mockReset();
   });
 
-  afterEach(() => { process.exit = originalExit; vi.restoreAllMocks(); });
+  afterEach(() => {
+    process.exit = originalExit;
+    Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
+    vi.restoreAllMocks();
+  });
 
   describe('ls', () => {
     it('shows master + replicas', async () => {
@@ -130,6 +136,15 @@ describe('database replicas', () => {
       mockConfirm.mockResolvedValue(false);
       await replicasCommand.parseAsync(['node', 'test', 'rm', 'db-1', '2']);
       expect(mockDelete).not.toHaveBeenCalled();
+    });
+
+    it('refuses JSON-mode rm without --force', async () => {
+      const { setJsonMode } = await import('../../../src/lib/json-mode.js');
+      setJsonMode(true);
+      mockGet.mockResolvedValueOnce(listResponse());
+      await expect(replicasCommand.parseAsync(['node', 'test', 'rm', 'db-1', '2'])).rejects.toThrow(/without --force/);
+      expect(mockDelete).not.toHaveBeenCalled();
+      setJsonMode(false);
     });
   });
 

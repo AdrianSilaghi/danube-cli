@@ -1,11 +1,12 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { confirm, select } from '@inquirer/prompts';
+import { select } from '@inquirer/prompts';
 import { ApiClient } from '../../lib/api-client.js';
 import { resolveResource } from '../../lib/resolve.js';
 import { statusColor, formatBytes, formatDate } from '../../lib/output.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
+import { promptOr, confirmDestruction } from '../../lib/interactive.js';
 import type { VpsInstance, VpsStatus, VpsMetrics, VpsImageGroup } from '../../types/api.js';
 
 export const startCommand = new Command('start')
@@ -61,14 +62,13 @@ export const reinstallCommand = new Command('reinstall')
   .argument('<name-or-id>', 'VPS name or ID')
   .option('--image <image>', 'OS image ID (e.g. ubuntu-24.04)')
   .option('--cloud-init <script>', 'Custom cloud-init script')
-  .option('--force', 'Skip confirmation')
-  .action(async (nameOrId: string, opts: { image?: string; cloudInit?: string; force?: boolean }) => {
+  .option('-f, --force', 'Skip confirmation')
+  .option('-y, --yes', 'Alias for --force')
+  .action(async (nameOrId: string, opts: { image?: string; cloudInit?: string; force?: boolean; yes?: boolean }) => {
     const api = await ApiClient.create();
     const instance = await resolveResource<VpsInstance>(api, '/api/v1/vps', 'VPS', nameOrId);
 
-    let image = opts.image;
-
-    if (!image) {
+    const image = await promptOr('--image', opts.image, async () => {
       const groupsRes = await api.get<{ groups: VpsImageGroup[] }>('/api/v1/vps/images/grouped');
       const imageChoices = groupsRes.groups.flatMap(g =>
         g.images.map(img => ({
@@ -76,18 +76,17 @@ export const reinstallCommand = new Command('reinstall')
           value: img.id,
         })),
       );
-      image = await select({ message: 'Select new OS:', choices: imageChoices });
-    }
+      return select({ message: 'Select new OS:', choices: imageChoices });
+    });
 
-    if (!opts.force && !isJsonMode()) {
-      const confirmed = await confirm({
-        message: `This will DESTROY ALL DATA on VPS ${instance.name} (${instance.id}) and reinstall with ${image}. Continue?`,
-        default: false,
-      });
-      if (!confirmed) {
-        console.log('Cancelled.');
-        return;
-      }
+    const proceed = await confirmDestruction(
+      `reinstallation of VPS ${instance.name}`,
+      `This will DESTROY ALL DATA on VPS ${instance.name} (${instance.id}) and reinstall with ${image}. Continue?`,
+      opts.force || opts.yes,
+    );
+    if (!proceed) {
+      console.log('Cancelled.');
+      return;
     }
 
     const body: Record<string, unknown> = { image };
@@ -167,21 +166,22 @@ export const metricsCommand = new Command('metrics')
 export const passwordCommand = new Command('password')
   .description('Show SSH password for a VPS instance')
   .argument('<name-or-id>', 'VPS name or ID')
-  .action(async (nameOrId: string) => {
-    if (!isJsonMode()) {
-      const confirmed = await confirm({
-        message: 'This will display the root password in your terminal. Continue?',
-        default: false,
-      });
-
-      if (!confirmed) {
-        console.log('Cancelled.');
-        return;
-      }
-    }
-
+  .option('-f, --force', 'Skip confirmation')
+  .option('-y, --yes', 'Alias for --force')
+  .action(async (nameOrId: string, opts: { force?: boolean; yes?: boolean }) => {
     const api = await ApiClient.create();
     const instance = await resolveResource<VpsInstance>(api, '/api/v1/vps', 'VPS', nameOrId);
+
+    const proceed = await confirmDestruction(
+      `password reveal for ${instance.name}`,
+      'This will display the root password in your terminal. Continue?',
+      opts.force || opts.yes,
+    );
+    if (!proceed) {
+      console.log('Cancelled.');
+      return;
+    }
+
     const res = await api.get<{ password: string; username: string; public_ip: string | null }>(
       `/api/v1/vps/${instance.id}/password`,
     );

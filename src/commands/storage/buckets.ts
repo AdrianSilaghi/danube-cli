@@ -7,6 +7,7 @@ import { fetchAllPages } from '../../lib/paginate.js';
 import { resolveResource } from '../../lib/resolve.js';
 import { formatTable, statusColor, formatBytes, formatDate, formatNumber, formatRelativeTime } from '../../lib/output.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
+import { canPrompt, promptOr, confirmDestruction } from '../../lib/interactive.js';
 import type {
   StorageBucket,
   StorageMetrics,
@@ -87,30 +88,26 @@ const createCommand = new Command('create')
   .option('--versioning', 'Enable versioning')
   .option('--public', 'Enable public access')
   .action(async (opts: { name?: string; region?: string; versioning?: boolean; public?: boolean }) => {
-    let name = opts.name;
-    let region = opts.region;
     let versioning = opts.versioning;
     let isPublic = opts.public;
 
-    if (!name) {
-      name = await input({
-        message: 'Bucket name:',
-        validate: (v: string) => v.trim().length > 0 || 'Name is required',
-      });
-    }
+    const name = await promptOr('--name', opts.name, () => input({
+      message: 'Bucket name:',
+      validate: (v: string) => v.trim().length > 0 || 'Name is required',
+    }));
 
-    if (!region) {
-      region = await select({
-        message: 'Region:',
-        choices: [{ name: 'Falkenstein, Germany (fsn1)', value: 'fsn1' }],
-      });
-    }
+    const region = await promptOr('--region', opts.region, () => select({
+      message: 'Region:',
+      choices: [{ name: 'Falkenstein, Germany (fsn1)', value: 'fsn1' }],
+    }));
 
-    if (versioning === undefined && !isJsonMode()) {
+    // Optional booleans with a safe default (false) — only ask when we
+    // actually can; otherwise fall through rather than failing the create.
+    if (versioning === undefined && canPrompt()) {
       versioning = await confirm({ message: 'Enable versioning?', default: false });
     }
 
-    if (isPublic === undefined && !isJsonMode()) {
+    if (isPublic === undefined && canPrompt()) {
       isPublic = await confirm({ message: 'Enable public access?', default: false });
     }
 
@@ -214,17 +211,20 @@ const updateCommand = new Command('update')
 const deleteCommand = new Command('delete')
   .description('Delete a bucket')
   .argument('<name-or-id>', 'Bucket name or ID')
-  .option('--force', 'Skip confirmation')
-  .action(async (nameOrId: string, opts: { force?: boolean }) => {
+  .option('-f, --force', 'Skip confirmation')
+  .option('-y, --yes', 'Alias for --force')
+  .action(async (nameOrId: string, opts: { force?: boolean; yes?: boolean }) => {
     const api = await ApiClient.create();
     const bucket = await resolveResource<StorageBucket>(api, '/api/v1/storage/buckets', 'bucket', nameOrId);
 
-    if (!opts.force && !isJsonMode()) {
-      const confirmed = await confirm({ message: `Are you sure you want to delete bucket ${bucket.name} (${bucket.id})?`, default: false });
-      if (!confirmed) {
-        console.log('Cancelled.');
-        return;
-      }
+    const proceed = await confirmDestruction(
+      `deletion of bucket ${bucket.name}`,
+      `Are you sure you want to delete bucket ${bucket.name} (${bucket.id})?`,
+      opts.force || opts.yes,
+    );
+    if (!proceed) {
+      console.log('Cancelled.');
+      return;
     }
 
     const spinner = isJsonMode() ? null : ora('Deleting bucket...').start();

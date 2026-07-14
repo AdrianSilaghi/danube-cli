@@ -1,11 +1,11 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { confirm } from '@inquirer/prompts';
 import { ApiClient } from '../../lib/api-client.js';
 import { resolveResource } from '../../lib/resolve.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import { formatBytes } from '../../lib/output.js';
+import { confirmDestruction } from '../../lib/interactive.js';
 import type { CacheConnectionInfo, CacheMetricsResponse, CacheInstance } from '../../types/api.js';
 
 export const startCommand = new Command('start')
@@ -43,20 +43,22 @@ export const stopCommand = new Command('stop')
 export const connectionInfoCommand = new Command('connection-info')
   .description('Show connection URL and password for a cache instance')
   .argument('<name-or-id>', 'Cache instance name or ID')
-  .action(async (nameOrId: string) => {
-    if (!isJsonMode()) {
-      const confirmed = await confirm({
-        message: 'This will display the cache password in your terminal. Continue?',
-        default: false,
-      });
-      if (!confirmed) {
-        console.log('Cancelled.');
-        return;
-      }
-    }
-
+  .option('-f, --force', 'Skip confirmation')
+  .option('-y, --yes', 'Alias for --force')
+  .action(async (nameOrId: string, opts: { force?: boolean; yes?: boolean }) => {
     const api = await ApiClient.create();
     const instance = await resolveResource<CacheInstance>(api, '/api/v1/cache', 'cache', nameOrId);
+
+    const proceed = await confirmDestruction(
+      `connection info reveal for ${instance.name}`,
+      'This will display the cache password in your terminal. Continue?',
+      opts.force || opts.yes,
+    );
+    if (!proceed) {
+      console.log('Cancelled.');
+      return;
+    }
+
     const res = await api.get<CacheConnectionInfo>(`/api/v1/cache/${instance.id}/connection-info`);
 
     if (isJsonMode()) {

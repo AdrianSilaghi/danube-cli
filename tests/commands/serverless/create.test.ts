@@ -38,6 +38,7 @@ const containerResponse = (overrides = {}) => ({
 
 describe('serverless create command', () => {
   const originalExit = process.exit;
+  const originalIsTTY = process.stdin.isTTY;
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
@@ -47,6 +48,7 @@ describe('serverless create command', () => {
     process.exit = vi.fn().mockImplementation((code: number) => {
       throw new ExitError(code);
     }) as never;
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
     mockGet.mockReset();
     mockPost.mockReset();
     mockSelect.mockReset().mockResolvedValue('docker_image');
@@ -54,6 +56,7 @@ describe('serverless create command', () => {
 
   afterEach(() => {
     process.exit = originalExit;
+    Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
     vi.restoreAllMocks();
   });
 
@@ -155,6 +158,52 @@ describe('serverless create command', () => {
       team_id: 2,
       name: 'multi-team-app',
     }));
+  });
+
+  it('uses --team to skip the team prompt when multiple teams exist', async () => {
+    const teams = [
+      { id: 1, name: 'Team Alpha', personal_team: true },
+      { id: 2, name: 'Team Beta', personal_team: false },
+    ];
+    mockGet.mockResolvedValue(teamsResponse(teams));
+    mockPost.mockResolvedValue(containerResponse());
+
+    await createCommand.parseAsync([
+      'node', 'test',
+      '--name', 'flagged-team-app',
+      '--type', 'docker_image',
+      '--image', 'node',
+      '--tag', '20',
+      '--profile', 'medium',
+      '--team', '2',
+    ]);
+
+    expect(mockSelect).not.toHaveBeenCalled();
+    expect(mockPost).toHaveBeenCalledWith('/api/v1/serverless', expect.objectContaining({
+      team_id: 2,
+      name: 'flagged-team-app',
+    }));
+  });
+
+  it('fails fast without a TTY instead of hanging on the team prompt', async () => {
+    Object.defineProperty(process.stdin, 'isTTY', { value: undefined, configurable: true });
+    const teams = [
+      { id: 1, name: 'Team Alpha', personal_team: true },
+      { id: 2, name: 'Team Beta', personal_team: false },
+    ];
+    mockGet.mockResolvedValue(teamsResponse(teams));
+
+    await expect(createCommand.parseAsync([
+      'node', 'test',
+      '--name', 'no-tty-app',
+      '--type', 'docker_image',
+      '--image', 'node',
+      '--tag', '20',
+      '--profile', 'medium',
+    ])).rejects.toThrow(/Missing required flag/);
+
+    expect(mockSelect).not.toHaveBeenCalled();
+    expect(mockPost).not.toHaveBeenCalled();
   });
 
   it('exits with error for non-numeric --port value', async () => {

@@ -43,6 +43,7 @@ const makeSnapshot = (overrides = {}) => ({
 
 describe('cache snapshots', () => {
   const originalExit = process.exit;
+  const originalIsTTY = process.stdin.isTTY;
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
@@ -50,10 +51,15 @@ describe('cache snapshots', () => {
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     process.exit = vi.fn().mockImplementation((code: number) => { throw new ExitError(code); }) as never;
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
     mockGet.mockReset(); mockPost.mockReset(); mockDelete.mockReset(); mockConfirm.mockReset();
   });
 
-  afterEach(() => { process.exit = originalExit; vi.restoreAllMocks(); });
+  afterEach(() => {
+    process.exit = originalExit;
+    Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
+    vi.restoreAllMocks();
+  });
 
   describe('ls', () => {
     it('lists snapshots', async () => {
@@ -174,6 +180,14 @@ describe('cache snapshots', () => {
       mockDelete.mockResolvedValue({ message: 'ok' });
       await snapshotsCommand.parseAsync(['node', 'test', 'rm', 'snap-1', '--force']);
       expect(mockDelete).toHaveBeenCalledWith('/api/v1/snapshots/cache/snap-1');
+    });
+
+    it('refuses JSON-mode rm without --force', async () => {
+      const { setJsonMode } = await import('../../../src/lib/json-mode.js');
+      setJsonMode(true);
+      await expect(snapshotsCommand.parseAsync(['node', 'test', 'rm', 'snap-1'])).rejects.toThrow(/without --force/);
+      expect(mockDelete).not.toHaveBeenCalled();
+      setJsonMode(false);
     });
   });
 });

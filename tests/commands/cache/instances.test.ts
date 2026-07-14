@@ -61,6 +61,7 @@ const makeCache = (overrides = {}) => ({
 
 describe('cache instances', () => {
   const originalExit = process.exit;
+  const originalIsTTY = process.stdin.isTTY;
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
@@ -68,11 +69,16 @@ describe('cache instances', () => {
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     process.exit = vi.fn().mockImplementation((code: number) => { throw new ExitError(code); }) as never;
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
     mockGet.mockReset(); mockPost.mockReset(); mockPut.mockReset(); mockDelete.mockReset();
     mockInput.mockReset(); mockSelect.mockReset(); mockConfirm.mockReset();
   });
 
-  afterEach(() => { process.exit = originalExit; vi.restoreAllMocks(); });
+  afterEach(() => {
+    process.exit = originalExit;
+    Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
+    vi.restoreAllMocks();
+  });
 
   describe('ls', () => {
     it('shows message when no instances', async () => {
@@ -188,6 +194,15 @@ describe('cache instances', () => {
       mockConfirm.mockResolvedValue(false);
       await rmCommand.parseAsync(['node', 'test', 'cache-1']);
       expect(mockDelete).not.toHaveBeenCalled();
+    });
+
+    it('refuses JSON-mode rm without --force', async () => {
+      const { setJsonMode } = await import('../../../src/lib/json-mode.js');
+      setJsonMode(true);
+      mockGet.mockResolvedValueOnce({ data: [makeCache({ id: 'cache-1' })] });
+      await expect(rmCommand.parseAsync(['node', 'test', 'cache-1'])).rejects.toThrow(/without --force/);
+      expect(mockDelete).not.toHaveBeenCalled();
+      setJsonMode(false);
     });
   });
 });

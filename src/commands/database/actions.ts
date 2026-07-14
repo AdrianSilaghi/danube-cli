@@ -1,11 +1,11 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { confirm } from '@inquirer/prompts';
 import { ApiClient } from '../../lib/api-client.js';
 import { resolveResource } from '../../lib/resolve.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import { formatBytes } from '../../lib/output.js';
+import { confirmDestruction } from '../../lib/interactive.js';
 import type { DatabaseCredentials, DatabaseMetricsResponse, DatabaseInstance } from '../../types/api.js';
 
 export const startCommand = new Command('start')
@@ -43,20 +43,22 @@ export const stopCommand = new Command('stop')
 export const credentialsCommand = new Command('credentials')
   .description('Show connection URL, username, and password for a database')
   .argument('<name-or-id>', 'Database instance name or ID')
-  .action(async (nameOrId: string) => {
-    if (!isJsonMode()) {
-      const confirmed = await confirm({
-        message: 'This will display the database password in your terminal. Continue?',
-        default: false,
-      });
-      if (!confirmed) {
-        console.log('Cancelled.');
-        return;
-      }
-    }
-
+  .option('-f, --force', 'Skip confirmation')
+  .option('-y, --yes', 'Alias for --force')
+  .action(async (nameOrId: string, opts: { force?: boolean; yes?: boolean }) => {
     const api = await ApiClient.create();
     const instance = await resolveResource<DatabaseInstance>(api, '/api/v1/database', 'database', nameOrId);
+
+    const proceed = await confirmDestruction(
+      `credentials reveal for ${instance.name}`,
+      'This will display the database password in your terminal. Continue?',
+      opts.force || opts.yes,
+    );
+    if (!proceed) {
+      console.log('Cancelled.');
+      return;
+    }
+
     const res = await api.get<DatabaseCredentials>(`/api/v1/database/${instance.id}/credentials`);
 
     if (isJsonMode()) {
