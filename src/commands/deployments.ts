@@ -7,7 +7,7 @@ import { readProjectConfig } from '../lib/project.js';
 import { NotLinkedError } from '../lib/errors.js';
 import { formatTable, statusColor, formatDate } from '../lib/output.js';
 import { isJsonMode, jsonOutput } from '../lib/json-mode.js';
-import type { PaginatedResponse, StaticSiteDeployment, MessageResponse } from '../types/api.js';
+import type { StaticSiteDeployment, MessageResponse } from '../types/api.js';
 
 const lsCommand = new Command('ls')
   .description('List deployments')
@@ -16,21 +16,22 @@ const lsCommand = new Command('ls')
     if (!project) throw new NotLinkedError();
 
     const api = await ApiClient.create();
-    const res = await api.get<PaginatedResponse<StaticSiteDeployment>>(
+    const { items, total, truncated } = await fetchAllPages<StaticSiteDeployment>(
+      api,
       `/api/v1/static-sites/${project.siteId}/deployments`,
     );
 
     if (isJsonMode()) {
-      jsonOutput(res.data);
+      jsonOutput(items);
       return;
     }
 
-    if (res.data.length === 0) {
+    if (items.length === 0) {
       console.log('No deployments yet.');
       return;
     }
 
-    const rows = res.data.map(d => [
+    const rows = items.map(d => [
       `#${d.revision_number}`,
       statusColor(d.status) + (d.is_current ? chalk.cyan(' (current)') : ''),
       d.trigger_type,
@@ -39,6 +40,10 @@ const lsCommand = new Command('ls')
     ]);
 
     console.log(formatTable(['REVISION', 'STATUS', 'TRIGGER', 'DEPLOYED', 'CREATED'], rows));
+
+    if (truncated) {
+      console.log(chalk.dim(`Showing ${items.length} of ${total}. Refine with the web console for the full list.`));
+    }
   });
 
 const rollbackCommand = new Command('rollback')
