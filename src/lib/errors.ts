@@ -22,3 +22,17 @@ export class ApiError extends Error {
     this.name = 'ApiError';
   }
 }
+
+export class MissingFlagsError extends Error {
+  constructor(public flags: string[]) {
+    super(`Missing required flag${flags.length > 1 ? 's' : ''} in non-interactive mode: ${flags.join(', ')}`);
+    this.name = 'MissingFlagsError';
+  }
+}
+
+export class ConfirmationRequiredError extends Error {
+  constructor(what: string) {
+    super(`Refusing to delete ${what} without --force in non-interactive mode.`);
+    this.name = 'ConfirmationRequiredError';
+  }
+}

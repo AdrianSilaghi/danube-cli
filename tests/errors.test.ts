@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { NotAuthenticatedError, NotLinkedError, ApiError } from '../src/lib/errors.js';
+import { NotAuthenticatedError, NotLinkedError, ApiError, MissingFlagsError, ConfirmationRequiredError } from '../src/lib/errors.js';
 
 describe('errors', () => {
   it('NotAuthenticatedError has correct message and name', () => {
@@ -29,5 +29,22 @@ describe('errors', () => {
     const err = new ApiError(500, 'Server error');
     expect(err.statusCode).toBe(500);
     expect(err.errors).toBeUndefined();
+  });
+});
+
+describe('MissingFlagsError', () => {
+  it('lists the missing flags', () => {
+    const err = new MissingFlagsError(['--name', '--image']);
+    expect(err.flags).toEqual(['--name', '--image']);
+    expect(err.message).toContain('--name, --image');
+    expect(err.name).toBe('MissingFlagsError');
+  });
+});
+
+describe('ConfirmationRequiredError', () => {
+  it('mentions --force', () => {
+    const err = new ConfirmationRequiredError('VPS vps-1');
+    expect(err.message).toContain('--force');
+    expect(err.name).toBe('ConfirmationRequiredError');
   });
 });
