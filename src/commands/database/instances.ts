@@ -146,7 +146,7 @@ export const getCommand = new Command('get')
       ['CPU', `${d.cpu_cores} cores`],
       ['Memory', `${(d.memory_size_mb / 1024).toFixed(2)} GB (${d.memory_size_mb} MB)`],
       ['Storage', `${d.storage_size_gb} GB`],
-      ['Datacenter', d.datacenter],
+      ['Datacenter', d.datacenter ?? '-'],
       ['Endpoint', d.endpoint ?? '-'],
       ['Port', d.port !== null ? String(d.port) : '-'],
       ['Username', d.username ?? '-'],

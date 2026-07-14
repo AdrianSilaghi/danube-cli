@@ -10,7 +10,8 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "gen:types": "openapi-typescript https://danubedata.ro/docs/api.json -o src/types/generated.d.ts"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -52,6 +53,7 @@
     "@types/archiver": "^7.0.0",
     "@types/node": "^25.3.0",
     "@vitest/coverage-v8": "^4.0.18",
+    "openapi-typescript": "^7.13.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"
   }
