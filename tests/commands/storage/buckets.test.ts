@@ -57,6 +57,7 @@ const makeBucket = (overrides = {}) => ({
 
 describe('buckets command', () => {
   const originalExit = process.exit;
+  const originalIsTTY = process.stdin.isTTY;
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
@@ -66,6 +67,8 @@ describe('buckets command', () => {
     process.exit = vi.fn().mockImplementation((code: number) => {
       throw new ExitError(code);
     }) as never;
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+    process.exitCode = undefined;
     mockGet.mockReset();
     mockPost.mockReset();
     mockPut.mockReset();
@@ -77,6 +80,8 @@ describe('buckets command', () => {
 
   afterEach(() => {
     process.exit = originalExit;
+    Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
+    process.exitCode = undefined;
     vi.restoreAllMocks();
   });
 
@@ -148,21 +153,66 @@ describe('buckets command', () => {
         public_access: false,
       });
     });
+
+    it('defaults versioning/public to false in JSON mode instead of prompting', async () => {
+      const { setJsonMode } = await import('../../../src/lib/json-mode.js');
+      setJsonMode(true);
+      mockPost.mockResolvedValue({ message: 'Created', bucket: makeBucket({ name: 'json-bucket' }) });
+
+      await bucketsCommand.parseAsync(['node', 'test', 'create', '--name', 'json-bucket', '--region', 'fsn1']);
+
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(mockPost).toHaveBeenCalledWith('/api/v1/storage/buckets', {
+        name: 'json-bucket',
+        region: 'fsn1',
+        versioning_enabled: false,
+        public_access: false,
+      });
+      setJsonMode(false);
+    });
+
+    it('defaults versioning/public to false without a TTY instead of hanging on a prompt', async () => {
+      Object.defineProperty(process.stdin, 'isTTY', { value: undefined, configurable: true });
+      mockPost.mockResolvedValue({ message: 'Created', bucket: makeBucket({ name: 'piped-bucket' }) });
+
+      await bucketsCommand.parseAsync(['node', 'test', 'create', '--name', 'piped-bucket', '--region', 'fsn1']);
+
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(mockPost).toHaveBeenCalledWith('/api/v1/storage/buckets', {
+        name: 'piped-bucket',
+        region: 'fsn1',
+        versioning_enabled: false,
+        public_access: false,
+      });
+    });
   });
 
   describe('get', () => {
     it('displays bucket details', async () => {
-      mockGet.mockResolvedValue({ bucket: makeBucket() });
+      mockGet
+        .mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] })
+        .mockResolvedValueOnce({ bucket: makeBucket() });
 
       await bucketsCommand.parseAsync(['node', 'test', 'get', 'bucket-1']);
 
-      expect(mockGet).toHaveBeenCalledWith('/api/v1/storage/buckets/bucket-1');
+      expect(mockGet).toHaveBeenLastCalledWith('/api/v1/storage/buckets/bucket-1');
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('my-bucket'));
+    });
+
+    it('resolves a bucket by name', async () => {
+      mockGet
+        .mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-9', name: 'prod-assets' })] })
+        .mockResolvedValueOnce({ bucket: makeBucket({ id: 'bucket-9', name: 'prod-assets' }) });
+
+      await bucketsCommand.parseAsync(['node', 'test', 'get', 'prod-assets']);
+
+      expect(mockGet).toHaveBeenLastCalledWith('/api/v1/storage/buckets/bucket-9');
     });
   });
 
   describe('update', () => {
     it('updates bucket with flags', async () => {
+      mockGet.mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] });
       mockPut.mockResolvedValue({
         message: 'Updated',
         bucket: makeBucket({ versioning_enabled: true }),
@@ -176,6 +226,7 @@ describe('buckets command', () => {
     });
 
     it('updates bucket with size limit', async () => {
+      mockGet.mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] });
       mockPut.mockResolvedValue({
         message: 'Updated',
         bucket: makeBucket({ size_limit_bytes: 1073741824 }),
@@ -195,11 +246,13 @@ describe('buckets command', () => {
 
       expect(process.exit).toHaveBeenCalledWith(1);
       expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('At least one option'));
+      expect(mockGet).not.toHaveBeenCalled();
     });
   });
 
   describe('delete', () => {
     it('deletes bucket with --force', async () => {
+      mockGet.mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] });
       mockDelete.mockResolvedValue({ message: 'Deleted' });
 
       await bucketsCommand.parseAsync(['node', 'test', 'delete', 'bucket-1', '--force']);
@@ -208,6 +261,7 @@ describe('buckets command', () => {
     });
 
     it('asks for confirmation and deletes', async () => {
+      mockGet.mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] });
       mockConfirm.mockResolvedValue(true);
       mockDelete.mockResolvedValue({ message: 'Deleted' });
 
@@ -218,6 +272,7 @@ describe('buckets command', () => {
     });
 
     it('cancels when user declines', async () => {
+      mockGet.mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] });
       mockConfirm.mockResolvedValue(false);
 
       await bucketsCommand.parseAsync(['node', 'test', 'delete', 'bucket-1']);
@@ -225,26 +280,54 @@ describe('buckets command', () => {
       expect(consoleLogSpy).toHaveBeenCalledWith('Cancelled.');
       expect(mockDelete).not.toHaveBeenCalled();
     });
+
+    it('refuses JSON-mode delete without --force', async () => {
+      const { setJsonMode } = await import('../../../src/lib/json-mode.js');
+      setJsonMode(true);
+      mockGet.mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] });
+
+      await expect(bucketsCommand.parseAsync(['node', 'test', 'delete', 'bucket-1'])).rejects.toThrow(/without --force/);
+
+      expect(mockDelete).not.toHaveBeenCalled();
+      setJsonMode(false);
+    });
+
+    it('delete is canonical rm with delete alias', () => {
+      const deleteCmd = bucketsCommand.commands.find((c) => c.name() === 'rm');
+      expect(deleteCmd?.name()).toBe('rm');
+      expect(deleteCmd?.aliases()).toContain('delete');
+    });
+
+    it('deletes bucket via canonical `rm`', async () => {
+      mockGet.mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] });
+      mockDelete.mockResolvedValue({ message: 'Deleted' });
+
+      await bucketsCommand.parseAsync(['node', 'test', 'rm', 'bucket-1', '--force']);
+
+      expect(mockDelete).toHaveBeenCalledWith('/api/v1/storage/buckets/bucket-1');
+    });
   });
 
   describe('metrics', () => {
     it('displays bucket metrics with requests and egress', async () => {
-      mockGet.mockResolvedValue({
-        size_bytes: 167_203_942_400,
-        size_human: '155.7 GB',
-        object_count: 18368,
-        requests_24h: 12401,
-        requests_24h_by_method: { GET: 9800, PUT: 2100, DELETE: 50, HEAD: 451 },
-        egress_bytes_24h: 987_654_321,
-        egress_human_24h: '0.92 GB',
-        monthly_cost_cents: 399,
-        monthly_cost_dollars: '3.99',
-        last_sync_at: new Date(Date.now() - 2 * 60_000).toISOString(),
-      });
+      mockGet
+        .mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] })
+        .mockResolvedValueOnce({
+          size_bytes: 167_203_942_400,
+          size_human: '155.7 GB',
+          object_count: 18368,
+          requests_24h: 12401,
+          requests_24h_by_method: { GET: 9800, PUT: 2100, DELETE: 50, HEAD: 451 },
+          egress_bytes_24h: 987_654_321,
+          egress_human_24h: '0.92 GB',
+          monthly_cost_cents: 399,
+          monthly_cost_dollars: '3.99',
+          last_sync_at: new Date(Date.now() - 2 * 60_000).toISOString(),
+        });
 
       await bucketsCommand.parseAsync(['node', 'test', 'metrics', 'bucket-1']);
 
-      expect(mockGet).toHaveBeenCalledWith('/api/v1/storage/buckets/bucket-1/metrics');
+      expect(mockGet).toHaveBeenLastCalledWith('/api/v1/storage/buckets/bucket-1/metrics');
 
       const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
       expect(output).toContain('155.7 GB');
@@ -260,23 +343,145 @@ describe('buckets command', () => {
     });
 
     it('shows em-dash when requests_24h is null (loki unreachable)', async () => {
-      mockGet.mockResolvedValue({
-        size_bytes: 0,
-        size_human: '0 B',
-        object_count: 0,
-        requests_24h: null,
-        requests_24h_by_method: null,
-        egress_bytes_24h: 0,
-        egress_human_24h: '0 B',
-        monthly_cost_cents: 399,
-        monthly_cost_dollars: '3.99',
-        last_sync_at: null,
-      });
+      mockGet
+        .mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] })
+        .mockResolvedValueOnce({
+          size_bytes: 0,
+          size_human: '0 B',
+          object_count: 0,
+          requests_24h: null,
+          requests_24h_by_method: null,
+          egress_bytes_24h: 0,
+          egress_human_24h: '0 B',
+          monthly_cost_cents: 399,
+          monthly_cost_dollars: '3.99',
+          last_sync_at: null,
+        });
 
       await bucketsCommand.parseAsync(['node', 'test', 'metrics', 'bucket-1']);
 
       const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
       expect(output).toMatch(/Requests \(24h\)\s+\S*—/);
+    });
+
+    it('trend resolves the bucket before fetching the time-series', async () => {
+      mockGet
+        .mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] })
+        .mockResolvedValueOnce({
+          bucket_id: 'bucket-1', window: '24h', resolution: '1h', source: 'deltas',
+          freshness: 'fresh', generated_at: '2024-01-01T00:00:00Z', data: [],
+        });
+
+      await bucketsCommand.parseAsync(['node', 'test', 'metrics', 'trend', 'bucket-1']);
+
+      expect(mockGet).toHaveBeenLastCalledWith('/api/v1/storage/buckets/bucket-1/metrics/trend?window=24h');
+      const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
+      expect(output).toContain('No data points in this window.');
+    });
+
+    it('top resolves the bucket before fetching top objects', async () => {
+      mockGet
+        .mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] })
+        .mockResolvedValueOnce({
+          bucket_id: 'bucket-1', dimension: 'size', recorded_at: null,
+          items: [{ rank: 1, object_key: 'backups/db.tar.gz', value: 1048576 }],
+        });
+
+      await bucketsCommand.parseAsync(['node', 'test', 'metrics', 'top', 'bucket-1']);
+
+      expect(mockGet).toHaveBeenLastCalledWith('/api/v1/storage/buckets/bucket-1/metrics/top-objects?dimension=size&limit=10');
+      const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
+      expect(output).toContain('backups/db.tar.gz');
+    });
+
+    it('health resolves the bucket before fetching hygiene info', async () => {
+      mockGet
+        .mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] })
+        .mockResolvedValueOnce({
+          bucket_id: 'bucket-1', pending_multipart_count: null, pending_multipart_bytes: null,
+          deleted_size_bytes: null, freshness: 'fresh', metrics_precomputed_at: null,
+          last_health_check_at: null, health_check_status: 'ok',
+        });
+
+      await bucketsCommand.parseAsync(['node', 'test', 'metrics', 'health', 'bucket-1']);
+
+      expect(mockGet).toHaveBeenLastCalledWith('/api/v1/storage/buckets/bucket-1/metrics/health');
+      const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
+      expect(output).toContain('Pending multipart');
+    });
+
+    it('sets exit code 8 (not 3) when snapshot metrics are stale', async () => {
+      mockGet
+        .mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] })
+        .mockResolvedValueOnce({
+          size_bytes: 0, size_human: '0 B', object_count: 0,
+          requests_24h: null, requests_24h_by_method: null,
+          egress_bytes_24h: 0, egress_human_24h: '0 B',
+          monthly_cost_cents: 399, monthly_cost_dollars: '3.99',
+          last_sync_at: null, freshness: 'stale',
+        });
+
+      await bucketsCommand.parseAsync(['node', 'test', 'metrics', 'bucket-1']);
+
+      expect(process.exitCode).toBe(8);
+    });
+
+    it('sets exit code 8 (not 3) when trend data is stale', async () => {
+      mockGet
+        .mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] })
+        .mockResolvedValueOnce({
+          bucket_id: 'bucket-1', window: '24h', resolution: '1h', source: 'deltas',
+          freshness: 'stale', generated_at: '2024-01-01T00:00:00Z', data: [],
+        });
+
+      await bucketsCommand.parseAsync(['node', 'test', 'metrics', 'trend', 'bucket-1']);
+
+      expect(process.exitCode).toBe(8);
+    });
+
+    it('sets exit code 8 (not 3) when no top-objects data is available', async () => {
+      mockGet
+        .mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] })
+        .mockResolvedValueOnce({
+          bucket_id: 'bucket-1', dimension: 'size', recorded_at: null, items: [],
+        });
+
+      await bucketsCommand.parseAsync(['node', 'test', 'metrics', 'top', 'bucket-1']);
+
+      expect(process.exitCode).toBe(8);
+      const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
+      expect(output).toContain('No top-objects data available yet');
+    });
+
+    it('sets exit code 8 (not 3) when health data is stale in JSON mode', async () => {
+      const { setJsonMode } = await import('../../../src/lib/json-mode.js');
+      setJsonMode(true);
+      mockGet
+        .mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] })
+        .mockResolvedValueOnce({
+          bucket_id: 'bucket-1', pending_multipart_count: null, pending_multipart_bytes: null,
+          deleted_size_bytes: null, freshness: 'stale', metrics_precomputed_at: null,
+          last_health_check_at: null, health_check_status: 'ok',
+        });
+
+      await bucketsCommand.parseAsync(['node', 'test', 'metrics', 'health', 'bucket-1']);
+
+      expect(process.exitCode).toBe(8);
+      setJsonMode(false);
+    });
+
+    it('sets exit code 8 (not 3) when health data is stale in human mode', async () => {
+      mockGet
+        .mockResolvedValueOnce({ data: [makeBucket({ id: 'bucket-1' })] })
+        .mockResolvedValueOnce({
+          bucket_id: 'bucket-1', pending_multipart_count: null, pending_multipart_bytes: null,
+          deleted_size_bytes: null, freshness: 'stale', metrics_precomputed_at: null,
+          last_health_check_at: null, health_check_status: 'ok',
+        });
+
+      await bucketsCommand.parseAsync(['node', 'test', 'metrics', 'health', 'bucket-1']);
+
+      expect(process.exitCode).toBe(8);
     });
   });
 });

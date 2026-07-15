@@ -28,22 +28,24 @@ describe('database metrics command', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
   it('fetches and prints summary', async () => {
-    mockGet.mockResolvedValue({
-      summary: {
-        memory_used_bytes: 268435456,
-        memory_used_mb: 256,
-        connected_clients: 12,
-        total_queries: 9876,
-        slow_queries: 2,
-        retrieved_at: '2026-04-19T10:00:00Z',
-      },
-      health: { is_healthy: true, up_status: true, checked_at: '2026-04-19T10:00:00Z' },
-      instance: { id: 'db-1', name: 'my-db' },
-    });
+    mockGet
+      .mockResolvedValueOnce({ data: [{ id: 'db-1', name: 'my-db' }] })
+      .mockResolvedValueOnce({
+        summary: {
+          memory_used_bytes: 268435456,
+          memory_used_mb: 256,
+          connected_clients: 12,
+          total_queries: 9876,
+          slow_queries: 2,
+          retrieved_at: '2026-04-19T10:00:00Z',
+        },
+        health: { is_healthy: true, up_status: true, checked_at: '2026-04-19T10:00:00Z' },
+        instance: { id: 'db-1', name: 'my-db' },
+      });
 
     await metricsCommand.parseAsync(['node', 'test', 'db-1']);
 
-    expect(mockGet).toHaveBeenCalledWith('/api/v1/database/db-1/metrics');
+    expect(mockGet).toHaveBeenLastCalledWith('/api/v1/database/db-1/metrics');
     const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
     expect(output).toContain('256 MB');
     expect(output).toContain('9,876');

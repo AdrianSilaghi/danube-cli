@@ -44,3 +44,18 @@ jobs:
       - run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  types-drift:
+    runs-on: ubuntu-latest
+    # Signal, not a PR gate: fails whenever the backend deploys new endpoints
+    # or danubedata.ro is unreachable from the runner.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run gen:types
+      - run: git diff --exit-code src/types/generated.d.ts || (echo '::error::OpenAPI spec drifted — run npm run gen:types and reconcile src/types/api.ts' && exit 1)

@@ -58,6 +58,6 @@ describe('serverless redeploy command', () => {
   it('throws when container not found', async () => {
     mockGet.mockResolvedValue({ data: [], pagination: { current_page: 1, last_page: 1, per_page: 15, total: 0 } });
 
-    await expect(redeployCommand.parseAsync(['node', 'test', 'nonexistent'])).rejects.toThrow("Container 'nonexistent' not found.");
+    await expect(redeployCommand.parseAsync(['node', 'test', 'nonexistent'])).rejects.toThrow("container 'nonexistent' not found.");
   });
 });

@@ -12,6 +12,6 @@ export function jsonOutput(data: unknown): void {
   console.log(JSON.stringify(data, null, 2));
 }
 
-export function jsonError(error: { code: string; message: string; errors?: Record<string, string[]> }): void {
+export function jsonError(error: { code: string; message: string; [k: string]: unknown }): void {
   console.error(JSON.stringify(error));
 }

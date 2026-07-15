@@ -233,9 +233,9 @@ export interface VpsInstance {
   deployed_at: string | null;
   created_at: string;
   updated_at: string;
-  team_id: string;
-  user_id: string;
-  ssh_key_id: string | null;
+  team_id: number;
+  user_id: number;
+  ssh_key_id: number | null;
   can_be_started: boolean;
   can_be_stopped: boolean;
   can_be_rebooted: boolean;
@@ -247,6 +247,8 @@ export interface VpsConnectionInfo {
   private_ip: string | null;
   ipv6_address: string | null;
   vnc_access_url: string | null;
+  internal_dns: string | null;
+  internal_fqdn: string | null;
 }
 
 export interface VpsStatus {
@@ -287,6 +289,20 @@ export interface VpsImageGroup {
   images: VpsImage[];
 }
 
+export interface PlansResponse<T> {
+  plans: T[];
+}
+
+export interface VpsPlanInfo {
+  slug: string;
+  display_name: string;
+  type: 'shared' | 'dedicated';
+  cpu_cores: number;
+  memory_gb: number;
+  storage_gb: number;
+  monthly_cost: number;
+}
+
 // ---------------------------------------------------------------------------
 // Cache
 // ---------------------------------------------------------------------------
@@ -298,12 +314,12 @@ export interface CacheInstance {
   name: string;
   status: string;
   status_label: string;
-  resource_profile: string;
+  resource_profile: string | null;
   cpu_cores: number;
   memory_size_mb: number;
   version: string | null;
-  provider_id: string;
-  provider?: { id: string; name: string; type: CacheProvider };
+  provider_id: number;
+  provider?: { id: number; name: string; type: CacheProvider };
   endpoint: string | null;
   port: number | null;
   monthly_cost_cents: number;
@@ -335,6 +351,16 @@ export interface CacheSnapshot {
   updated_at: string;
 }
 
+export interface CachePlanInfo {
+  slug: string;
+  display_name: string;
+  provider: string;
+  cpu_cores: number;
+  memory_mb: number;
+  storage_gb: number;
+  monthly_cost: number;
+}
+
 // ---------------------------------------------------------------------------
 // Database
 // ---------------------------------------------------------------------------
@@ -351,10 +377,10 @@ export interface DatabaseInstance {
   memory_size_mb: number;
   storage_size_gb: number;
   version: string | null;
-  datacenter: string;
-  provider_id: string;
-  provider?: { id: string; name: string; type: DatabaseProvider };
-  engine?: { id: string; name: DatabaseProvider };
+  datacenter: string | null;
+  provider_id: number;
+  provider?: { id: number; name: string; type: DatabaseProvider };
+  engine?: { id: number; name: DatabaseProvider };
   endpoint: string | null;
   port: number | null;
   username: string | null;
@@ -428,6 +454,15 @@ export interface DatabaseSnapshot {
   database_instance?: { id: string; name: string };
   created_at: string;
   updated_at: string;
+}
+
+export interface DatabasePlanInfo {
+  slug: string;
+  display_name: string;
+  cpu_cores: number;
+  memory_mb: number;
+  storage_gb: number;
+  monthly_cost: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -509,7 +544,7 @@ export interface ServerlessContainer {
   description: string | null;
   deployment_type: 'docker_image' | 'git_repository' | 'zip_upload';
   source_type: string | null;
-  image: string;
+  image: string | null;
   image_tag: string;
   port: number;
   resource_profile: string;

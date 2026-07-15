@@ -1,22 +1,26 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { confirm } from '@inquirer/prompts';
 import { ApiClient } from '../../lib/api-client.js';
+import { fetchAllPages } from '../../lib/paginate.js';
+import { resolveResource } from '../../lib/resolve.js';
 import { formatTable, statusColor, formatDate } from '../../lib/output.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
-import type { DatabaseSnapshot, DatabaseInstance, PaginatedResponse } from '../../types/api.js';
+import { confirmDestruction } from '../../lib/interactive.js';
+import type { DatabaseSnapshot, DatabaseInstance } from '../../types/api.js';
 
 const lsCommand = new Command('ls')
   .description('List database snapshots')
-  .option('--instance <id>', 'Filter by database instance ID')
+  .option('--instance <name-or-id>', 'Filter by database instance name or ID')
   .action(async (opts: { instance?: string }) => {
     const api = await ApiClient.create();
-    const res = await api.get<PaginatedResponse<DatabaseSnapshot>>('/api/v1/snapshots/database');
+    const { items, total, truncated } = await fetchAllPages<DatabaseSnapshot>(api, '/api/v1/snapshots/database');
 
-    const rows = opts.instance
-      ? res.data.filter(s => s.database_instance_id === opts.instance)
-      : res.data;
+    let rows = items;
+    if (opts.instance) {
+      const instance = await resolveResource<DatabaseInstance>(api, '/api/v1/database', 'database', opts.instance);
+      rows = items.filter(s => s.database_instance_id === instance.id);
+    }
 
     if (isJsonMode()) {
       jsonOutput(rows);
@@ -39,26 +43,32 @@ const lsCommand = new Command('ls')
         formatDate(s.created_at),
       ]),
     ));
+
+    if (truncated) {
+      console.log(chalk.dim(`Showing ${items.length} of ${total}. Refine with the web console for the full list.`));
+    }
   });
 
 const createCommand = new Command('create')
   .description('Create a database snapshot')
-  .argument('<instance-id>', 'Database instance ID')
+  .argument('<name-or-id>', 'Database instance name or ID')
   .option('--name <name>', 'Snapshot name')
   .option('--description <text>', 'Optional description')
-  .action(async (instanceId: string, opts: { name?: string; description?: string }) => {
+  .action(async (nameOrId: string, opts: { name?: string; description?: string }) => {
     if (!opts.name) {
       console.error(chalk.red('--name is required.'));
       process.exit(1);
     }
 
+    const api = await ApiClient.create();
+    const instance = await resolveResource<DatabaseInstance>(api, '/api/v1/database', 'database', nameOrId);
+
     const body: Record<string, unknown> = {
-      database_instance_id: instanceId,
+      database_instance_id: instance.id,
       name: opts.name,
     };
     if (opts.description) body.description = opts.description;
 
-    const api = await ApiClient.create();
     const spinner = isJsonMode() ? null : ora('Creating snapshot...').start();
     const res = await api.post<{ message: string; snapshot: DatabaseSnapshot }>('/api/v1/snapshots/database', body);
 
@@ -72,17 +82,17 @@ const createCommand = new Command('create')
 const restoreCommand = new Command('restore')
   .description('Restore a database snapshot into its source instance')
   .argument('<snapshot-id>', 'Snapshot ID')
-  .option('--force', 'Skip confirmation')
-  .action(async (snapshotId: string, opts: { force?: boolean }) => {
-    if (!opts.force && !isJsonMode()) {
-      const confirmed = await confirm({
-        message: `Restore snapshot ${snapshotId}? This overwrites the current database contents.`,
-        default: false,
-      });
-      if (!confirmed) {
-        console.log('Cancelled.');
-        return;
-      }
+  .option('-f, --force', 'Skip confirmation')
+  .option('-y, --yes', 'Alias for --force')
+  .action(async (snapshotId: string, opts: { force?: boolean; yes?: boolean }) => {
+    const proceed = await confirmDestruction(
+      `restore of snapshot ${snapshotId}`,
+      `Restore snapshot ${snapshotId}? This overwrites the current database contents.`,
+      opts.force || opts.yes,
+    );
+    if (!proceed) {
+      console.log('Cancelled.');
+      return;
     }
 
     const api = await ApiClient.create();
@@ -133,19 +143,20 @@ const cloneCommand = new Command('clone')
   });
 
 const rmCommand = new Command('rm')
+  .alias('delete')
   .description('Delete a database snapshot')
   .argument('<snapshot-id>', 'Snapshot ID')
-  .option('--force', 'Skip confirmation')
-  .action(async (snapshotId: string, opts: { force?: boolean }) => {
-    if (!opts.force && !isJsonMode()) {
-      const confirmed = await confirm({
-        message: `Delete snapshot ${snapshotId}? This cannot be undone.`,
-        default: false,
-      });
-      if (!confirmed) {
-        console.log('Cancelled.');
-        return;
-      }
+  .option('-f, --force', 'Skip confirmation')
+  .option('-y, --yes', 'Alias for --force')
+  .action(async (snapshotId: string, opts: { force?: boolean; yes?: boolean }) => {
+    const proceed = await confirmDestruction(
+      `deletion of snapshot ${snapshotId}`,
+      `Delete snapshot ${snapshotId}? This cannot be undone.`,
+      opts.force || opts.yes,
+    );
+    if (!proceed) {
+      console.log('Cancelled.');
+      return;
     }
 
     const api = await ApiClient.create();

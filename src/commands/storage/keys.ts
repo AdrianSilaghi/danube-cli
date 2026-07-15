@@ -1,14 +1,15 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { input, confirm } from '@inquirer/prompts';
+import { input } from '@inquirer/prompts';
 import { ApiClient } from '../../lib/api-client.js';
+import { fetchAllPages } from '../../lib/paginate.js';
 import { formatTable, statusColor, formatDate } from '../../lib/output.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
+import { promptOr, confirmDestruction } from '../../lib/interactive.js';
 import type {
   StorageAccessKey,
   CreateAccessKeyResponse,
-  PaginatedResponse,
   MessageResponse,
 } from '../../types/api.js';
 
@@ -16,19 +17,19 @@ const lsCommand = new Command('ls')
   .description('List all access keys')
   .action(async () => {
     const api = await ApiClient.create();
-    const res = await api.get<PaginatedResponse<StorageAccessKey>>('/api/v1/storage/access-keys');
+    const { items, total, truncated } = await fetchAllPages<StorageAccessKey>(api, '/api/v1/storage/access-keys');
 
     if (isJsonMode()) {
-      jsonOutput(res.data);
+      jsonOutput(items);
       return;
     }
 
-    if (res.data.length === 0) {
+    if (items.length === 0) {
       console.log('No access keys found.');
       return;
     }
 
-    const rows = res.data.map(k => [
+    const rows = items.map(k => [
       k.name,
       k.access_key_id,
       statusColor(k.status),
@@ -38,6 +39,10 @@ const lsCommand = new Command('ls')
     ]);
 
     console.log(formatTable(['NAME', 'ACCESS KEY', 'STATUS', 'EXPIRES', 'LAST USED', 'CREATED'], rows));
+
+    if (truncated) {
+      console.log(chalk.dim(`Showing ${items.length} of ${total}. Refine with the web console for the full list.`));
+    }
   });
 
 const createCommand = new Command('create')
@@ -45,14 +50,10 @@ const createCommand = new Command('create')
   .option('--name <name>', 'Key name')
   .option('--expires <date>', 'Expiration date (ISO 8601)')
   .action(async (opts: { name?: string; expires?: string }) => {
-    let name = opts.name;
-
-    if (!name) {
-      name = await input({
-        message: 'Access key name:',
-        validate: (v: string) => v.trim().length > 0 || 'Name is required',
-      });
-    }
+    const name = await promptOr('--name', opts.name, () => input({
+      message: 'Access key name:',
+      validate: (v: string) => v.trim().length > 0 || 'Name is required',
+    }));
 
     const body: Record<string, unknown> = { name: name.trim() };
     if (opts.expires) body.expires_at = opts.expires;
@@ -114,14 +115,17 @@ const getCommand = new Command('get')
 const revokeCommand = new Command('revoke')
   .description('Revoke an access key')
   .argument('<key-id>', 'Access key ID')
-  .option('--force', 'Skip confirmation')
-  .action(async (keyId: string, opts: { force?: boolean }) => {
-    if (!opts.force && !isJsonMode()) {
-      const confirmed = await confirm({ message: `Are you sure you want to revoke access key ${keyId}?`, default: false });
-      if (!confirmed) {
-        console.log('Cancelled.');
-        return;
-      }
+  .option('-f, --force', 'Skip confirmation')
+  .option('-y, --yes', 'Alias for --force')
+  .action(async (keyId: string, opts: { force?: boolean; yes?: boolean }) => {
+    const proceed = await confirmDestruction(
+      `revocation of key ${keyId}`,
+      `Are you sure you want to revoke access key ${keyId}?`,
+      opts.force || opts.yes,
+    );
+    if (!proceed) {
+      console.log('Cancelled.');
+      return;
     }
 
     const api = await ApiClient.create();

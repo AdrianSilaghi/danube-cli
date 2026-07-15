@@ -2,16 +2,21 @@ import { Command } from 'commander';
 import { randomBytes } from 'node:crypto';
 import chalk from 'chalk';
 import ora from 'ora';
-import { input, select, password as passwordPrompt, confirm } from '@inquirer/prompts';
+import { input, select, password as passwordPrompt } from '@inquirer/prompts';
 import { ApiClient } from '../../lib/api-client.js';
-import { formatTable, statusColor, formatDate } from '../../lib/output.js';
+import { fetchAllPages } from '../../lib/paginate.js';
+import { resolveResource } from '../../lib/resolve.js';
+import { formatTable, statusColor, formatDate, printDetails } from '../../lib/output.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
+import { canPrompt, promptOr, confirmDestruction } from '../../lib/interactive.js';
+import { MissingFlagsError } from '../../lib/errors.js';
 import type {
   VpsInstance,
   VpsConnectionInfo,
   VpsImage,
   VpsImageGroup,
-  PaginatedResponse,
+  VpsPlanInfo,
+  PlansResponse,
 } from '../../types/api.js';
 
 function generatePassword(length = 24): string {
@@ -24,19 +29,19 @@ export const lsCommand = new Command('ls')
   .description('List all VPS instances')
   .action(async () => {
     const api = await ApiClient.create();
-    const res = await api.get<PaginatedResponse<VpsInstance>>('/api/v1/vps');
+    const { items, total, truncated } = await fetchAllPages<VpsInstance>(api, '/api/v1/vps');
 
     if (isJsonMode()) {
-      jsonOutput(res.data);
+      jsonOutput(items);
       return;
     }
 
-    if (res.data.length === 0) {
+    if (items.length === 0) {
       console.log('No VPS instances found.');
       return;
     }
 
-    const rows = res.data.map(v => [
+    const rows = items.map(v => [
       v.id,
       v.name,
       statusColor(v.status),
@@ -53,13 +58,17 @@ export const lsCommand = new Command('ls')
       ['ID', 'NAME', 'STATUS', 'IP', 'PLAN', 'CPU', 'RAM', 'DISK', 'COST/MO', 'CREATED'],
       rows,
     ));
+
+    if (truncated) {
+      console.log(chalk.dim(`Showing ${items.length} of ${total}. Refine with the web console for the full list.`));
+    }
   });
 
 export const createCommand = new Command('create')
   .description('Create a new VPS instance')
   .option('--name <name>', 'Instance name (lowercase, alphanumeric, hyphens)')
   .option('--image <image>', 'OS image ID (e.g. ubuntu-24.04)')
-  .option('--plan <plan>', 'Resource profile (e.g. nano_shared, small)')
+  .option('--plan <plan>', 'Resource profile slug (run interactively to list available plans)')
   .option('--cpu-type <type>', 'CPU allocation: shared or dedicated')
   .option('--network <stack>', 'Network stack: dual_stack, ipv4_only, ipv6_only')
   .option('--ssh-key-id <id>', 'SSH key ID for authentication')
@@ -69,24 +78,18 @@ export const createCommand = new Command('create')
     name?: string; image?: string; plan?: string; cpuType?: string;
     network?: string; sshKeyId?: string; password?: string; datacenter: string;
   }) => {
-    let name = opts.name;
-    let image = opts.image;
-    let plan = opts.plan;
-    let cpuType = opts.cpuType;
-    let authMethod: string;
     let sshKeyId = opts.sshKeyId;
     let pass = opts.password;
+    let authMethod: string;
 
     const api = await ApiClient.create();
 
-    if (!name) {
-      name = await input({
-        message: 'Instance name:',
-        validate: (v: string) => /^[a-z0-9-]+$/.test(v.trim()) || 'Lowercase letters, numbers, and hyphens only',
-      });
-    }
+    const name = await promptOr('--name', opts.name, () => input({
+      message: 'Instance name:',
+      validate: (v: string) => /^[a-z0-9-]+$/.test(v.trim()) || 'Lowercase letters, numbers, and hyphens only',
+    }));
 
-    if (!image) {
+    const image = await promptOr('--image', opts.image, async () => {
       const groupsRes = await api.get<{ groups: VpsImageGroup[] }>('/api/v1/vps/images/grouped');
       const imageChoices = groupsRes.groups.flatMap(g =>
         g.images.map(img => ({
@@ -94,32 +97,28 @@ export const createCommand = new Command('create')
           value: img.id,
         })),
       );
-      image = await select({ message: 'Operating system:', choices: imageChoices });
-    }
+      return select({ message: 'Operating system:', choices: imageChoices });
+    });
 
-    if (!plan) {
-      plan = await select({
+    const plan = await promptOr('--plan', opts.plan, async () => {
+      const plansRes = await api.get<PlansResponse<VpsPlanInfo>>('/api/v1/vps/plans');
+      if (plansRes.plans.length === 0) {
+        throw new Error('No VPS plans are currently available from the API. Try again later or contact support.');
+      }
+      return select({
         message: 'Plan:',
-        choices: [
-          { name: 'DD Litcov   — 2 vCPU, 2GB RAM, 40GB   — \u20AC4.49/mo (shared)', value: 'nano_shared' },
-          { name: 'DD Maliuc   — 3 vCPU, 4GB RAM, 60GB   — \u20AC7.49/mo (shared)', value: 'micro_shared' },
-          { name: 'DD Crisan   — 4 vCPU, 8GB RAM, 80GB   — \u20AC12.49/mo (shared)', value: 'small_shared' },
-          { name: 'DD Caraorman — 8 vCPU, 16GB RAM, 160GB — \u20AC24.99/mo (shared)', value: 'medium_shared' },
-          { name: 'DD Dunavat  — 16 vCPU, 32GB RAM, 320GB — \u20AC49.99/mo (shared)', value: 'large_shared' },
-          { name: 'DD Litcov   — 2 vCPU, 2GB RAM, 40GB   — \u20AC8.99/mo (dedicated)', value: 'nano' },
-          { name: 'DD Maliuc   — 3 vCPU, 4GB RAM, 80GB   — \u20AC14.99/mo (dedicated)', value: 'micro' },
-          { name: 'DD Crisan   — 4 vCPU, 8GB RAM, 160GB  — \u20AC24.99/mo (dedicated)', value: 'small' },
-          { name: 'DD Caraorman — 8 vCPU, 16GB RAM, 320GB — \u20AC49.99/mo (dedicated)', value: 'medium' },
-          { name: 'DD Dunavat  — 16 vCPU, 32GB RAM, 640GB — \u20AC99.99/mo (dedicated)', value: 'large' },
-        ],
+        choices: plansRes.plans.map((p) => ({
+          name: `${p.display_name} — ${p.cpu_cores} vCPU, ${p.memory_gb}GB RAM, ${p.storage_gb}GB — \u20AC${p.monthly_cost.toFixed(2)}/mo (${p.type})`,
+          value: p.slug,
+        })),
       });
-    }
+    });
 
-    if (!cpuType) {
-      cpuType = plan.endsWith('_shared') ? 'shared' : 'dedicated';
-    }
+    const cpuType = opts.cpuType || (plan.endsWith('_shared') ? 'shared' : 'dedicated');
 
     if (!sshKeyId && !pass) {
+      if (!canPrompt()) throw new MissingFlagsError(['--ssh-key-id or --password']);
+
       authMethod = await select({
         message: 'Authentication method:',
         choices: [
@@ -190,11 +189,12 @@ export const createCommand = new Command('create')
 
 export const getCommand = new Command('get')
   .description('Show VPS instance details')
-  .argument('<id>', 'VPS instance ID')
-  .action(async (id: string) => {
+  .argument('<name-or-id>', 'VPS name or ID')
+  .action(async (nameOrId: string) => {
     const api = await ApiClient.create();
-    const res = await api.get<{ instance: VpsInstance; connection_info: Record<string, unknown>; monthly_cost: number }>(
-      `/api/v1/vps/${id}`,
+    const instance = await resolveResource<VpsInstance>(api, '/api/v1/vps', 'VPS', nameOrId);
+    const res = await api.get<{ instance: VpsInstance; connection_info: VpsConnectionInfo; monthly_cost: number }>(
+      `/api/v1/vps/${instance.id}`,
     );
 
     if (isJsonMode()) {
@@ -205,7 +205,7 @@ export const getCommand = new Command('get')
     const v = res.instance;
     const sshCmd = v.public_ip ? `ssh root@${v.public_ip}` : '-';
 
-    const lines = [
+    const lines: Array<[string, string]> = [
       ['ID', v.id],
       ['Name', v.name],
       ['Status', statusColor(v.status)],
@@ -217,6 +217,8 @@ export const getCommand = new Command('get')
       ['Datacenter', v.datacenter],
       ['IPv4', v.public_ip || '-'],
       ['IPv6', v.ipv6_address || '-'],
+      ['Private IP', res.connection_info.private_ip ?? '-'],
+      ['Internal DNS', res.connection_info.internal_fqdn ?? '-'],
       ['SSH', sshCmd],
       ['VNC', v.vnc_access_url || '-'],
       ['Cost', `\u20AC${res.monthly_cost ?? v.monthly_cost_dollars}/mo`],
@@ -224,15 +226,12 @@ export const getCommand = new Command('get')
       ['Deployed', v.deployed_at ? formatDate(v.deployed_at) : '-'],
     ];
 
-    const maxLabel = Math.max(...lines.map(([l]) => l!.length));
-    for (const [label, value] of lines) {
-      console.log(`${chalk.dim(label!.padEnd(maxLabel))}  ${value}`);
-    }
+    printDetails(lines);
   });
 
 export const updateCommand = new Command('update')
   .description('Update VPS instance (must be stopped)')
-  .argument('<id>', 'VPS instance ID')
+  .argument('<name-or-id>', 'VPS name or ID')
   .option('--plan <plan>', 'Resource profile')
   .option('--cpu-type <type>', 'CPU allocation: shared or dedicated')
   .option('--cpu-cores <cores>', 'Number of CPU cores')
@@ -240,7 +239,7 @@ export const updateCommand = new Command('update')
   .option('--storage <gb>', 'Storage in GB')
   .option('--snapshots', 'Enable automated snapshots')
   .option('--no-snapshots', 'Disable automated snapshots')
-  .action(async (id: string, opts: {
+  .action(async (nameOrId: string, opts: {
     plan?: string; cpuType?: string; cpuCores?: string;
     memory?: string; storage?: string; snapshots?: boolean;
   }) => {
@@ -259,9 +258,10 @@ export const updateCommand = new Command('update')
     }
 
     const api = await ApiClient.create();
+    const instance = await resolveResource<VpsInstance>(api, '/api/v1/vps', 'VPS', nameOrId);
     const spinner = isJsonMode() ? null : ora('Updating VPS instance...').start();
 
-    const res = await api.put<{ message: string; instance: VpsInstance }>(`/api/v1/vps/${id}`, body);
+    const res = await api.put<{ message: string; instance: VpsInstance }>(`/api/v1/vps/${instance.id}`, body);
 
     if (isJsonMode()) {
       jsonOutput(res.instance);
@@ -270,29 +270,32 @@ export const updateCommand = new Command('update')
     spinner!.succeed(`Updated VPS ${chalk.bold(res.instance.name)}`);
   });
 
-export const deleteCommand = new Command('delete')
+export const deleteCommand = new Command('rm')
+  .alias('delete')
   .description('Delete a VPS instance')
-  .argument('<id>', 'VPS instance ID')
-  .option('--force', 'Skip confirmation')
-  .action(async (id: string, opts: { force?: boolean }) => {
-    if (!opts.force && !isJsonMode()) {
-      const confirmed = await confirm({
-        message: `Are you sure you want to delete VPS ${id}? This cannot be undone.`,
-        default: false,
-      });
-      if (!confirmed) {
-        console.log('Cancelled.');
-        return;
-      }
+  .argument('<name-or-id>', 'VPS name or ID')
+  .option('-f, --force', 'Skip confirmation')
+  .option('-y, --yes', 'Alias for --force')
+  .action(async (nameOrId: string, opts: { force?: boolean; yes?: boolean }) => {
+    const api = await ApiClient.create();
+    const instance = await resolveResource<VpsInstance>(api, '/api/v1/vps', 'VPS', nameOrId);
+
+    const proceed = await confirmDestruction(
+      `deletion of VPS ${instance.name}`,
+      `Are you sure you want to delete VPS ${instance.name} (${instance.id})? This cannot be undone.`,
+      opts.force || opts.yes,
+    );
+    if (!proceed) {
+      console.log('Cancelled.');
+      return;
     }
 
-    const api = await ApiClient.create();
     const spinner = isJsonMode() ? null : ora('Deleting VPS instance...').start();
 
-    await api.delete<{ message: string }>(`/api/v1/vps/${id}`);
+    await api.delete<{ message: string }>(`/api/v1/vps/${instance.id}`);
 
     if (isJsonMode()) {
-      jsonOutput({ status: 'deleted', id });
+      jsonOutput({ status: 'deleted', id: instance.id });
       return;
     }
     spinner!.succeed('VPS instance deleted');

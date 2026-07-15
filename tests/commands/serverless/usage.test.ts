@@ -92,4 +92,25 @@ describe('serverless usage command', () => {
 
     expect(mockGet).toHaveBeenCalledWith('/api/v1/serverless/abc-123/usage?period=2024-06');
   });
+
+  it('outputs the usage response as JSON in json mode', async () => {
+    const { setJsonMode } = await import('../../../src/lib/json-mode.js');
+    setJsonMode(true);
+    mockGet
+      .mockResolvedValueOnce({
+        data: [makeContainer()],
+        pagination: { current_page: 1, last_page: 1, per_page: 100, total: 1 },
+      })
+      .mockResolvedValueOnce({
+        period: '2024-01',
+        usage: [],
+        summary: { total_requests: 15000, total_compute_seconds: 3600, total_cost_cents: 499, total_cost_dollars: 4.99 },
+      });
+
+    await usageCommand.parseAsync(['node', 'test', 'my-api']);
+
+    const printed = JSON.parse(consoleLogSpy.mock.calls.at(-1)![0] as string);
+    expect(printed).toMatchObject({ period: '2024-01', summary: { total_requests: 15000 } });
+    setJsonMode(false);
+  });
 });

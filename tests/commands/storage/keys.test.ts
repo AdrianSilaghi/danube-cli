@@ -47,6 +47,7 @@ const makeKey = (overrides = {}) => ({
 
 describe('keys command', () => {
   const originalExit = process.exit;
+  const originalIsTTY = process.stdin.isTTY;
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
@@ -55,6 +56,7 @@ describe('keys command', () => {
     process.exit = vi.fn().mockImplementation((code: number) => {
       throw new ExitError(code);
     }) as never;
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
     mockGet.mockReset();
     mockPost.mockReset();
     mockDelete.mockReset();
@@ -64,6 +66,7 @@ describe('keys command', () => {
 
   afterEach(() => {
     process.exit = originalExit;
+    Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
     vi.restoreAllMocks();
   });
 
@@ -177,6 +180,16 @@ describe('keys command', () => {
 
       expect(consoleLogSpy).toHaveBeenCalledWith('Cancelled.');
       expect(mockDelete).not.toHaveBeenCalled();
+    });
+
+    it('refuses JSON-mode revoke without --force', async () => {
+      const { setJsonMode } = await import('../../../src/lib/json-mode.js');
+      setJsonMode(true);
+
+      await expect(keysCommand.parseAsync(['node', 'test', 'revoke', 'key-1'])).rejects.toThrow(/without --force/);
+
+      expect(mockDelete).not.toHaveBeenCalled();
+      setJsonMode(false);
     });
   });
 });

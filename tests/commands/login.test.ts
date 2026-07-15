@@ -22,6 +22,7 @@ class ExitError extends Error {
 describe('login command', () => {
   const originalFetch = globalThis.fetch;
   const originalExit = process.exit;
+  const originalIsTTY = process.stdin.isTTY;
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
@@ -31,6 +32,7 @@ describe('login command', () => {
     process.exit = vi.fn().mockImplementation((code: number) => {
       throw new ExitError(code);
     }) as never;
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
     mockWriteConfig.mockReset();
     mockPassword.mockReset();
   });
@@ -38,6 +40,7 @@ describe('login command', () => {
   afterEach(() => {
     globalThis.fetch = originalFetch;
     process.exit = originalExit;
+    Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
     vi.restoreAllMocks();
   });
 
@@ -75,6 +78,16 @@ describe('login command', () => {
     expect(mockWriteConfig).toHaveBeenCalledWith(
       expect.objectContaining({ token: 'prompted-token' }),
     );
+  });
+
+  it('fails fast without a TTY instead of hanging on a password prompt', async () => {
+    Object.defineProperty(process.stdin, 'isTTY', { value: undefined, configurable: true });
+
+    await expect(
+      loginCommand.parseAsync(['node', 'test']),
+    ).rejects.toThrow(/Missing required flag/);
+
+    expect(mockPassword).not.toHaveBeenCalled();
   });
 
   it('exits when token is empty', async () => {

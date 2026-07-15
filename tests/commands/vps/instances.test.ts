@@ -50,6 +50,7 @@ const makeVps = (overrides = {}) => ({
 
 describe('vps instances', () => {
   const originalExit = process.exit;
+  const originalIsTTY = process.stdin.isTTY;
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
@@ -57,11 +58,17 @@ describe('vps instances', () => {
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     process.exit = vi.fn().mockImplementation((code: number) => { throw new ExitError(code); }) as never;
+    // Prompt-driven paths need a "TTY" so canPrompt() lets them through.
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
     mockGet.mockReset(); mockPost.mockReset(); mockPut.mockReset(); mockDelete.mockReset();
     mockInput.mockReset(); mockSelect.mockReset(); mockConfirm.mockReset(); mockPassword.mockReset();
   });
 
-  afterEach(() => { process.exit = originalExit; vi.restoreAllMocks(); });
+  afterEach(() => {
+    process.exit = originalExit;
+    Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
+    vi.restoreAllMocks();
+  });
 
   describe('ls', () => {
     it('shows message when no instances', async () => {
@@ -75,6 +82,17 @@ describe('vps instances', () => {
       await lsCommand.parseAsync(['node', 'test']);
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('NAME'));
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('my-vps'));
+    });
+
+    it('fetches every page and shows a truncation note when capped', async () => {
+      mockGet.mockResolvedValue({
+        data: [makeVps()],
+        pagination: { current_page: 1, last_page: 1, per_page: 100, total: 250 },
+      });
+      await lsCommand.parseAsync(['node', 'test']);
+      expect(mockGet).toHaveBeenCalledWith('/api/v1/vps?per_page=100&page=1');
+      const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
+      expect(output).toContain('Showing 1 of 250');
     });
   });
 
@@ -108,26 +126,88 @@ describe('vps instances', () => {
         password_confirmation: 'MyStr0ngP@ssw0rd!',
       }));
     });
+
+    it('fetches plans from the API for the interactive picker', async () => {
+      mockGet
+        .mockResolvedValueOnce({ groups: [{ label: 'Ubuntu', images: [{ id: 'ubuntu-24.04', label: 'Ubuntu 24.04', default_user: 'root' }] }] })
+        .mockResolvedValueOnce({ plans: [{ slug: 'nano_shared', display_name: 'DD Litcov', type: 'shared', cpu_cores: 2, memory_gb: 2, storage_gb: 40, monthly_cost: 4.49 }] });
+      mockInput.mockResolvedValueOnce('my-vps');           // name
+      mockSelect
+        .mockResolvedValueOnce('ubuntu-24.04')             // image
+        .mockResolvedValueOnce('nano_shared')              // plan
+        .mockResolvedValueOnce('ssh_key');                 // auth method
+      mockInput.mockResolvedValueOnce('key-1');            // ssh key id
+      mockPost.mockResolvedValue({ message: 'ok', instance: makeVps() });
+
+      await createCommand.parseAsync(['node', 'test']);
+
+      expect(mockGet).toHaveBeenCalledWith('/api/v1/vps/plans');
+      const planChoices = mockSelect.mock.calls.find(c => (c[0] as { message: string }).message === 'Plan:')![0] as { choices: Array<{ name: string; value: string }> };
+      expect(planChoices.choices[0]!.name).toContain('€4.49/mo');
+      expect(planChoices.choices[0]!.value).toBe('nano_shared');
+    });
+
+    it('rejects with a clear error when the API returns no plans', async () => {
+      mockGet
+        .mockResolvedValueOnce({ groups: [{ label: 'Ubuntu', images: [{ id: 'ubuntu-24.04', label: 'Ubuntu 24.04', default_user: 'root' }] }] })
+        .mockResolvedValueOnce({ plans: [] });
+      mockInput.mockResolvedValueOnce('my-vps');           // name
+      mockSelect.mockResolvedValueOnce('ubuntu-24.04');    // image
+
+      await expect(createCommand.parseAsync(['node', 'test'])).rejects.toThrow(/No .* plans/);
+      expect(mockPost).not.toHaveBeenCalled();
+    });
   });
 
   describe('get', () => {
     it('displays instance details', async () => {
-      mockGet.mockResolvedValue({
-        instance: makeVps(),
-        connection_info: { public_ip: '1.2.3.4', private_ip: null, ipv6_address: null, vnc_access_url: null },
-        monthly_cost: 4.49,
-      });
+      mockGet
+        .mockResolvedValueOnce({ data: [makeVps({ id: 'vps-1' })] })
+        .mockResolvedValueOnce({
+          instance: makeVps(),
+          connection_info: { public_ip: '1.2.3.4', private_ip: null, ipv6_address: null, vnc_access_url: null },
+          monthly_cost: 4.49,
+        });
 
       await getCommand.parseAsync(['node', 'test', 'vps-1']);
 
-      expect(mockGet).toHaveBeenCalledWith('/api/v1/vps/vps-1');
+      expect(mockGet).toHaveBeenLastCalledWith('/api/v1/vps/vps-1');
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('my-vps'));
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('ssh root@1.2.3.4'));
+    });
+
+    it('resolves a VPS by name', async () => {
+      mockGet
+        .mockResolvedValueOnce({ data: [makeVps({ id: 'vps-9', name: 'prod-web' })] })
+        .mockResolvedValueOnce({
+          instance: makeVps({ id: 'vps-9', name: 'prod-web' }),
+          connection_info: { public_ip: '1.2.3.4', private_ip: null, ipv6_address: null, vnc_access_url: null },
+          monthly_cost: 4.49,
+        });
+
+      await getCommand.parseAsync(['node', 'test', 'prod-web']);
+
+      expect(mockGet).toHaveBeenLastCalledWith('/api/v1/vps/vps-9');
+    });
+
+    it('shows private IP and internal DNS from connection_info', async () => {
+      mockGet
+        .mockResolvedValueOnce({ data: [makeVps()] })
+        .mockResolvedValueOnce({
+          instance: makeVps(),
+          connection_info: { public_ip: '1.2.3.4', private_ip: '10.0.0.5', ipv6_address: null, vnc_access_url: null, internal_dns: 'vm-abc', internal_fqdn: 'vm-abc.tenant-1.svc.cluster.local' },
+          monthly_cost: 4.49,
+        });
+      await getCommand.parseAsync(['node', 'test', 'vps-1']);
+      const all = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
+      expect(all).toContain('10.0.0.5');
+      expect(all).toContain('vm-abc.tenant-1.svc.cluster.local');
     });
   });
 
   describe('update', () => {
     it('updates VPS with flags', async () => {
+      mockGet.mockResolvedValueOnce({ data: [makeVps({ id: 'vps-1' })] });
       mockPut.mockResolvedValue({ message: 'Updated', instance: makeVps() });
 
       await updateCommand.parseAsync(['node', 'test', 'vps-1', '--cpu-cores', '4', '--memory', '8']);
@@ -138,21 +218,38 @@ describe('vps instances', () => {
     it('exits when no flags provided', async () => {
       await expect(updateCommand.parseAsync(['node', 'test', 'vps-1'])).rejects.toThrow(ExitError);
       expect(process.exit).toHaveBeenCalledWith(1);
+      expect(mockGet).not.toHaveBeenCalled();
     });
   });
 
   describe('delete', () => {
     it('deletes with --force', async () => {
+      mockGet.mockResolvedValueOnce({ data: [makeVps({ id: 'vps-1' })] });
       mockDelete.mockResolvedValue({ message: 'Deleted' });
       await deleteCommand.parseAsync(['node', 'test', 'vps-1', '--force']);
       expect(mockDelete).toHaveBeenCalledWith('/api/v1/vps/vps-1');
     });
 
     it('cancels when user declines', async () => {
+      mockGet.mockResolvedValueOnce({ data: [makeVps({ id: 'vps-1' })] });
       mockConfirm.mockResolvedValue(false);
       await deleteCommand.parseAsync(['node', 'test', 'vps-1']);
       expect(consoleLogSpy).toHaveBeenCalledWith('Cancelled.');
       expect(mockDelete).not.toHaveBeenCalled();
+    });
+
+    it('refuses JSON-mode delete without --force', async () => {
+      const { setJsonMode } = await import('../../../src/lib/json-mode.js');
+      setJsonMode(true);
+      mockGet.mockResolvedValueOnce({ data: [makeVps()] });
+      await expect(deleteCommand.parseAsync(['node', 'test', 'vps-1'])).rejects.toThrow(/without --force/);
+      expect(mockDelete).not.toHaveBeenCalled();
+      setJsonMode(false);
+    });
+
+    it('delete is canonical rm with delete alias', () => {
+      expect(deleteCommand.name()).toBe('rm');
+      expect(deleteCommand.aliases()).toContain('delete');
     });
   });
 });

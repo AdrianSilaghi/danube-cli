@@ -80,6 +80,23 @@ describe('serverless show command', () => {
   it('throws when container not found', async () => {
     mockGet.mockResolvedValue({ data: [], pagination: { current_page: 1, last_page: 1, per_page: 15, total: 0 } });
 
-    await expect(showCommand.parseAsync(['node', 'test', 'nonexistent'])).rejects.toThrow("Container 'nonexistent' not found.");
+    await expect(showCommand.parseAsync(['node', 'test', 'nonexistent'])).rejects.toThrow("container 'nonexistent' not found.");
+  });
+
+  it('outputs the container as JSON in json mode', async () => {
+    const { setJsonMode } = await import('../../../src/lib/json-mode.js');
+    setJsonMode(true);
+    mockGet
+      .mockResolvedValueOnce({ data: [makeContainer()] })                       // resolve
+      .mockResolvedValueOnce({ container: makeContainer(), url: 'https://x', monthly_cost: 1.5 });
+    await showCommand.parseAsync(['node', 'test', 'my-api']);
+    const printed = JSON.parse(consoleLogSpy.mock.calls.at(-1)![0] as string);
+    expect(printed).toMatchObject({ url: 'https://x', monthly_cost: 1.5 });
+    setJsonMode(false);
+  });
+
+  it('is invocable as `get`', () => {
+    expect(showCommand.name()).toBe('get');
+    expect(showCommand.aliases()).toContain('show');
   });
 });

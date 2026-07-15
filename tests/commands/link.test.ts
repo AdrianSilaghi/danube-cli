@@ -31,10 +31,12 @@ const makeSite = (overrides = {}) => ({
 });
 
 describe('link command', () => {
+  const originalIsTTY = process.stdin.isTTY;
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
     mockGet.mockReset();
     mockPost.mockReset();
     mockSelect.mockReset();
@@ -44,7 +46,20 @@ describe('link command', () => {
   });
 
   afterEach(() => {
+    Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
     vi.restoreAllMocks();
+  });
+
+  it('refuses to run under --json instead of hanging on a prompt', async () => {
+    const { setJsonMode } = await import('../../src/lib/json-mode.js');
+    setJsonMode(true);
+
+    await expect(linkCommand.parseAsync(['node', 'test'])).rejects.toThrow(/interactive/);
+
+    expect(mockGet).not.toHaveBeenCalled();
+    expect(mockSelect).not.toHaveBeenCalled();
+    expect(mockInput).not.toHaveBeenCalled();
+    setJsonMode(false);
   });
 
   it('auto-selects single team and links existing site', async () => {

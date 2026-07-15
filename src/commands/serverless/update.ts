@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { ApiClient } from '../../lib/api-client.js';
 import { resolveContainer } from './resolve.js';
+import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import type { ServerlessContainer } from '../../types/api.js';
 
 export const updateCommand = new Command('update')
@@ -76,10 +77,15 @@ export const updateCommand = new Command('update')
       process.exit(1);
     }
 
-    const spinner = ora('Updating container...').start();
+    const spinner = isJsonMode() ? null : ora('Updating container...').start();
     const res = await api.put<{ message: string; container: ServerlessContainer }>(
       `/api/v1/serverless/${container.id}`,
       body,
     );
-    spinner.succeed(`Updated ${chalk.bold(res.container.name)}`);
+
+    if (isJsonMode()) {
+      jsonOutput(res.container);
+      return;
+    }
+    spinner!.succeed(`Updated ${chalk.bold(res.container.name)}`);
   });

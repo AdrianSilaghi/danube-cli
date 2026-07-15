@@ -1,18 +1,14 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { input, select, confirm } from '@inquirer/prompts';
+import { input, select } from '@inquirer/prompts';
 import { ApiClient } from '../../lib/api-client.js';
-import { formatTable, statusColor, formatDate } from '../../lib/output.js';
+import { fetchAllPages } from '../../lib/paginate.js';
+import { resolveResource } from '../../lib/resolve.js';
+import { formatTable, statusColor, formatDate, printDetails } from '../../lib/output.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
-import type { CacheInstance, CacheProvider, PaginatedResponse } from '../../types/api.js';
-
-const CACHE_PLANS: Array<{ name: string; value: string }> = [
-  { name: 'micro  — 0.25 GB RAM, 1 vCPU  — starter', value: 'micro' },
-  { name: 'small  — 1 GB RAM,   1 vCPU  — balanced', value: 'small' },
-  { name: 'medium — 3 GB RAM,   1 vCPU  — production', value: 'medium' },
-  { name: 'large  — 6 GB RAM,   1 vCPU  — performance', value: 'large' },
-];
+import { promptOr, confirmDestruction } from '../../lib/interactive.js';
+import type { CacheInstance, CacheProvider, CachePlanInfo, PlansResponse } from '../../types/api.js';
 
 const CACHE_DATACENTERS = ['fsn1', 'nbg1', 'hel1', 'ash'];
 const CACHE_PROVIDERS: CacheProvider[] = ['redis', 'valkey', 'dragonfly'];
@@ -21,24 +17,24 @@ export const lsCommand = new Command('ls')
   .description('List all cache instances')
   .action(async () => {
     const api = await ApiClient.create();
-    const res = await api.get<PaginatedResponse<CacheInstance>>('/api/v1/cache');
+    const { items, total, truncated } = await fetchAllPages<CacheInstance>(api, '/api/v1/cache');
 
     if (isJsonMode()) {
-      jsonOutput(res.data);
+      jsonOutput(items);
       return;
     }
 
-    if (res.data.length === 0) {
+    if (items.length === 0) {
       console.log('No cache instances found.');
       return;
     }
 
-    const rows = res.data.map(c => [
+    const rows = items.map(c => [
       c.id,
       c.name,
       c.provider?.type ?? '-',
       statusColor(c.status),
-      c.resource_profile,
+      c.resource_profile ?? '-',
       `${(c.memory_size_mb / 1024).toFixed(2)} GB`,
       c.endpoint ?? '-',
       `\u20AC${c.monthly_cost_dollars}/mo`,
@@ -49,6 +45,10 @@ export const lsCommand = new Command('ls')
       ['ID', 'NAME', 'PROVIDER', 'STATUS', 'PROFILE', 'MEMORY', 'ENDPOINT', 'COST/MO', 'CREATED'],
       rows,
     ));
+
+    if (truncated) {
+      console.log(chalk.dim(`Showing ${items.length} of ${total}. Refine with the web console for the full list.`));
+    }
   });
 
 export const createCommand = new Command('create')
@@ -57,37 +57,41 @@ export const createCommand = new Command('create')
   .option('--provider <provider>', 'Provider: redis, valkey, or dragonfly')
   .option('--version <version>', 'Specific provider version (optional)')
   .option('--datacenter <dc>', 'Datacenter region', 'fsn1')
-  .option('--profile <profile>', 'Resource profile: micro, small, medium, large')
+  .option('--profile <profile>', 'Resource profile slug (run interactively to list available plans)')
   .action(async (opts: {
     name?: string; provider?: string; version?: string; datacenter: string; profile?: string;
   }) => {
-    let name = opts.name;
-    let provider = opts.provider as CacheProvider | undefined;
-    let profile = opts.profile;
-
-    if (!name) {
-      name = await input({
-        message: 'Instance name:',
-        validate: (v: string) => /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(v.trim()) || 'Lowercase letters, numbers, and hyphens only',
-      });
-    }
-
-    if (!provider) {
-      provider = await select<CacheProvider>({
-        message: 'Provider:',
-        choices: CACHE_PROVIDERS.map(p => ({ name: p, value: p })),
-      });
-    } else if (!CACHE_PROVIDERS.includes(provider)) {
-      console.error(chalk.red(`Invalid provider "${provider}". Valid: ${CACHE_PROVIDERS.join(', ')}`));
+    // Validate a provider passed via flag before we'd otherwise prompt for it.
+    if (opts.provider && !CACHE_PROVIDERS.includes(opts.provider as CacheProvider)) {
+      console.error(chalk.red(`Invalid provider "${opts.provider}". Valid: ${CACHE_PROVIDERS.join(', ')}`));
       process.exit(1);
     }
 
-    if (!profile) {
-      profile = await select({
+    const api = await ApiClient.create();
+
+    const name = await promptOr('--name', opts.name, () => input({
+      message: 'Instance name:',
+      validate: (v: string) => /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(v.trim()) || 'Lowercase letters, numbers, and hyphens only',
+    }));
+
+    const provider = await promptOr('--provider', opts.provider as CacheProvider | undefined, () => select<CacheProvider>({
+      message: 'Provider:',
+      choices: CACHE_PROVIDERS.map(p => ({ name: p, value: p })),
+    }));
+
+    const profile = await promptOr('--profile', opts.profile, async () => {
+      const plansRes = await api.get<PlansResponse<CachePlanInfo>>(`/api/v1/cache/plans?provider=${provider}`);
+      if (plansRes.plans.length === 0) {
+        throw new Error('No cache plans are currently available from the API. Try again later or contact support.');
+      }
+      return select({
         message: 'Resource profile:',
-        choices: CACHE_PLANS,
+        choices: plansRes.plans.map((p) => ({
+          name: `${p.display_name} — ${(p.memory_mb / 1024).toFixed(2)} GB RAM, ${p.cpu_cores} vCPU — \u20AC${p.monthly_cost.toFixed(2)}/mo`,
+          value: p.slug,
+        })),
       });
-    }
+    });
 
     if (!CACHE_DATACENTERS.includes(opts.datacenter)) {
       console.error(chalk.red(`Invalid datacenter "${opts.datacenter}". Valid: ${CACHE_DATACENTERS.join(', ')}`));
@@ -102,7 +106,6 @@ export const createCommand = new Command('create')
     };
     if (opts.version) body.version = opts.version;
 
-    const api = await ApiClient.create();
     const spinner = isJsonMode() ? null : ora('Creating cache instance...').start();
     const res = await api.post<{ message: string; instance: CacheInstance }>('/api/v1/cache', body);
 
@@ -115,11 +118,12 @@ export const createCommand = new Command('create')
 
 export const getCommand = new Command('get')
   .description('Show cache instance details')
-  .argument('<id>', 'Cache instance ID')
-  .action(async (id: string) => {
+  .argument('<name-or-id>', 'Cache instance name or ID')
+  .action(async (nameOrId: string) => {
     const api = await ApiClient.create();
+    const instance = await resolveResource<CacheInstance>(api, '/api/v1/cache', 'cache', nameOrId);
     const res = await api.get<{ instance: CacheInstance; connection_info: string | null; monthly_cost: number | string }>(
-      `/api/v1/cache/${id}`,
+      `/api/v1/cache/${instance.id}`,
     );
 
     if (isJsonMode()) {
@@ -128,13 +132,13 @@ export const getCommand = new Command('get')
     }
 
     const c = res.instance;
-    const lines = [
+    const lines: Array<[string, string]> = [
       ['ID', c.id],
       ['Name', c.name],
       ['Status', statusColor(c.status)],
       ['Provider', c.provider?.type ?? '-'],
       ['Version', c.version ?? '-'],
-      ['Profile', c.resource_profile],
+      ['Profile', c.resource_profile ?? '-'],
       ['CPU', `${c.cpu_cores} cores`],
       ['Memory', `${(c.memory_size_mb / 1024).toFixed(2)} GB (${c.memory_size_mb} MB)`],
       ['Endpoint', c.endpoint ?? '-'],
@@ -145,20 +149,17 @@ export const getCommand = new Command('get')
       ['Deployed', c.deployed_at ? formatDate(c.deployed_at) : '-'],
     ];
 
-    const maxLabel = Math.max(...lines.map(([l]) => l!.length));
-    for (const [label, value] of lines) {
-      console.log(`${chalk.dim(label!.padEnd(maxLabel))}  ${value}`);
-    }
+    printDetails(lines);
   });
 
 export const updateCommand = new Command('update')
   .description('Update a cache instance')
-  .argument('<id>', 'Cache instance ID')
+  .argument('<name-or-id>', 'Cache instance name or ID')
   .option('--name <name>', 'New name')
   .option('--profile <profile>', 'Resource profile: micro, small, medium, large')
   .option('--snapshots', 'Enable automated snapshots')
   .option('--no-snapshots', 'Disable automated snapshots')
-  .action(async (id: string, opts: { name?: string; profile?: string; snapshots?: boolean }) => {
+  .action(async (nameOrId: string, opts: { name?: string; profile?: string; snapshots?: boolean }) => {
     const body: Record<string, unknown> = {};
     if (opts.name !== undefined) body.name = opts.name;
     if (opts.profile !== undefined) body.resource_profile = opts.profile;
@@ -170,8 +171,9 @@ export const updateCommand = new Command('update')
     }
 
     const api = await ApiClient.create();
+    const instance = await resolveResource<CacheInstance>(api, '/api/v1/cache', 'cache', nameOrId);
     const spinner = isJsonMode() ? null : ora('Updating cache instance...').start();
-    const res = await api.put<{ message: string; instance: CacheInstance }>(`/api/v1/cache/${id}`, body);
+    const res = await api.put<{ message: string; instance: CacheInstance }>(`/api/v1/cache/${instance.id}`, body);
 
     if (isJsonMode()) {
       jsonOutput(res.instance);
@@ -181,27 +183,30 @@ export const updateCommand = new Command('update')
   });
 
 export const rmCommand = new Command('rm')
+  .alias('delete')
   .description('Delete a cache instance')
-  .argument('<id>', 'Cache instance ID')
-  .option('--force', 'Skip confirmation')
-  .action(async (id: string, opts: { force?: boolean }) => {
-    if (!opts.force && !isJsonMode()) {
-      const confirmed = await confirm({
-        message: `Are you sure you want to delete cache ${id}? This cannot be undone.`,
-        default: false,
-      });
-      if (!confirmed) {
-        console.log('Cancelled.');
-        return;
-      }
+  .argument('<name-or-id>', 'Cache instance name or ID')
+  .option('-f, --force', 'Skip confirmation')
+  .option('-y, --yes', 'Alias for --force')
+  .action(async (nameOrId: string, opts: { force?: boolean; yes?: boolean }) => {
+    const api = await ApiClient.create();
+    const instance = await resolveResource<CacheInstance>(api, '/api/v1/cache', 'cache', nameOrId);
+
+    const proceed = await confirmDestruction(
+      `deletion of cache ${instance.name}`,
+      `Are you sure you want to delete cache ${instance.name} (${instance.id})? This cannot be undone.`,
+      opts.force || opts.yes,
+    );
+    if (!proceed) {
+      console.log('Cancelled.');
+      return;
     }
 
-    const api = await ApiClient.create();
     const spinner = isJsonMode() ? null : ora('Deleting cache instance...').start();
-    await api.delete<{ message: string; status: string }>(`/api/v1/cache/${id}`);
+    await api.delete<{ message: string; status: string }>(`/api/v1/cache/${instance.id}`);
 
     if (isJsonMode()) {
-      jsonOutput({ status: 'destroying', id });
+      jsonOutput({ status: 'destroying', id: instance.id });
       return;
     }
     spinner!.succeed('Cache instance deletion initiated');

@@ -61,6 +61,7 @@ const makeCache = (overrides = {}) => ({
 
 describe('cache instances', () => {
   const originalExit = process.exit;
+  const originalIsTTY = process.stdin.isTTY;
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
@@ -68,11 +69,16 @@ describe('cache instances', () => {
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     process.exit = vi.fn().mockImplementation((code: number) => { throw new ExitError(code); }) as never;
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
     mockGet.mockReset(); mockPost.mockReset(); mockPut.mockReset(); mockDelete.mockReset();
     mockInput.mockReset(); mockSelect.mockReset(); mockConfirm.mockReset();
   });
 
-  afterEach(() => { process.exit = originalExit; vi.restoreAllMocks(); });
+  afterEach(() => {
+    process.exit = originalExit;
+    Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
+    vi.restoreAllMocks();
+  });
 
   describe('ls', () => {
     it('shows message when no instances', async () => {
@@ -112,7 +118,9 @@ describe('cache instances', () => {
 
     it('prompts for missing name, provider, and profile', async () => {
       mockInput.mockResolvedValueOnce('prompted-cache');
-      mockSelect.mockResolvedValueOnce('valkey').mockResolvedValueOnce('medium');
+      mockSelect.mockResolvedValueOnce('valkey');
+      mockGet.mockResolvedValueOnce({ plans: [{ slug: 'medium', display_name: 'Medium', provider: 'valkey', cpu_cores: 1, memory_mb: 3072, storage_gb: 20, monthly_cost: 9.99 }] });
+      mockSelect.mockResolvedValueOnce('medium');
       mockPost.mockResolvedValue({ message: 'ok', instance: makeCache() });
 
       await createCommand.parseAsync(['node', 'test']);
@@ -124,6 +132,30 @@ describe('cache instances', () => {
       }));
     });
 
+    it('fetches plans from the API for the interactive picker', async () => {
+      mockInput.mockResolvedValueOnce('my-cache');          // name
+      mockSelect.mockResolvedValueOnce('redis');             // provider
+      mockGet.mockResolvedValueOnce({ plans: [{ slug: 'small', display_name: 'Small', provider: 'redis', cpu_cores: 1, memory_mb: 1024, storage_gb: 10, monthly_cost: 4.99 }] });
+      mockSelect.mockResolvedValueOnce('small');             // profile
+      mockPost.mockResolvedValue({ message: 'ok', instance: makeCache() });
+
+      await createCommand.parseAsync(['node', 'test']);
+
+      expect(mockGet).toHaveBeenCalledWith('/api/v1/cache/plans?provider=redis');
+      const planChoices = mockSelect.mock.calls.find(c => (c[0] as { message: string }).message === 'Resource profile:')![0] as { choices: Array<{ name: string; value: string }> };
+      expect(planChoices.choices[0]!.name).toContain('€4.99/mo');
+      expect(planChoices.choices[0]!.value).toBe('small');
+    });
+
+    it('rejects with a clear error when the API returns no plans', async () => {
+      mockInput.mockResolvedValueOnce('my-cache');          // name
+      mockSelect.mockResolvedValueOnce('redis');             // provider
+      mockGet.mockResolvedValueOnce({ plans: [] });
+
+      await expect(createCommand.parseAsync(['node', 'test'])).rejects.toThrow(/No .* plans/);
+      expect(mockPost).not.toHaveBeenCalled();
+    });
+
     it('rejects invalid provider with exit 1', async () => {
       await expect(createCommand.parseAsync([
         'node', 'test', '--name', 'x', '--provider', 'memcached', '--datacenter', 'fsn1', '--profile', 'small',
@@ -133,21 +165,36 @@ describe('cache instances', () => {
 
   describe('get', () => {
     it('displays instance details', async () => {
-      mockGet.mockResolvedValue({
-        instance: makeCache(),
-        connection_info: 'redis://my-cache.fsn1.cache.dd:6379',
-        monthly_cost: '4.99',
-      });
+      mockGet
+        .mockResolvedValueOnce({ data: [makeCache({ id: 'cache-1' })] })
+        .mockResolvedValueOnce({
+          instance: makeCache(),
+          connection_info: 'redis://my-cache.fsn1.cache.dd:6379',
+          monthly_cost: '4.99',
+        });
       await getCommand.parseAsync(['node', 'test', 'cache-1']);
       const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
       expect(output).toContain('cache-1');
       expect(output).toContain('my-cache');
       expect(output).toContain('redis://my-cache.fsn1.cache.dd:6379');
     });
+
+    it('resolves a cache instance by name', async () => {
+      mockGet
+        .mockResolvedValueOnce({ data: [makeCache({ id: 'cache-9', name: 'prod-cache' })] })
+        .mockResolvedValueOnce({
+          instance: makeCache({ id: 'cache-9', name: 'prod-cache' }),
+          connection_info: 'redis://prod-cache.fsn1.cache.dd:6379',
+          monthly_cost: '4.99',
+        });
+      await getCommand.parseAsync(['node', 'test', 'prod-cache']);
+      expect(mockGet).toHaveBeenLastCalledWith('/api/v1/cache/cache-9');
+    });
   });
 
   describe('update', () => {
     it('updates profile', async () => {
+      mockGet.mockResolvedValueOnce({ data: [makeCache({ id: 'cache-1' })] });
       mockPut.mockResolvedValue({ message: 'ok', instance: makeCache({ resource_profile: 'large' }) });
       await updateCommand.parseAsync(['node', 'test', 'cache-1', '--profile', 'large']);
       expect(mockPut).toHaveBeenCalledWith('/api/v1/cache/cache-1', { resource_profile: 'large' });
@@ -155,11 +202,13 @@ describe('cache instances', () => {
 
     it('exits when no options are passed', async () => {
       await expect(updateCommand.parseAsync(['node', 'test', 'cache-1'])).rejects.toThrow(ExitError);
+      expect(mockGet).not.toHaveBeenCalled();
     });
   });
 
   describe('rm', () => {
     it('skips confirm with --force', async () => {
+      mockGet.mockResolvedValueOnce({ data: [makeCache({ id: 'cache-1' })] });
       mockDelete.mockResolvedValue({ message: 'ok', status: 'destroying' });
       await rmCommand.parseAsync(['node', 'test', 'cache-1', '--force']);
       expect(mockDelete).toHaveBeenCalledWith('/api/v1/cache/cache-1');
@@ -167,9 +216,24 @@ describe('cache instances', () => {
     });
 
     it('cancels when confirm returns false', async () => {
+      mockGet.mockResolvedValueOnce({ data: [makeCache({ id: 'cache-1' })] });
       mockConfirm.mockResolvedValue(false);
       await rmCommand.parseAsync(['node', 'test', 'cache-1']);
       expect(mockDelete).not.toHaveBeenCalled();
+    });
+
+    it('refuses JSON-mode rm without --force', async () => {
+      const { setJsonMode } = await import('../../../src/lib/json-mode.js');
+      setJsonMode(true);
+      mockGet.mockResolvedValueOnce({ data: [makeCache({ id: 'cache-1' })] });
+      await expect(rmCommand.parseAsync(['node', 'test', 'cache-1'])).rejects.toThrow(/without --force/);
+      expect(mockDelete).not.toHaveBeenCalled();
+      setJsonMode(false);
+    });
+
+    it('rm gains a delete alias', () => {
+      expect(rmCommand.name()).toBe('rm');
+      expect(rmCommand.aliases()).toContain('delete');
     });
   });
 });

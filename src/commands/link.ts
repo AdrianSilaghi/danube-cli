@@ -3,12 +3,17 @@ import { select, input } from '@inquirer/prompts';
 import chalk from 'chalk';
 import { ApiClient } from '../lib/api-client.js';
 import { writeProjectConfig } from '../lib/project.js';
+import { canPrompt } from '../lib/interactive.js';
 import { teamsArray } from '../types/api.js';
 import type { TeamsResponse, PaginatedResponse, StaticSite, MessageWithDataResponse } from '../types/api.js';
 
 export const linkCommand = new Command('link')
   .description('Link current directory to a DanubeData static site')
   .action(async () => {
+    if (!canPrompt()) {
+      throw new Error('`danube pages link` is interactive — run it in a terminal without --json.');
+    }
+
     const api = await ApiClient.create();
 
     // 1. Fetch teams

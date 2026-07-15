@@ -65,6 +65,7 @@ const makeDatabase = (overrides = {}) => ({
 
 describe('database instances', () => {
   const originalExit = process.exit;
+  const originalIsTTY = process.stdin.isTTY;
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
@@ -72,11 +73,16 @@ describe('database instances', () => {
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     process.exit = vi.fn().mockImplementation((code: number) => { throw new ExitError(code); }) as never;
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
     mockGet.mockReset(); mockPost.mockReset(); mockPut.mockReset(); mockDelete.mockReset();
     mockInput.mockReset(); mockSelect.mockReset(); mockConfirm.mockReset();
   });
 
-  afterEach(() => { process.exit = originalExit; vi.restoreAllMocks(); });
+  afterEach(() => {
+    process.exit = originalExit;
+    Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
+    vi.restoreAllMocks();
+  });
 
   describe('ls', () => {
     it('shows message when no instances', async () => {
@@ -127,24 +133,63 @@ describe('database instances', () => {
         'node', 'test', '--name', 'x', '--provider', 'mysql', '--datacenter', 'ash', '--profile', 'small',
       ])).rejects.toThrow(ExitError);
     });
+
+    it('fetches plans from the API for the interactive picker', async () => {
+      mockInput.mockResolvedValueOnce('my-db');              // name
+      mockSelect.mockResolvedValueOnce('postgresql');         // provider
+      mockGet.mockResolvedValueOnce({ plans: [{ slug: 'small', display_name: 'Small', cpu_cores: 1, memory_mb: 2048, storage_gb: 20, monthly_cost: 9.99 }] });
+      mockSelect.mockResolvedValueOnce('small');               // profile
+      mockPost.mockResolvedValue({ message: 'ok', instance: makeDatabase() });
+
+      await createCommand.parseAsync(['node', 'test']);
+
+      expect(mockGet).toHaveBeenCalledWith('/api/v1/database/plans');
+      const planChoices = mockSelect.mock.calls.find(c => (c[0] as { message: string }).message === 'Resource profile:')![0] as { choices: Array<{ name: string; value: string }> };
+      expect(planChoices.choices[0]!.name).toContain('€9.99/mo');
+      expect(planChoices.choices[0]!.value).toBe('small');
+    });
+
+    it('rejects with a clear error when the API returns no plans', async () => {
+      mockInput.mockResolvedValueOnce('my-db');              // name
+      mockSelect.mockResolvedValueOnce('postgresql');         // provider
+      mockGet.mockResolvedValueOnce({ plans: [] });
+
+      await expect(createCommand.parseAsync(['node', 'test'])).rejects.toThrow(/No .* plans/);
+      expect(mockPost).not.toHaveBeenCalled();
+    });
   });
 
   describe('get', () => {
     it('displays details', async () => {
-      mockGet.mockResolvedValue({
-        instance: makeDatabase(),
-        connection_info: 'mysql://root@my-db.fsn1.db.dd:3306',
-        monthly_cost: '19.99',
-      });
+      mockGet
+        .mockResolvedValueOnce({ data: [makeDatabase({ id: 'db-1' })] })
+        .mockResolvedValueOnce({
+          instance: makeDatabase(),
+          connection_info: 'mysql://root@my-db.fsn1.db.dd:3306',
+          monthly_cost: '19.99',
+        });
       await getCommand.parseAsync(['node', 'test', 'db-1']);
       const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
       expect(output).toContain('db-1');
       expect(output).toContain('mysql://root@my-db.fsn1.db.dd:3306');
     });
+
+    it('resolves a database instance by name', async () => {
+      mockGet
+        .mockResolvedValueOnce({ data: [makeDatabase({ id: 'db-9', name: 'prod-db' })] })
+        .mockResolvedValueOnce({
+          instance: makeDatabase({ id: 'db-9', name: 'prod-db' }),
+          connection_info: 'mysql://root@prod-db.fsn1.db.dd:3306',
+          monthly_cost: '19.99',
+        });
+      await getCommand.parseAsync(['node', 'test', 'prod-db']);
+      expect(mockGet).toHaveBeenLastCalledWith('/api/v1/database/db-9');
+    });
   });
 
   describe('update', () => {
     it('updates profile', async () => {
+      mockGet.mockResolvedValueOnce({ data: [makeDatabase({ id: 'db-1' })] });
       mockPut.mockResolvedValue({ message: 'ok', instance: makeDatabase({ resource_profile: 'large' }) });
       await updateCommand.parseAsync(['node', 'test', 'db-1', '--profile', 'large']);
       expect(mockPut).toHaveBeenCalledWith('/api/v1/database/db-1', { resource_profile: 'large' });
@@ -152,14 +197,38 @@ describe('database instances', () => {
 
     it('exits without options', async () => {
       await expect(updateCommand.parseAsync(['node', 'test', 'db-1'])).rejects.toThrow(ExitError);
+      expect(mockGet).not.toHaveBeenCalled();
     });
   });
 
   describe('rm', () => {
     it('skips confirm with --force', async () => {
+      mockGet.mockResolvedValueOnce({ data: [makeDatabase({ id: 'db-1' })] });
       mockDelete.mockResolvedValue({ message: 'ok', status: 'destroying' });
       await rmCommand.parseAsync(['node', 'test', 'db-1', '--force']);
       expect(mockDelete).toHaveBeenCalledWith('/api/v1/database/db-1');
+    });
+
+    it('cancels when confirm returns false', async () => {
+      mockGet.mockResolvedValueOnce({ data: [makeDatabase({ id: 'db-1' })] });
+      mockConfirm.mockResolvedValue(false);
+      await rmCommand.parseAsync(['node', 'test', 'db-1']);
+      expect(consoleLogSpy).toHaveBeenCalledWith('Cancelled.');
+      expect(mockDelete).not.toHaveBeenCalled();
+    });
+
+    it('refuses JSON-mode rm without --force', async () => {
+      const { setJsonMode } = await import('../../../src/lib/json-mode.js');
+      setJsonMode(true);
+      mockGet.mockResolvedValueOnce({ data: [makeDatabase({ id: 'db-1' })] });
+      await expect(rmCommand.parseAsync(['node', 'test', 'db-1'])).rejects.toThrow(/without --force/);
+      expect(mockDelete).not.toHaveBeenCalled();
+      setJsonMode(false);
+    });
+
+    it('rm gains a delete alias', () => {
+      expect(rmCommand.name()).toBe('rm');
+      expect(rmCommand.aliases()).toContain('delete');
     });
   });
 });

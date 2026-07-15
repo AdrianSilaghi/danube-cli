@@ -1,18 +1,20 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { confirm } from '@inquirer/prompts';
 import { ApiClient } from '../../lib/api-client.js';
+import { resolveResource } from '../../lib/resolve.js';
 import { formatTable, statusColor } from '../../lib/output.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
-import type { DatabaseReplicaList, DatabaseReplicationStatus } from '../../types/api.js';
+import { confirmDestruction } from '../../lib/interactive.js';
+import type { DatabaseInstance, DatabaseReplicaList, DatabaseReplicationStatus } from '../../types/api.js';
 
 const lsCommand = new Command('ls')
   .description('List replicas for a database instance')
-  .argument('<instance-id>', 'Database instance ID')
-  .action(async (instanceId: string) => {
+  .argument('<name-or-id>', 'Database instance name or ID')
+  .action(async (nameOrId: string) => {
     const api = await ApiClient.create();
-    const res = await api.get<DatabaseReplicaList>(`/api/v1/database/${instanceId}/replicas`);
+    const instance = await resolveResource<DatabaseInstance>(api, '/api/v1/database', 'database', nameOrId);
+    const res = await api.get<DatabaseReplicaList>(`/api/v1/database/${instance.id}/replicas`);
 
     if (isJsonMode()) {
       jsonOutput(res);
@@ -45,9 +47,9 @@ const lsCommand = new Command('ls')
 
 const addCommand = new Command('add')
   .description('Add one or more replicas to a database instance')
-  .argument('<instance-id>', 'Database instance ID')
+  .argument('<name-or-id>', 'Database instance name or ID')
   .option('--count <n>', 'Number of replicas to add', '1')
-  .action(async (instanceId: string, opts: { count: string }) => {
+  .action(async (nameOrId: string, opts: { count: string }) => {
     const count = parseInt(opts.count, 10);
     if (!Number.isFinite(count) || count < 1) {
       console.error(chalk.red('--count must be a positive integer.'));
@@ -55,9 +57,10 @@ const addCommand = new Command('add')
     }
 
     const api = await ApiClient.create();
+    const instance = await resolveResource<DatabaseInstance>(api, '/api/v1/database', 'database', nameOrId);
     const spinner = isJsonMode() ? null : ora(`Adding ${count} replica${count > 1 ? 's' : ''}...`).start();
     const res = await api.post<{ message: string; replicas: Array<Record<string, unknown>> }>(
-      `/api/v1/database/${instanceId}/replicas`,
+      `/api/v1/database/${instance.id}/replicas`,
       { replica_count: count },
     );
 
@@ -69,30 +72,33 @@ const addCommand = new Command('add')
   });
 
 const rmCommand = new Command('rm')
+  .alias('delete')
   .description('Remove a replica by index')
-  .argument('<instance-id>', 'Database instance ID')
+  .argument('<name-or-id>', 'Database instance name or ID')
   .argument('<index>', 'Replica index (1-based)')
-  .option('--force', 'Skip confirmation')
-  .action(async (instanceId: string, index: string, opts: { force?: boolean }) => {
-    if (!opts.force && !isJsonMode()) {
-      const confirmed = await confirm({
-        message: `Remove replica #${index} from database ${instanceId}?`,
-        default: false,
-      });
-      if (!confirmed) {
-        console.log('Cancelled.');
-        return;
-      }
+  .option('-f, --force', 'Skip confirmation')
+  .option('-y, --yes', 'Alias for --force')
+  .action(async (nameOrId: string, index: string, opts: { force?: boolean; yes?: boolean }) => {
+    const api = await ApiClient.create();
+    const instance = await resolveResource<DatabaseInstance>(api, '/api/v1/database', 'database', nameOrId);
+
+    const proceed = await confirmDestruction(
+      `removal of replica #${index} from database ${instance.name}`,
+      `Remove replica #${index} from database ${instance.name} (${instance.id})?`,
+      opts.force || opts.yes,
+    );
+    if (!proceed) {
+      console.log('Cancelled.');
+      return;
     }
 
-    const api = await ApiClient.create();
     const spinner = isJsonMode() ? null : ora('Removing replica...').start();
     const res = await api.delete<{ message: string; status: string }>(
-      `/api/v1/database/${instanceId}/replicas/${index}`,
+      `/api/v1/database/${instance.id}/replicas/${index}`,
     );
 
     if (isJsonMode()) {
-      jsonOutput({ instance_id: instanceId, index: Number(index), status: res.status });
+      jsonOutput({ instance_id: instance.id, index: Number(index), status: res.status });
       return;
     }
     spinner!.succeed(res.message);
@@ -100,10 +106,11 @@ const rmCommand = new Command('rm')
 
 const statusCommand = new Command('status')
   .description('Show replication status (lag per replica)')
-  .argument('<instance-id>', 'Database instance ID')
-  .action(async (instanceId: string) => {
+  .argument('<name-or-id>', 'Database instance name or ID')
+  .action(async (nameOrId: string) => {
     const api = await ApiClient.create();
-    const res = await api.get<DatabaseReplicationStatus>(`/api/v1/database/${instanceId}/replicas/status`);
+    const instance = await resolveResource<DatabaseInstance>(api, '/api/v1/database', 'database', nameOrId);
+    const res = await api.get<DatabaseReplicationStatus>(`/api/v1/database/${instance.id}/replicas/status`);
 
     if (isJsonMode()) {
       jsonOutput(res);

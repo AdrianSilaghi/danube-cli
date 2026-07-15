@@ -3,15 +3,17 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { input, select, confirm } from '@inquirer/prompts';
 import { ApiClient } from '../../lib/api-client.js';
-import { formatTable, statusColor, formatBytes, formatDate, formatNumber, formatRelativeTime } from '../../lib/output.js';
+import { fetchAllPages } from '../../lib/paginate.js';
+import { resolveResource } from '../../lib/resolve.js';
+import { formatTable, statusColor, formatBytes, formatDate, formatNumber, formatRelativeTime, printDetails } from '../../lib/output.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
+import { canPrompt, promptOr, confirmDestruction } from '../../lib/interactive.js';
 import type {
   StorageBucket,
   StorageMetrics,
   BucketTrendResponse,
   BucketTopObjectsResponse,
   BucketHealthResponse,
-  PaginatedResponse,
   MessageWithDataResponse,
   MessageResponse,
 } from '../../types/api.js';
@@ -49,19 +51,19 @@ const lsCommand = new Command('ls')
   .description('List all buckets')
   .action(async () => {
     const api = await ApiClient.create();
-    const res = await api.get<PaginatedResponse<StorageBucket>>('/api/v1/storage/buckets');
+    const { items, total, truncated } = await fetchAllPages<StorageBucket>(api, '/api/v1/storage/buckets');
 
     if (isJsonMode()) {
-      jsonOutput(res.data);
+      jsonOutput(items);
       return;
     }
 
-    if (res.data.length === 0) {
+    if (items.length === 0) {
       console.log('No buckets found.');
       return;
     }
 
-    const rows = res.data.map(b => [
+    const rows = items.map(b => [
       b.id,
       b.minio_bucket_name ?? b.name,
       b.name,
@@ -73,6 +75,10 @@ const lsCommand = new Command('ls')
     ]);
 
     console.log(formatTable(['ID', 'BUCKET', 'NAME', 'STATUS', 'REGION', 'SIZE', 'OBJECTS', 'CREATED'], rows));
+
+    if (truncated) {
+      console.log(chalk.dim(`Showing ${items.length} of ${total}. Refine with the web console for the full list.`));
+    }
   });
 
 const createCommand = new Command('create')
@@ -82,30 +88,26 @@ const createCommand = new Command('create')
   .option('--versioning', 'Enable versioning')
   .option('--public', 'Enable public access')
   .action(async (opts: { name?: string; region?: string; versioning?: boolean; public?: boolean }) => {
-    let name = opts.name;
-    let region = opts.region;
     let versioning = opts.versioning;
     let isPublic = opts.public;
 
-    if (!name) {
-      name = await input({
-        message: 'Bucket name:',
-        validate: (v: string) => v.trim().length > 0 || 'Name is required',
-      });
-    }
+    const name = await promptOr('--name', opts.name, () => input({
+      message: 'Bucket name:',
+      validate: (v: string) => v.trim().length > 0 || 'Name is required',
+    }));
 
-    if (!region) {
-      region = await select({
-        message: 'Region:',
-        choices: [{ name: 'Falkenstein, Germany (fsn1)', value: 'fsn1' }],
-      });
-    }
+    const region = await promptOr('--region', opts.region, () => select({
+      message: 'Region:',
+      choices: [{ name: 'Falkenstein, Germany (fsn1)', value: 'fsn1' }],
+    }));
 
-    if (versioning === undefined && !isJsonMode()) {
+    // Optional booleans with a safe default (false) — only ask when we
+    // actually can; otherwise fall through rather than failing the create.
+    if (versioning === undefined && canPrompt()) {
       versioning = await confirm({ message: 'Enable versioning?', default: false });
     }
 
-    if (isPublic === undefined && !isJsonMode()) {
+    if (isPublic === undefined && canPrompt()) {
       isPublic = await confirm({ message: 'Enable public access?', default: false });
     }
 
@@ -128,10 +130,11 @@ const createCommand = new Command('create')
 
 const getCommand = new Command('get')
   .description('Show bucket details')
-  .argument('<bucket-id>', 'Bucket ID')
-  .action(async (bucketId: string) => {
+  .argument('<name-or-id>', 'Bucket name or ID')
+  .action(async (nameOrId: string) => {
     const api = await ApiClient.create();
-    const res = await api.get<{ bucket: StorageBucket }>(`/api/v1/storage/buckets/${bucketId}`);
+    const bucket = await resolveResource<StorageBucket>(api, '/api/v1/storage/buckets', 'bucket', nameOrId);
+    const res = await api.get<{ bucket: StorageBucket }>(`/api/v1/storage/buckets/${bucket.id}`);
 
     if (isJsonMode()) {
       jsonOutput(res.bucket);
@@ -140,7 +143,7 @@ const getCommand = new Command('get')
 
     const b = res.bucket;
 
-    const lines = [
+    const lines: Array<[string, string]> = [
       ['ID', b.id],
       ['Bucket', b.minio_bucket_name ?? b.name],
       ['Name', b.name],
@@ -157,15 +160,12 @@ const getCommand = new Command('get')
       ['Created', formatDate(b.created_at)],
     ];
 
-    const maxLabel = Math.max(...lines.map(([l]) => l!.length));
-    for (const [label, value] of lines) {
-      console.log(`${chalk.dim(label!.padEnd(maxLabel))}  ${value}`);
-    }
+    printDetails(lines);
   });
 
 const updateCommand = new Command('update')
   .description('Update bucket settings')
-  .argument('<bucket-id>', 'Bucket ID')
+  .argument('<name-or-id>', 'Bucket name or ID')
   .option('--display-name <name>', 'Set display name')
   .option('--versioning', 'Enable versioning')
   .option('--no-versioning', 'Disable versioning')
@@ -174,7 +174,7 @@ const updateCommand = new Command('update')
   .option('--encryption', 'Enable encryption (SSE-S3)')
   .option('--no-encryption', 'Disable encryption')
   .option('--size-limit <size>', 'Set size limit (e.g. 1GB, 500MB, 1073741824)')
-  .action(async (bucketId: string, opts: { displayName?: string; versioning?: boolean; public?: boolean; encryption?: boolean; sizeLimit?: string }) => {
+  .action(async (nameOrId: string, opts: { displayName?: string; versioning?: boolean; public?: boolean; encryption?: boolean; sizeLimit?: string }) => {
     const body: Record<string, unknown> = {};
 
     if (opts.displayName !== undefined) body.display_name = opts.displayName;
@@ -193,9 +193,10 @@ const updateCommand = new Command('update')
     }
 
     const api = await ApiClient.create();
+    const bucket = await resolveResource<StorageBucket>(api, '/api/v1/storage/buckets', 'bucket', nameOrId);
     const spinner = isJsonMode() ? null : ora('Updating bucket...').start();
 
-    const res = await api.put<{ message: string; bucket: StorageBucket }>(`/api/v1/storage/buckets/${bucketId}`, body);
+    const res = await api.put<{ message: string; bucket: StorageBucket }>(`/api/v1/storage/buckets/${bucket.id}`, body);
 
     if (isJsonMode()) {
       jsonOutput(res.bucket);
@@ -204,26 +205,32 @@ const updateCommand = new Command('update')
     spinner!.succeed(`Updated bucket ${chalk.bold(res.bucket.name)}`);
   });
 
-const deleteCommand = new Command('delete')
+const deleteCommand = new Command('rm')
+  .alias('delete')
   .description('Delete a bucket')
-  .argument('<bucket-id>', 'Bucket ID')
-  .option('--force', 'Skip confirmation')
-  .action(async (bucketId: string, opts: { force?: boolean }) => {
-    if (!opts.force && !isJsonMode()) {
-      const confirmed = await confirm({ message: `Are you sure you want to delete bucket ${bucketId}?`, default: false });
-      if (!confirmed) {
-        console.log('Cancelled.');
-        return;
-      }
+  .argument('<name-or-id>', 'Bucket name or ID')
+  .option('-f, --force', 'Skip confirmation')
+  .option('-y, --yes', 'Alias for --force')
+  .action(async (nameOrId: string, opts: { force?: boolean; yes?: boolean }) => {
+    const api = await ApiClient.create();
+    const bucket = await resolveResource<StorageBucket>(api, '/api/v1/storage/buckets', 'bucket', nameOrId);
+
+    const proceed = await confirmDestruction(
+      `deletion of bucket ${bucket.name}`,
+      `Are you sure you want to delete bucket ${bucket.name} (${bucket.id})?`,
+      opts.force || opts.yes,
+    );
+    if (!proceed) {
+      console.log('Cancelled.');
+      return;
     }
 
-    const api = await ApiClient.create();
     const spinner = isJsonMode() ? null : ora('Deleting bucket...').start();
 
-    await api.delete<MessageResponse>(`/api/v1/storage/buckets/${bucketId}`);
+    await api.delete<MessageResponse>(`/api/v1/storage/buckets/${bucket.id}`);
 
     if (isJsonMode()) {
-      jsonOutput({ status: 'deleted', id: bucketId });
+      jsonOutput({ status: 'deleted', id: bucket.id });
       return;
     }
     spinner!.succeed('Bucket deleted');
@@ -231,10 +238,11 @@ const deleteCommand = new Command('delete')
 
 const metricsShowCommand = new Command('show')
   .description('Show current bucket metrics snapshot (default action for `metrics`)')
-  .argument('<bucket-id>', 'Bucket ID')
-  .action(async (bucketId: string) => {
+  .argument('<name-or-id>', 'Bucket name or ID')
+  .action(async (nameOrId: string) => {
     const api = await ApiClient.create();
-    const m = await api.get<StorageMetrics>(`/api/v1/storage/buckets/${bucketId}/metrics`);
+    const bucket = await resolveResource<StorageBucket>(api, '/api/v1/storage/buckets', 'bucket', nameOrId);
+    const m = await api.get<StorageMetrics>(`/api/v1/storage/buckets/${bucket.id}/metrics`);
 
     if (isJsonMode()) {
       jsonOutput(m);
@@ -290,27 +298,28 @@ const metricsShowCommand = new Command('show')
       console.log(`${chalk.dim(label!.padEnd(maxLabel))}  ${value}`);
     }
 
-    if (m.freshness === 'stale') process.exitCode = 3;
+    if (m.freshness === 'stale') process.exitCode = 8;
   });
 
 const trendCommand = new Command('trend')
   .description('Show bucket metrics trend (time-series)')
-  .argument('<bucket-id>', 'Bucket ID')
+  .argument('<name-or-id>', 'Bucket name or ID')
   .option('-w, --window <window>', 'Window: 24h | 7d | 30d', '24h')
   .option('-r, --resolution <resolution>', 'Resolution: 1m | 5m | 1h | 1d (auto by default)')
   .option('-f, --format <format>', 'Output format: sparkline | table | csv | json', 'sparkline')
-  .action(async (bucketId: string, opts: { window: string; resolution?: string; format: string }) => {
+  .action(async (nameOrId: string, opts: { window: string; resolution?: string; format: string }) => {
     const api = await ApiClient.create();
+    const bucket = await resolveResource<StorageBucket>(api, '/api/v1/storage/buckets', 'bucket', nameOrId);
     const params: Record<string, string> = { window: opts.window };
     if (opts.resolution) params.resolution = opts.resolution;
 
     const qs = new URLSearchParams(params).toString();
-    const t = await api.get<BucketTrendResponse>(`/api/v1/storage/buckets/${bucketId}/metrics/trend?${qs}`);
+    const t = await api.get<BucketTrendResponse>(`/api/v1/storage/buckets/${bucket.id}/metrics/trend?${qs}`);
 
-    // Exit code 3 on stale data is set regardless of output format so
+    // Exit code 8 on stale data is set regardless of output format so
     // scripts/agents that pipe the output (csv/table) can still branch
     // on staleness without parsing the body.
-    if (t.freshness === 'stale') process.exitCode = 3;
+    if (t.freshness === 'stale') process.exitCode = 8;
 
     if (isJsonMode() || opts.format === 'json') {
       jsonOutput(t);
@@ -334,7 +343,7 @@ const trendCommand = new Command('trend')
 
     const n = t.data.length;
 
-    console.log(chalk.bold(`Trend for ${bucketId}  (${t.window} @ ${t.resolution}, source=${t.source})  ${freshnessBadge(t.freshness)}`));
+    console.log(chalk.bold(`Trend for ${bucket.name}  (${t.window} @ ${t.resolution}, source=${t.source})  ${freshnessBadge(t.freshness)}`));
     console.log(chalk.dim(`${n} datapoints, generated at ${t.generated_at}`));
     console.log('');
 
@@ -408,13 +417,14 @@ const trendCommand = new Command('trend')
 
 const topCommand = new Command('top')
   .description('Top-N objects in a bucket by size / egress / requests')
-  .argument('<bucket-id>', 'Bucket ID')
+  .argument('<name-or-id>', 'Bucket name or ID')
   .option('-b, --by <dimension>', 'Dimension: size | egress | requests', 'size')
   .option('-l, --limit <n>', 'Number of objects to return', '10')
-  .action(async (bucketId: string, opts: { by: string; limit: string }) => {
+  .action(async (nameOrId: string, opts: { by: string; limit: string }) => {
     const api = await ApiClient.create();
+    const bucket = await resolveResource<StorageBucket>(api, '/api/v1/storage/buckets', 'bucket', nameOrId);
     const qs = new URLSearchParams({ dimension: opts.by, limit: opts.limit }).toString();
-    const res = await api.get<BucketTopObjectsResponse>(`/api/v1/storage/buckets/${bucketId}/metrics/top-objects?${qs}`);
+    const res = await api.get<BucketTopObjectsResponse>(`/api/v1/storage/buckets/${bucket.id}/metrics/top-objects?${qs}`);
 
     if (isJsonMode()) {
       jsonOutput(res);
@@ -423,11 +433,11 @@ const topCommand = new Command('top')
 
     if (res.items.length === 0) {
       console.log(chalk.dim('No top-objects data available yet for this bucket/dimension.'));
-      process.exitCode = 3;
+      process.exitCode = 8;
       return;
     }
 
-    console.log(chalk.bold(`Top ${res.items.length} objects in ${bucketId} by ${res.dimension}`));
+    console.log(chalk.bold(`Top ${res.items.length} objects in ${bucket.name} by ${res.dimension}`));
     if (res.recorded_at) console.log(chalk.dim(`Snapshot: ${res.recorded_at}`));
     console.log('');
 
@@ -441,14 +451,15 @@ const topCommand = new Command('top')
 
 const healthCommand = new Command('health')
   .description('Show bucket hygiene (pending multipart, deleted versions, last check)')
-  .argument('<bucket-id>', 'Bucket ID')
-  .action(async (bucketId: string) => {
+  .argument('<name-or-id>', 'Bucket name or ID')
+  .action(async (nameOrId: string) => {
     const api = await ApiClient.create();
-    const h = await api.get<BucketHealthResponse>(`/api/v1/storage/buckets/${bucketId}/metrics/health`);
+    const bucket = await resolveResource<StorageBucket>(api, '/api/v1/storage/buckets', 'bucket', nameOrId);
+    const h = await api.get<BucketHealthResponse>(`/api/v1/storage/buckets/${bucket.id}/metrics/health`);
 
     if (isJsonMode()) {
       jsonOutput(h);
-      if (h.freshness === 'stale') process.exitCode = 3;
+      if (h.freshness === 'stale') process.exitCode = 8;
       return;
     }
 
@@ -473,20 +484,20 @@ const healthCommand = new Command('health')
       console.log(`${chalk.dim(label.padEnd(maxLabel))}  ${value}`);
     }
 
-    if (h.freshness === 'stale') process.exitCode = 3;
+    if (h.freshness === 'stale') process.exitCode = 8;
   });
 
 // Parent `metrics` command — default action runs the show subcommand so
 // `danube storage buckets metrics <id>` keeps working as before.
 const metricsCommand = new Command('metrics')
   .description('Bucket metrics (snapshot + trend + top-objects + health)')
-  .argument('[bucket-id]', 'Bucket ID (runs the `show` subcommand)')
-  .action(async (bucketId: string | undefined, _opts: unknown, cmd: Command) => {
-    if (!bucketId) {
+  .argument('[name-or-id]', 'Bucket name or ID (runs the `show` subcommand)')
+  .action(async (nameOrId: string | undefined, _opts: unknown, cmd: Command) => {
+    if (!nameOrId) {
       cmd.help();
       return;
     }
-    await metricsShowCommand.parseAsync([bucketId], { from: 'user' });
+    await metricsShowCommand.parseAsync([nameOrId], { from: 'user' });
   })
   .addCommand(metricsShowCommand)
   .addCommand(trendCommand)

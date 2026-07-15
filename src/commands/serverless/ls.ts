@@ -1,20 +1,28 @@
 import { Command } from 'commander';
+import chalk from 'chalk';
 import { ApiClient } from '../../lib/api-client.js';
+import { fetchAllPages } from '../../lib/paginate.js';
 import { formatTable, statusColor, formatDate } from '../../lib/output.js';
-import type { PaginatedResponse, ServerlessContainer } from '../../types/api.js';
+import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
+import type { ServerlessContainer } from '../../types/api.js';
 
 export const lsCommand = new Command('ls')
   .description('List serverless containers')
   .action(async () => {
     const api = await ApiClient.create();
-    const res = await api.get<PaginatedResponse<ServerlessContainer>>('/api/v1/serverless');
+    const { items, total, truncated } = await fetchAllPages<ServerlessContainer>(api, '/api/v1/serverless');
 
-    if (res.data.length === 0) {
+    if (isJsonMode()) {
+      jsonOutput(items);
+      return;
+    }
+
+    if (items.length === 0) {
       console.log('No serverless containers found.');
       return;
     }
 
-    const rows = res.data.map((c) => [
+    const rows = items.map((c) => [
       c.name,
       statusColor(c.status),
       c.resource_profile,
@@ -23,4 +31,8 @@ export const lsCommand = new Command('ls')
     ]);
 
     console.log(formatTable(['NAME', 'STATUS', 'PROFILE', 'URL', 'CREATED'], rows));
+
+    if (truncated) {
+      console.log(chalk.dim(`Showing ${items.length} of ${total}. Refine with the web console for the full list.`));
+    }
   });

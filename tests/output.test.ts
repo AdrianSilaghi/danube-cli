@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import chalk from 'chalk';
-import { formatTable, statusColor, formatBytes, formatDate } from '../src/lib/output.js';
+import { formatTable, statusColor, formatBytes, formatDate, printDetails } from '../src/lib/output.js';
 
 describe('output', () => {
   describe('formatTable', () => {
@@ -139,5 +139,15 @@ describe('output', () => {
       expect(typeof result).toBe('string');
       expect(result.length).toBeGreaterThan(0);
     });
+  });
+});
+
+describe('printDetails', () => {
+  it('pads labels to a common width', () => {
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    printDetails([['ID', 'abc'], ['Longer Label', 'xyz']]);
+    const first = spy.mock.calls[0]![0] as string;
+    expect(first.replace(/\x1B\[[0-9;]*m/g, '')).toBe('ID            abc');
+    spy.mockRestore();
   });
 });

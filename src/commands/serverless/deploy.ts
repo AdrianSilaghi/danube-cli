@@ -8,6 +8,7 @@ import { packageDirectory } from '../../lib/packager.js';
 import { formatBytes, statusColor } from '../../lib/output.js';
 import { sleep } from '../../lib/sleep.js';
 import { resolveContainer } from './resolve.js';
+import { isJsonMode, jsonOutput, jsonError } from '../../lib/json-mode.js';
 import type { ServerlessBuild, ServerlessDeployResponse, ServerlessShowResponse } from '../../types/api.js';
 
 export const POLL_INTERVAL = 2000;
@@ -36,26 +37,30 @@ export const deployCommand = new Command('deploy')
     }
 
     // Package files
-    const packSpinner = ora('Packaging files...').start();
+    const packSpinner = isJsonMode() ? null : ora('Packaging files...').start();
     const { buffer, fileCount } = await packageDirectory(deployDir);
-    packSpinner.succeed(`Packaged ${fileCount} files (${formatBytes(buffer.length)})`);
+    packSpinner?.succeed(`Packaged ${fileCount} files (${formatBytes(buffer.length)})`);
 
     // Upload
-    const uploadSpinner = ora('Uploading...').start();
+    const uploadSpinner = isJsonMode() ? null : ora('Uploading...').start();
     await api.upload<ServerlessDeployResponse>(
       `/api/v1/serverless/${container.id}/deploy`,
       buffer,
       'deploy.zip',
     );
-    uploadSpinner.succeed('Uploaded');
+    uploadSpinner?.succeed('Uploaded');
 
     if (!opts.wait) {
-      console.log(chalk.green('\nBuild started. Check status with: danube rapids show ' + container.name));
+      if (isJsonMode()) {
+        jsonOutput({ id: container.id, name: container.name, status: 'building' });
+        return;
+      }
+      console.log(chalk.green('\nBuild started. Check status with: danube rapids get ' + container.name));
       return;
     }
 
     // Poll build status
-    const pollSpinner = ora('Building...').start();
+    const pollSpinner = isJsonMode() ? null : ora('Building...').start();
     const startTime = Date.now();
     const abortController = new AbortController();
 
@@ -63,15 +68,15 @@ export const deployCommand = new Command('deploy')
 
     const sigintHandler = async () => {
       abortController.abort();
-      pollSpinner.stop();
-      console.log(chalk.yellow('\nCancelling build...'));
+      pollSpinner?.stop();
+      if (!isJsonMode()) console.log(chalk.yellow('\nCancelling build...'));
 
       if (currentBuildId) {
         try {
           await api.post(`/api/v1/serverless/${container.id}/builds/${currentBuildId}/cancel`);
-          console.log(chalk.yellow('Build cancelled.'));
+          if (!isJsonMode()) console.log(chalk.yellow('Build cancelled.'));
         } catch {
-          console.log(chalk.yellow('Could not cancel build on server.'));
+          if (!isJsonMode()) console.log(chalk.yellow('Could not cancel build on server.'));
         }
       }
 
@@ -92,13 +97,23 @@ export const deployCommand = new Command('deploy')
         if (!build) continue;
 
         currentBuildId = build.id;
-        pollSpinner.text = `Status: ${build.status}...`;
+        if (pollSpinner) pollSpinner.text = `Status: ${build.status}...`;
 
         if (build.status === 'succeeded') {
-          pollSpinner.succeed(`Build #${build.build_number} ${statusColor('succeeded')}`);
+          pollSpinner?.succeed(`Build #${build.build_number} ${statusColor('succeeded')}`);
           const updated = await api.get<ServerlessShowResponse>(
             `/api/v1/serverless/${container.id}`,
           );
+          if (isJsonMode()) {
+            jsonOutput({
+              id: container.id,
+              name: container.name,
+              status: 'succeeded',
+              build_number: build.build_number,
+              url: updated.url ?? null,
+            });
+            return;
+          }
           if (updated.url) {
             console.log(chalk.green(`\nLive at: ${chalk.bold(updated.url)}`));
           }
@@ -106,7 +121,11 @@ export const deployCommand = new Command('deploy')
         }
 
         if (build.status === 'failed' || build.status === 'cancelled') {
-          pollSpinner.fail('Build failed');
+          pollSpinner?.fail('Build failed');
+          if (isJsonMode()) {
+            jsonError({ code: 'build_failed', message: build.error_message ?? 'Build failed' });
+            process.exit(1);
+          }
           if (build.error_message) {
             console.error(chalk.red(build.error_message));
           }
@@ -114,7 +133,11 @@ export const deployCommand = new Command('deploy')
         }
       }
 
-      pollSpinner.warn('Timed out waiting for build. Check status with: danube rapids show ' + container.name);
+      pollSpinner?.warn('Timed out waiting for build. Check status with: danube rapids get ' + container.name);
+      if (isJsonMode()) {
+        jsonError({ code: 'build_timeout', message: 'Timed out waiting for build.' });
+        process.exit(1);
+      }
       process.exit(1);
     } finally {
       process.removeListener('SIGINT', sigintHandler);

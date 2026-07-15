@@ -86,6 +86,23 @@ describe('deployments command', () => {
 
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('REVISION'));
     });
+
+    it('fetches every page and shows a truncation note when capped', async () => {
+      mockReadProjectConfig.mockResolvedValue({ siteId: 1, teamId: 1, siteName: 'test' });
+      mockGet.mockResolvedValue({
+        data: [{
+          id: 1, revision_number: 3, status: 'active', is_current: true,
+          trigger_type: 'cli', deployed_at: '2024-06-01T12:00:00Z', created_at: '2024-06-01T11:00:00Z',
+        }],
+        pagination: { current_page: 1, last_page: 1, per_page: 100, total: 250 },
+      });
+
+      await deploymentsCommand.parseAsync(['node', 'test', 'ls']);
+
+      expect(mockGet).toHaveBeenCalledWith('/api/v1/static-sites/1/deployments?per_page=100&page=1');
+      const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
+      expect(output).toContain('Showing 1 of 250');
+    });
   });
 
   describe('rollback', () => {
@@ -116,6 +133,27 @@ describe('deployments command', () => {
       await deploymentsCommand.parseAsync(['node', 'test', 'rollback', '2']);
 
       expect(mockPost).toHaveBeenCalledWith('/api/v1/static-sites/1/deployments/5/activate');
+    });
+
+    it('walks multiple pages to find a revision beyond the first page', async () => {
+      mockReadProjectConfig.mockResolvedValue({ siteId: 1, teamId: 1, siteName: 'test' });
+      mockGet
+        .mockResolvedValueOnce({
+          data: [{ id: 1, revision_number: 3 }],
+          pagination: { current_page: 1, last_page: 2, per_page: 100, total: 2 },
+        })
+        .mockResolvedValueOnce({
+          data: [{ id: 2, revision_number: 2 }],
+          pagination: { current_page: 2, last_page: 2, per_page: 100, total: 2 },
+        });
+      mockPost.mockResolvedValue({ message: 'Activated' });
+
+      await deploymentsCommand.parseAsync(['node', 'test', 'rollback', '2']);
+
+      expect(mockGet).toHaveBeenCalledTimes(2);
+      expect(mockGet).toHaveBeenNthCalledWith(1, '/api/v1/static-sites/1/deployments?per_page=100&page=1');
+      expect(mockGet).toHaveBeenNthCalledWith(2, '/api/v1/static-sites/1/deployments?per_page=100&page=2');
+      expect(mockPost).toHaveBeenCalledWith('/api/v1/static-sites/1/deployments/2/activate');
     });
   });
 });

@@ -1,11 +1,13 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { ApiClient } from '../../lib/api-client.js';
-import { statusColor, formatDate } from '../../lib/output.js';
+import { statusColor, formatDate, printDetails } from '../../lib/output.js';
 import { resolveContainer } from './resolve.js';
+import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import type { ServerlessShowResponse } from '../../types/api.js';
 
-export const showCommand = new Command('show')
+export const showCommand = new Command('get')
+  .alias('show')
   .description('Show serverless container details')
   .argument('<name-or-id>', 'Container name or ID')
   .action(async (nameOrId: string) => {
@@ -16,36 +18,51 @@ export const showCommand = new Command('show')
       `/api/v1/serverless/${container.id}`,
     );
 
+    if (isJsonMode()) {
+      jsonOutput({ ...res.container, url: res.url, monthly_cost: res.monthly_cost });
+      return;
+    }
+
     const c = res.container;
     console.log(chalk.bold(c.name));
-    console.log(`  ID:              ${c.id}`);
-    console.log(`  Status:          ${statusColor(c.status)}`);
-    console.log(`  Deployment Type: ${c.deployment_type}`);
-    if (c.deployment_type === 'docker_image' || (c.image && c.image !== 'pending-build')) {
-      console.log(`  Image:           ${c.image}:${c.image_tag}`);
-    } else {
-      console.log(`  Image:           ${chalk.dim('(awaiting first build)')}`);
-    }
-    console.log(`  Port:            ${c.port}`);
-    console.log(`  Profile:         ${c.resource_profile}`);
-    console.log(`  URL:             ${res.url || '-'}`);
-    console.log(`  Monthly Cost:    \u20AC${res.monthly_cost.toFixed(2)}`);
-    console.log(`  Created:         ${formatDate(c.created_at)}`);
+
+    const imageValue = (c.deployment_type === 'docker_image' || (c.image && c.image !== 'pending-build'))
+      ? `${c.image}:${c.image_tag}`
+      : chalk.dim('(awaiting first build)');
+
+    const lines: Array<[string, string]> = [
+      ['ID', c.id],
+      ['Status', statusColor(c.status)],
+      ['Deployment Type', c.deployment_type],
+      ['Image', imageValue],
+      ['Port', String(c.port)],
+      ['Profile', c.resource_profile],
+      ['URL', res.url || '-'],
+      ['Monthly Cost', `\u20AC${res.monthly_cost.toFixed(2)}`],
+      ['Created', formatDate(c.created_at)],
+    ];
+
+    printDetails(lines);
 
     // Scaling configuration
     console.log();
     console.log(chalk.bold('Scaling'));
-    console.log(`  Min Replicas:    ${c.min_scale}`);
-    console.log(`  Max Replicas:    ${c.max_scale}`);
-    console.log(`  Current:         ${c.current_replicas ?? 0}`);
-    console.log(`  Metric:          ${c.scaling_metric ?? 'rps'}`);
-    console.log(`  Target:          ${c.scaling_target ?? 100}`);
+
+    const scalingLines: Array<[string, string]> = [
+      ['Min Replicas', String(c.min_scale)],
+      ['Max Replicas', String(c.max_scale)],
+      ['Current', String(c.current_replicas ?? 0)],
+      ['Metric', c.scaling_metric ?? 'rps'],
+      ['Target', String(c.scaling_target ?? 100)],
+    ];
     if (c.concurrency_target) {
-      console.log(`  Concurrency:     ${c.concurrency_target}`);
+      scalingLines.push(['Concurrency', String(c.concurrency_target)]);
     }
     if (c.timeout_seconds) {
-      console.log(`  Timeout:         ${c.timeout_seconds}s`);
+      scalingLines.push(['Timeout', `${c.timeout_seconds}s`]);
     }
+
+    printDetails(scalingLines);
 
     // Environment variables
     const envVars = c.environment_variables ?? {};

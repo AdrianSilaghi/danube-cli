@@ -58,6 +58,53 @@ describe('serverless rm command', () => {
   it('throws when container not found', async () => {
     mockGet.mockResolvedValue({ data: [], pagination: { current_page: 1, last_page: 1, per_page: 15, total: 0 } });
 
-    await expect(rmCommand.parseAsync(['node', 'test', 'nonexistent', '--yes'])).rejects.toThrow("Container 'nonexistent' not found.");
+    await expect(rmCommand.parseAsync(['node', 'test', 'nonexistent', '--yes'])).rejects.toThrow("container 'nonexistent' not found.");
+  });
+
+  it('accepts --force as an alias for --yes', async () => {
+    mockGet.mockResolvedValue({
+      data: [makeContainer()],
+      pagination: { current_page: 1, last_page: 1, per_page: 15, total: 1 },
+    });
+    mockDelete.mockResolvedValue({ message: 'Deleted' });
+
+    await rmCommand.parseAsync(['node', 'test', 'my-api', '--force']);
+
+    expect(mockDelete).toHaveBeenCalledWith('/api/v1/serverless/abc-123');
+  });
+
+  it('refuses JSON-mode delete without --force/--yes', async () => {
+    const { setJsonMode } = await import('../../../src/lib/json-mode.js');
+    setJsonMode(true);
+    mockGet.mockResolvedValue({
+      data: [makeContainer()],
+      pagination: { current_page: 1, last_page: 1, per_page: 15, total: 1 },
+    });
+
+    await expect(rmCommand.parseAsync(['node', 'test', 'my-api'])).rejects.toThrow(/without --force/);
+
+    expect(mockDelete).not.toHaveBeenCalled();
+    setJsonMode(false);
+  });
+
+  it('outputs deleted status as JSON in json mode with --force', async () => {
+    const { setJsonMode } = await import('../../../src/lib/json-mode.js');
+    setJsonMode(true);
+    mockGet.mockResolvedValue({
+      data: [makeContainer()],
+      pagination: { current_page: 1, last_page: 1, per_page: 100, total: 1 },
+    });
+    mockDelete.mockResolvedValue({ message: 'Deleted' });
+
+    await rmCommand.parseAsync(['node', 'test', 'my-api', '--force']);
+
+    const printed = JSON.parse(consoleLogSpy.mock.calls.at(-1)![0] as string);
+    expect(printed).toEqual({ status: 'deleted', id: 'abc-123' });
+    setJsonMode(false);
+  });
+
+  it('is canonical `rm` with a `delete` alias', () => {
+    expect(rmCommand.name()).toBe('rm');
+    expect(rmCommand.aliases()).toContain('delete');
   });
 });

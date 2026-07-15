@@ -92,8 +92,8 @@ export async function checkForUpdate(): Promise<UpdateCheckResult | null> {
 }
 
 export function printUpdateNotification(current: string, latest: string): void {
-  console.log();
-  console.log(chalk.yellow(`  Update available: ${chalk.dim(current)} → ${chalk.green(latest)}`));
-  console.log(chalk.yellow(`  Run ${chalk.cyan(`npm install -g ${PACKAGE_NAME}`)} to update`));
-  console.log();
+  console.error();
+  console.error(chalk.yellow(`  Update available: ${chalk.dim(current)} → ${chalk.green(latest)}`));
+  console.error(chalk.yellow(`  Run ${chalk.cyan(`npm install -g ${PACKAGE_NAME}`)} to update`));
+  console.error();
 }

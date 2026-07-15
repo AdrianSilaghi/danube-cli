@@ -4,6 +4,7 @@ import chalk from 'chalk';
 import { ApiClient } from '../lib/api-client.js';
 import { readConfig, writeConfig } from '../lib/config.js';
 import { isJsonMode, jsonOutput } from '../lib/json-mode.js';
+import { canPrompt } from '../lib/interactive.js';
 import { teamsArray } from '../types/api.js';
 import type { TeamsResponse } from '../types/api.js';
 
@@ -57,6 +58,10 @@ const selectCommand = new Command('select')
       }
       console.log(`Selected project: ${chalk.bold(team.name)}`);
       return;
+    }
+
+    if (!canPrompt()) {
+      throw new Error('`danube project select` is interactive — run it in a terminal without --json.');
     }
 
     const config = await readConfig();

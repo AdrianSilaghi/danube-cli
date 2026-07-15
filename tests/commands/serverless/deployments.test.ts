@@ -64,4 +64,28 @@ describe('serverless deployments command', () => {
 
     expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('REVISION'));
   });
+
+  it('outputs raw JSON array in json mode', async () => {
+    const { setJsonMode } = await import('../../../src/lib/json-mode.js');
+    setJsonMode(true);
+    mockGet
+      .mockResolvedValueOnce({
+        data: [makeContainer()],
+        pagination: { current_page: 1, last_page: 1, per_page: 100, total: 1 },
+      })
+      .mockResolvedValueOnce({
+        data: [{
+          id: 'd-1', revision_number: 1, status: 'active', is_current: true,
+          image: 'nginx', image_tag: 'latest', traffic_percent: 100,
+          deployed_at: '2024-01-01T00:00:00Z', created_at: '2024-01-01T00:00:00Z',
+        }],
+        pagination: { current_page: 1, last_page: 1, per_page: 100, total: 1 },
+      });
+
+    await deploymentsCommand.parseAsync(['node', 'test', 'my-api']);
+
+    const printed = JSON.parse(consoleLogSpy.mock.calls.at(-1)![0] as string);
+    expect(printed[0].id).toBe('d-1');
+    setJsonMode(false);
+  });
 });

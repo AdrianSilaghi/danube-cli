@@ -1,22 +1,25 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { confirm, select } from '@inquirer/prompts';
+import { select } from '@inquirer/prompts';
 import { ApiClient } from '../../lib/api-client.js';
+import { resolveResource } from '../../lib/resolve.js';
 import { statusColor, formatBytes, formatDate } from '../../lib/output.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
-import type { VpsStatus, VpsMetrics, VpsImageGroup } from '../../types/api.js';
+import { promptOr, confirmDestruction } from '../../lib/interactive.js';
+import type { VpsInstance, VpsStatus, VpsMetrics, VpsImageGroup } from '../../types/api.js';
 
 export const startCommand = new Command('start')
   .description('Start a stopped VPS instance')
-  .argument('<id>', 'VPS instance ID')
-  .action(async (id: string) => {
+  .argument('<name-or-id>', 'VPS name or ID')
+  .action(async (nameOrId: string) => {
     const api = await ApiClient.create();
+    const instance = await resolveResource<VpsInstance>(api, '/api/v1/vps', 'VPS', nameOrId);
     const spinner = isJsonMode() ? null : ora('Starting VPS...').start();
-    const res = await api.post<{ message: string; status: string }>(`/api/v1/vps/${id}/start`);
+    const res = await api.post<{ message: string; status: string }>(`/api/v1/vps/${instance.id}/start`);
 
     if (isJsonMode()) {
-      jsonOutput({ status: res.status, message: res.message, id });
+      jsonOutput({ status: res.status, message: res.message, id: instance.id });
       return;
     }
     spinner!.succeed(res.message);
@@ -24,14 +27,15 @@ export const startCommand = new Command('start')
 
 export const stopCommand = new Command('stop')
   .description('Stop a running VPS instance')
-  .argument('<id>', 'VPS instance ID')
-  .action(async (id: string) => {
+  .argument('<name-or-id>', 'VPS name or ID')
+  .action(async (nameOrId: string) => {
     const api = await ApiClient.create();
+    const instance = await resolveResource<VpsInstance>(api, '/api/v1/vps', 'VPS', nameOrId);
     const spinner = isJsonMode() ? null : ora('Stopping VPS...').start();
-    const res = await api.post<{ message: string; status: string }>(`/api/v1/vps/${id}/stop`);
+    const res = await api.post<{ message: string; status: string }>(`/api/v1/vps/${instance.id}/stop`);
 
     if (isJsonMode()) {
-      jsonOutput({ status: res.status, message: res.message, id });
+      jsonOutput({ status: res.status, message: res.message, id: instance.id });
       return;
     }
     spinner!.succeed(res.message);
@@ -39,14 +43,15 @@ export const stopCommand = new Command('stop')
 
 export const rebootCommand = new Command('reboot')
   .description('Reboot a running VPS instance')
-  .argument('<id>', 'VPS instance ID')
-  .action(async (id: string) => {
+  .argument('<name-or-id>', 'VPS name or ID')
+  .action(async (nameOrId: string) => {
     const api = await ApiClient.create();
+    const instance = await resolveResource<VpsInstance>(api, '/api/v1/vps', 'VPS', nameOrId);
     const spinner = isJsonMode() ? null : ora('Rebooting VPS...').start();
-    const res = await api.post<{ message: string; status: string }>(`/api/v1/vps/${id}/reboot`);
+    const res = await api.post<{ message: string; status: string }>(`/api/v1/vps/${instance.id}/reboot`);
 
     if (isJsonMode()) {
-      jsonOutput({ status: res.status, message: res.message, id });
+      jsonOutput({ status: res.status, message: res.message, id: instance.id });
       return;
     }
     spinner!.succeed(res.message);
@@ -54,15 +59,16 @@ export const rebootCommand = new Command('reboot')
 
 export const reinstallCommand = new Command('reinstall')
   .description('Reinstall OS on a VPS instance (destroys all data)')
-  .argument('<id>', 'VPS instance ID')
+  .argument('<name-or-id>', 'VPS name or ID')
   .option('--image <image>', 'OS image ID (e.g. ubuntu-24.04)')
   .option('--cloud-init <script>', 'Custom cloud-init script')
-  .option('--force', 'Skip confirmation')
-  .action(async (id: string, opts: { image?: string; cloudInit?: string; force?: boolean }) => {
-    let image = opts.image;
+  .option('-f, --force', 'Skip confirmation')
+  .option('-y, --yes', 'Alias for --force')
+  .action(async (nameOrId: string, opts: { image?: string; cloudInit?: string; force?: boolean; yes?: boolean }) => {
+    const api = await ApiClient.create();
+    const instance = await resolveResource<VpsInstance>(api, '/api/v1/vps', 'VPS', nameOrId);
 
-    if (!image) {
-      const api = await ApiClient.create();
+    const image = await promptOr('--image', opts.image, async () => {
       const groupsRes = await api.get<{ groups: VpsImageGroup[] }>('/api/v1/vps/images/grouped');
       const imageChoices = groupsRes.groups.flatMap(g =>
         g.images.map(img => ({
@@ -70,29 +76,27 @@ export const reinstallCommand = new Command('reinstall')
           value: img.id,
         })),
       );
-      image = await select({ message: 'Select new OS:', choices: imageChoices });
+      return select({ message: 'Select new OS:', choices: imageChoices });
+    });
+
+    const proceed = await confirmDestruction(
+      `reinstallation of VPS ${instance.name}`,
+      `This will DESTROY ALL DATA on VPS ${instance.name} (${instance.id}) and reinstall with ${image}. Continue?`,
+      opts.force || opts.yes,
+    );
+    if (!proceed) {
+      console.log('Cancelled.');
+      return;
     }
 
-    if (!opts.force && !isJsonMode()) {
-      const confirmed = await confirm({
-        message: `This will DESTROY ALL DATA on VPS ${id} and reinstall with ${image}. Continue?`,
-        default: false,
-      });
-      if (!confirmed) {
-        console.log('Cancelled.');
-        return;
-      }
-    }
-
-    const api = await ApiClient.create();
     const body: Record<string, unknown> = { image };
     if (opts.cloudInit) body.custom_cloud_init = opts.cloudInit;
 
     const spinner = isJsonMode() ? null : ora('Reinstalling VPS...').start();
-    const res = await api.post<{ message: string; status: string }>(`/api/v1/vps/${id}/reinstall`, body);
+    const res = await api.post<{ message: string; status: string }>(`/api/v1/vps/${instance.id}/reinstall`, body);
 
     if (isJsonMode()) {
-      jsonOutput({ status: res.status, message: res.message, id, image });
+      jsonOutput({ status: res.status, message: res.message, id: instance.id, image });
       return;
     }
     spinner!.succeed(res.message);
@@ -100,10 +104,11 @@ export const reinstallCommand = new Command('reinstall')
 
 export const statusCommand = new Command('status')
   .description('Show VPS instance status')
-  .argument('<id>', 'VPS instance ID')
-  .action(async (id: string) => {
+  .argument('<name-or-id>', 'VPS name or ID')
+  .action(async (nameOrId: string) => {
     const api = await ApiClient.create();
-    const s = await api.get<VpsStatus>(`/api/v1/vps/${id}/status`);
+    const instance = await resolveResource<VpsInstance>(api, '/api/v1/vps', 'VPS', nameOrId);
+    const s = await api.get<VpsStatus>(`/api/v1/vps/${instance.id}/status`);
 
     if (isJsonMode()) {
       jsonOutput(s);
@@ -129,10 +134,11 @@ export const statusCommand = new Command('status')
 
 export const metricsCommand = new Command('metrics')
   .description('Show VPS instance metrics')
-  .argument('<id>', 'VPS instance ID')
-  .action(async (id: string) => {
+  .argument('<name-or-id>', 'VPS name or ID')
+  .action(async (nameOrId: string) => {
     const api = await ApiClient.create();
-    const m = await api.get<VpsMetrics>(`/api/v1/vps/${id}/metrics`);
+    const instance = await resolveResource<VpsInstance>(api, '/api/v1/vps', 'VPS', nameOrId);
+    const m = await api.get<VpsMetrics>(`/api/v1/vps/${instance.id}/metrics`);
 
     if (isJsonMode()) {
       jsonOutput(m);
@@ -159,23 +165,25 @@ export const metricsCommand = new Command('metrics')
 
 export const passwordCommand = new Command('password')
   .description('Show SSH password for a VPS instance')
-  .argument('<id>', 'VPS instance ID')
-  .action(async (id: string) => {
-    if (!isJsonMode()) {
-      const confirmed = await confirm({
-        message: 'This will display the root password in your terminal. Continue?',
-        default: false,
-      });
+  .argument('<name-or-id>', 'VPS name or ID')
+  .option('-f, --force', 'Skip confirmation')
+  .option('-y, --yes', 'Alias for --force')
+  .action(async (nameOrId: string, opts: { force?: boolean; yes?: boolean }) => {
+    const api = await ApiClient.create();
+    const instance = await resolveResource<VpsInstance>(api, '/api/v1/vps', 'VPS', nameOrId);
 
-      if (!confirmed) {
-        console.log('Cancelled.');
-        return;
-      }
+    const proceed = await confirmDestruction(
+      `password reveal for ${instance.name}`,
+      'This will display the root password in your terminal. Continue?',
+      opts.force || opts.yes,
+    );
+    if (!proceed) {
+      console.log('Cancelled.');
+      return;
     }
 
-    const api = await ApiClient.create();
     const res = await api.get<{ password: string; username: string; public_ip: string | null }>(
-      `/api/v1/vps/${id}/password`,
+      `/api/v1/vps/${instance.id}/password`,
     );
 
     if (isJsonMode()) {

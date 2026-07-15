@@ -1,5 +1,4 @@
 import { Command } from 'commander';
-import chalk from 'chalk';
 import { loginCommand } from './commands/login.js';
 import { logoutCommand } from './commands/logout.js';
 import { whoamiCommand } from './commands/whoami.js';
@@ -23,9 +22,9 @@ import { updateCommand as serverlessUpdateCommand } from './commands/serverless/
 import { rmCommand as serverlessRmCommand } from './commands/serverless/rm.js';
 import { deploymentsCommand as serverlessDeploymentsCommand } from './commands/serverless/deployments.js';
 import { usageCommand as serverlessUsageCommand } from './commands/serverless/usage.js';
-import { NotAuthenticatedError, NotLinkedError, ApiError } from './lib/errors.js';
+import { handleError } from './lib/handle-error.js';
 import { getCurrentVersion, checkForUpdate, printUpdateNotification } from './lib/version.js';
-import { setJsonMode, isJsonMode, jsonError } from './lib/json-mode.js';
+import { setJsonMode, isJsonMode } from './lib/json-mode.js';
 
 const program = new Command()
   .name('danube')
@@ -75,44 +74,9 @@ program.addCommand(serverlessCommand);
 
 // Graceful SIGINT fallback — clean exit when Ctrl+C is pressed outside polling loops
 process.on('SIGINT', () => {
-  console.log('');
+  if (!isJsonMode()) console.log('');
   process.exit(130);
 });
-
-function handleError(err: unknown): never {
-  if (isJsonMode()) {
-    if (err instanceof NotAuthenticatedError) {
-      jsonError({ code: 'not_authenticated', message: err.message });
-    } else if (err instanceof NotLinkedError) {
-      jsonError({ code: 'not_linked', message: err.message });
-    } else if (err instanceof ApiError) {
-      jsonError({ code: 'api_error', message: err.message, ...(err.errors && { errors: err.errors }) });
-    } else if (err instanceof Error) {
-      jsonError({ code: 'error', message: err.message });
-    } else {
-      jsonError({ code: 'error', message: 'An unexpected error occurred.' });
-    }
-    process.exit(1);
-  }
-
-  if (err instanceof NotAuthenticatedError || err instanceof NotLinkedError) {
-    console.error(chalk.red(err.message));
-    process.exit(1);
-  }
-  if (err instanceof ApiError) {
-    console.error(chalk.red(`API Error (${err.statusCode}): ${err.message}`));
-    if (err.errors) {
-      for (const [field, messages] of Object.entries(err.errors)) {
-        for (const msg of messages) {
-          console.error(chalk.red(`  ${field}: ${msg}`));
-        }
-      }
-    }
-    process.exit(1);
-  }
-  console.error(chalk.red(err instanceof Error ? err.message : 'An unexpected error occurred.'));
-  process.exit(1);
-}
 
 // Global error handler
 program.hook('postAction', () => {});
@@ -120,7 +84,7 @@ process.on('unhandledRejection', (err) => handleError(err));
 
 program.parseAsync()
   .then(async () => {
-    if (!isJsonMode()) {
+    if (!isJsonMode() && process.stderr.isTTY) {
       const result = await checkForUpdate();
       if (result?.updateAvailable) {
         printUpdateNotification(result.current, result.latest);
