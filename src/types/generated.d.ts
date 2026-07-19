@@ -41,6 +41,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/cache/plans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List available cache plans with current pricing */
+        get: operations["v1.cache.plans"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/cache/{cacheInstance}": {
         parameters: {
             query?: never;
@@ -149,6 +166,23 @@ export interface paths {
         put?: never;
         /** Store a new database instance */
         post: operations["v1.database.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/database/plans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List available database plans with current pricing */
+        get: operations["v1.database.plans"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1723,6 +1757,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/vps/plans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List available VPS plans with current pricing
+         * @description Returns every offered VPS plan with specs and the current monthly price in EUR.
+         */
+        get: operations["v1.vps.plans"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/vps/{vpsInstance}": {
         parameters: {
             query?: never;
@@ -2081,9 +2135,9 @@ export interface components {
                 action: string;
                 direction: string;
                 protocol: string;
-                port_range_start: number | null;
-                port_range_end: number | null;
-                source_ips: unknown[] | null;
+                port_range_start: string;
+                port_range_end: string;
+                source_ips: string;
                 priority: string;
             }[];
             created_at: string;
@@ -2224,12 +2278,10 @@ export interface components {
             build_context_path: string;
             dockerfile_path: string;
             git_auth_type: string;
-            git_credentials_encrypted: string | null;
             detected_runtime: string | null;
             buildpack_builder: string | null;
             buildpack_env: string | null;
             auto_build_on_push: boolean;
-            webhook_secret: string | null;
             pending_commit_sha: string | null;
             pending_commit_branch: string | null;
             last_build_id: string | null;
@@ -2907,9 +2959,9 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: {
-                            id: number;
+                            id: string;
                             name: string;
-                            personal_team: boolean;
+                            personal_team: string;
                         }[];
                         current_team_id: number;
                     };
@@ -2967,6 +3019,31 @@ export interface operations {
             };
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.cache.plans": {
+        parameters: {
+            query?: {
+                provider?: "redis" | "valkey" | "dragonfly" | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        plans: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
             422: components["responses"]["ValidationException"];
         };
     };
@@ -3259,6 +3336,35 @@ export interface operations {
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
             422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.database.plans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        plans: {
+                            slug: string;
+                            display_name: string;
+                            cpu_cores: string;
+                            memory_mb: string;
+                            storage_gb: string;
+                            monthly_cost: number;
+                        }[];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
         };
     };
     "v1.database.show": {
@@ -3601,7 +3707,7 @@ export interface operations {
                     "application/json": {
                         is_replicating: boolean;
                         replica_count: number;
-                        replicas: string;
+                        replicas: unknown[];
                     };
                 };
             };
@@ -4473,7 +4579,7 @@ export interface operations {
                             size_bytes: number;
                             object_count: number;
                             requests: {
-                                total: string;
+                                total: number | null;
                                 get: number;
                                 put: number;
                                 delete: number;
@@ -4485,15 +4591,16 @@ export interface operations {
                                 "5xx": number;
                             };
                             egress_bytes: number;
-                            ingress_bytes: string;
-                            error_rate: string;
+                            ingress_bytes: number | null;
+                            error_rate: string | null;
                             latency_ms: {
-                                mean: string;
-                                p95: string;
+                                mean: string | null;
+                                p95_upper_bound: number | null;
                             };
-                            interval_seconds: string;
+                            interval_seconds: number | null;
                             requests_24h_total: number | null;
-                            egress_bytes_24h: number;
+                        }[] | {
+                            [key: string]: unknown;
                         }[];
                     };
                 };
@@ -5596,11 +5703,11 @@ export interface operations {
                     "application/json": {
                         /** @enum {string} */
                         message: "Serverless container update initiated";
-                        container: string;
+                        container: components["schemas"]["ServerlessContainer"];
                     } | {
                         /** @enum {string} */
                         message: "Serverless container deployment source changed";
-                        container: string;
+                        container: components["schemas"]["ServerlessContainer"];
                     };
                 };
             };
@@ -5842,7 +5949,9 @@ export interface operations {
     };
     "v1.snapshots.vps.index": {
         parameters: {
-            query?: never;
+            query?: {
+                per_page?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -6009,7 +6118,9 @@ export interface operations {
     };
     "v1.snapshots.cache.index": {
         parameters: {
-            query?: never;
+            query?: {
+                per_page?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -6214,7 +6325,9 @@ export interface operations {
     };
     "v1.snapshots.database.index": {
         parameters: {
-            query?: never;
+            query?: {
+                per_page?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -6910,7 +7023,9 @@ export interface operations {
     };
     "v1.vps.index": {
         parameters: {
-            query?: never;
+            query?: {
+                per_page?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -6989,6 +7104,36 @@ export interface operations {
                 };
                 content: {
                     "application/json": 200;
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "v1.vps.plans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        plans: {
+                            slug: string;
+                            display_name: string;
+                            type: string;
+                            cpu_cores: string;
+                            memory_gb: number;
+                            storage_gb: string;
+                            monthly_cost: number;
+                        }[];
+                    };
                 };
             };
             401: components["responses"]["AuthenticationException"];
