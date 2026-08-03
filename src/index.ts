@@ -22,22 +22,36 @@ import { updateCommand as serverlessUpdateCommand } from './commands/serverless/
 import { rmCommand as serverlessRmCommand } from './commands/serverless/rm.js';
 import { deploymentsCommand as serverlessDeploymentsCommand } from './commands/serverless/deployments.js';
 import { usageCommand as serverlessUsageCommand } from './commands/serverless/usage.js';
+import {
+  logsCommand as rapidsLogsCommand,
+  revisionsCommand as rapidsRevisionsCommand,
+  eventsCommand as rapidsEventsCommand,
+} from './commands/serverless/diagnostics.js';
 import { handleError } from './lib/handle-error.js';
 import { getCurrentVersion, checkForUpdate, printUpdateNotification } from './lib/version.js';
 import { setJsonMode, isJsonMode } from './lib/json-mode.js';
+import { setProjectOverride, resolveProjectFlag } from './lib/project-context.js';
 
 const program = new Command()
   .name('danube')
   .description('DanubeData CLI')
   .version(getCurrentVersion())
-  .option('--json', 'Output results as JSON (for scripting and LLM tool use)');
+  .option('--json', 'Output results as JSON (for scripting and LLM tool use)')
+  // Project context is a REQUEST concern, so it is declared once here and
+  // inherited by every subcommand — rather than re-implemented per command,
+  // which is how a flag came to be honoured by one and ignored by the next.
+  .option('--project <id>', 'Run against this project (team) id, for this invocation only')
+  .option('--team <id>', 'Alias for --project (compatibility)');
 
-// Set JSON mode before any command runs
+// Set JSON mode and project context before any command runs.
 program.hook('preAction', (thisCommand) => {
   const opts = thisCommand.optsWithGlobals();
   if (opts.json) {
     setJsonMode(true);
   }
+  // A global flag scopes THIS invocation and never mutates saved config;
+  // persisting it would leak the selection into the next process.
+  setProjectOverride(resolveProjectFlag(opts));
 });
 
 program.addCommand(loginCommand);
@@ -70,6 +84,9 @@ serverlessCommand.addCommand(serverlessUpdateCommand);
 serverlessCommand.addCommand(serverlessRmCommand);
 serverlessCommand.addCommand(serverlessDeploymentsCommand);
 serverlessCommand.addCommand(serverlessUsageCommand);
+serverlessCommand.addCommand(rapidsLogsCommand);
+serverlessCommand.addCommand(rapidsRevisionsCommand);
+serverlessCommand.addCommand(rapidsEventsCommand);
 program.addCommand(serverlessCommand);
 
 // Graceful SIGINT fallback — clean exit when Ctrl+C is pressed outside polling loops

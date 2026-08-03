@@ -5,6 +5,8 @@ import { ApiClient } from '../lib/api-client.js';
 import { readConfig, writeConfig } from '../lib/config.js';
 import { isJsonMode, jsonOutput } from '../lib/json-mode.js';
 import { canPrompt } from '../lib/interactive.js';
+import { parseProjectId, getProjectOverride } from '../lib/project-context.js';
+import { MissingFlagsError, UsageError } from '../lib/errors.js';
 import { teamsArray } from '../types/api.js';
 import type { TeamsResponse } from '../types/api.js';
 
@@ -36,13 +38,42 @@ const lsCommand = new Command('ls')
 
 const selectCommand = new Command('select')
   .description('Select a project to use for all commands')
-  .action(async () => {
+  .option('--project <id>', 'Select this project id without prompting')
+  .action(async (opts: { project?: string }) => {
     const api = await ApiClient.create();
     const res = await api.get<TeamsResponse>('/api/v1/user/teams');
     const teams = teamsArray(res);
 
     if (teams.length === 0) {
       console.log('No projects found.');
+      return;
+    }
+
+    // Explicit selection: no prompt, ever. `project select` is the one command
+    // automation must be able to run to establish context, so it cannot depend
+    // on a TTY. The id is checked against actual membership rather than written
+    // blind — persisting a project the account cannot reach would turn every
+    // later command into a confusing 403.
+    const requested = opts.project !== undefined ? parseProjectId(opts.project) : getProjectOverride();
+
+    if (requested !== null) {
+      const team = teams.find(t => t.id === requested);
+      if (!team) {
+        throw new UsageError(
+          `Project ${requested} is not one of your projects. Run \`danube project ls\` to see the available ids.`,
+        );
+      }
+
+      const existing = await readConfig();
+      if (existing) {
+        await writeConfig({ ...existing, teamId: team.id, teamName: team.name });
+      }
+
+      if (isJsonMode()) {
+        jsonOutput({ id: team.id, name: team.name });
+        return;
+      }
+      console.log(`Selected project: ${chalk.bold(team.name)}`);
       return;
     }
 
@@ -61,7 +92,9 @@ const selectCommand = new Command('select')
     }
 
     if (!canPrompt()) {
-      throw new Error('`danube project select` is interactive — run it in a terminal without --json.');
+      // Non-interactive callers now have a real path forward rather than a
+      // dead end: name the flag that would have worked.
+      throw new MissingFlagsError(['--project']);
     }
 
     const config = await readConfig();

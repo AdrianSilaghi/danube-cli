@@ -1,5 +1,5 @@
 import chalk from 'chalk';
-import { NotAuthenticatedError, NotLinkedError, ApiError, MissingFlagsError, ConfirmationRequiredError, ResourceNotFoundError } from './errors.js';
+import { NotAuthenticatedError, NotLinkedError, ApiError, MissingFlagsError, ConfirmationRequiredError, ResourceNotFoundError, UsageError } from './errors.js';
 import { isJsonMode, jsonError } from './json-mode.js';
 
 export function handleError(err: unknown): never {
@@ -23,6 +23,12 @@ export function handleError(err: unknown): never {
       jsonError({ code: 'missing_required_flag', message: err.message, flags: err.flags });
       process.exit(2);
     }
+    if (err instanceof UsageError) {
+      // Same exit code as a missing flag: both mean "the command was wrong",
+      // which is never worth retrying unchanged.
+      jsonError({ code: 'usage_error', message: err.message });
+      process.exit(2);
+    }
     if (err instanceof ConfirmationRequiredError) {
       jsonError({ code: 'confirmation_required', message: err.message });
       process.exit(5);
@@ -32,7 +38,18 @@ export function handleError(err: unknown): never {
       process.exit(4);
     }
     if (err instanceof ApiError) {
-      jsonError({ code: 'api_error', message: err.message, status: err.statusCode, ...(err.errors && { errors: err.errors }) });
+      jsonError({
+        // The top-level shape is a contract existing scripts parse — `cause`
+        // is additive, so nothing reading `code`/`status` breaks.
+        code: 'api_error',
+        message: err.message,
+        status: err.statusCode,
+        ...(err.errors && { errors: err.errors }),
+        // What the backend actually said: the failure code, the resource it
+        // concerns, and whether a retry can help. Without this, every API
+        // failure looks equally retryable from the outside.
+        ...(err.cause && { cause: err.cause }),
+      });
       process.exit(err.statusCode === 404 ? 4 : 1);
     }
     jsonError({ code: 'error', message: err instanceof Error ? err.message : 'An unexpected error occurred.' });
@@ -51,6 +68,10 @@ export function handleError(err: unknown): never {
     console.error(chalk.red(err.message));
     process.exit(2);
   }
+  if (err instanceof UsageError) {
+    console.error(chalk.red(err.message));
+    process.exit(2);
+  }
   if (err instanceof ConfirmationRequiredError) {
     console.error(chalk.red(err.message));
     process.exit(5);
@@ -61,6 +82,15 @@ export function handleError(err: unknown): never {
   }
   if (err instanceof ApiError) {
     console.error(chalk.red(`API Error (${err.statusCode}): ${err.message}`));
+    if (err.cause) {
+      console.error(chalk.dim(`  code: ${err.cause.code}`));
+      if (err.cause.resource?.name) {
+        console.error(chalk.dim(`  resource: ${err.cause.resource.kind ?? 'resource'}/${err.cause.resource.name}`));
+      }
+      if (err.cause.retryable !== undefined) {
+        console.error(chalk.dim(`  retryable: ${err.cause.retryable ? 'yes' : 'no'}`));
+      }
+    }
     if (err.errors) {
       for (const [field, messages] of Object.entries(err.errors)) {
         for (const msg of messages) {

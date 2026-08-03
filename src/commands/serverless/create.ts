@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import { select, input } from '@inquirer/prompts';
 import chalk from 'chalk';
 import { ApiClient } from '../../lib/api-client.js';
+import { resolveAlias } from '../../lib/flag-alias.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import { promptOr } from '../../lib/interactive.js';
 import { teamsArray } from '../../types/api.js';
@@ -15,7 +16,9 @@ export const createCommand = new Command('create')
   .option('--tag <tag>', 'Image tag')
   .option('--repo <url>', 'Git repository URL')
   .option('--source-type <type>', 'Source type for builds (dockerfile, buildpack)')
-  .option('--profile <profile>', 'Resource profile')
+  // Canonical name matches the API field; --profile stays for humans.
+  .option('--resource-profile <profile>', 'Resource profile (canonical)')
+  .option('--profile <profile>', 'Alias for --resource-profile')
   .option('--port <port>', 'Container port', '8080')
   .option('--min-scale <n>', 'Minimum scale')
   .option('--max-scale <n>', 'Maximum scale')
@@ -76,7 +79,11 @@ export const createCommand = new Command('create')
 
     if (opts.minScale !== undefined) body.min_scale = parseIntOption(opts.minScale, 'min-scale');
     if (opts.maxScale !== undefined) body.max_scale = parseIntOption(opts.maxScale, 'max-scale');
-    if (opts.profile) body.resource_profile = opts.profile;
+    const resourceProfile = resolveAlias('resource-profile', [
+      ['--resource-profile', opts.resourceProfile],
+      ['--profile', opts.profile],
+    ]);
+    if (resourceProfile) body.resource_profile = resourceProfile;
 
     // Type-specific fields
     if (deploymentType === 'docker_image') {
@@ -113,7 +120,7 @@ export const createCommand = new Command('create')
 
     // Get resource profile if not set
     if (!body.resource_profile) {
-      body.resource_profile = await promptOr('--profile', opts.profile, () => select({
+      body.resource_profile = await promptOr('--resource-profile', resourceProfile, () => select({
         message: 'Resource profile:',
         choices: [
           { name: 'Free (0.01-0.1 vCPU, 64-128MB) - 2M req/mo included', value: 'free' },
