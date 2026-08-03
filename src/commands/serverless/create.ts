@@ -3,6 +3,7 @@ import { select, input } from '@inquirer/prompts';
 import chalk from 'chalk';
 import { ApiClient } from '../../lib/api-client.js';
 import { resolveAlias } from '../../lib/flag-alias.js';
+import { getProjectOverride } from '../../lib/project-context.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import { promptOr } from '../../lib/interactive.js';
 import { teamsArray } from '../../types/api.js';
@@ -40,8 +41,15 @@ export const createCommand = new Command('create')
     const teams = teamsArray(teamsRes);
 
     let teamId: number;
+    // `--project` is the canonical selector and already scopes the request via
+    // X-Team-Id; honour it here too, or this command would still demand the
+    // legacy `--team` in non-interactive mode despite having been told exactly
+    // which project to use.
+    const selectedProject = getProjectOverride();
     if (opts.team) {
       teamId = parseIntOption(opts.team, 'team');
+    } else if (selectedProject !== null) {
+      teamId = selectedProject;
     } else if (teams.length === 1) {
       teamId = teams[0]!.id;
       if (!isJsonMode()) console.log(`Team: ${chalk.bold(teams[0]!.name)}`);
