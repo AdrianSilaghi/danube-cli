@@ -568,9 +568,44 @@ export interface ServerlessContainer {
   environment_variables: Record<string, string> | null;
   current_replicas: number;
   status: string;
+  /**
+   * The truthful state. Prefer this over `status`: it is the same object the
+   * dashboard and the websocket broadcast use, so they cannot disagree.
+   *
+   * Optional because deployments predating danubedata 1059f32b typed it as a
+   * bare string in the spec.
+   */
+  status_details?: ServerlessStatusDetails;
   url: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** @see https://docs.danubedata.ro/rapids-automation */
+export interface ServerlessStatusDetails {
+  summary: 'pending' | 'in_progress' | 'ready' | 'degraded' | 'failed' | 'stopped' | 'deleting' | 'unknown';
+  /** What is CURRENTLY SERVING. `unknown` during a rollout is not a failure. */
+  health: 'healthy' | 'degraded' | 'unhealthy' | 'unknown';
+  /** When the platform last checked the cluster — not when the row was written. */
+  observed_at: string | null;
+  /** A live source could not be reached; `summary` is the last known one. */
+  stale: boolean;
+  operation: {
+    state: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+    /** THE stop condition for polling. Never infer this from `summary`. */
+    terminal: boolean;
+  };
+  error: {
+    /** Stable automation key, e.g. `serverless.image_pull_auth`. */
+    code: string;
+    source: string | null;
+    resource: { kind: string | null; name: string | null } | null;
+    reason: string | null;
+    message: string | null;
+    /** Retrying a `false` here only consumes quota. */
+    retryable: boolean;
+    observed_at: string | null;
+  } | null;
 }
 
 export interface ServerlessDeployment {

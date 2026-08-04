@@ -166,9 +166,20 @@ type _bucketShow = Satisfies<{ bucket: StorageBucket }, BucketShow>;
  * exposure in the backend, unrelated to CLI type drift — flagged prominently
  * in the task-12 report, not something to encode in CLI types.
  */
+/**
+ * `status_details` is excluded on a TIMER, not permanently.
+ *
+ * It is an object at runtime and the automation guide tells agents to read it
+ * instead of `status`, but the deployed spec still types it `string` — the
+ * array-shape inference gap again, on the single most load-bearing field in the
+ * API. danubedata 1059f32b fixes it and is pushed but not deployed.
+ *
+ * The tripwire is below: once that deploys and types regenerate, the assertion
+ * fails and this exclusion comes out.
+ */
 type ServerlessContainerChecked = Omit<
   ServerlessContainer,
-  'deployment_type' | 'scaling_metric' | 'environment_variables' | 'status' | 'created_at' | 'updated_at'
+  'deployment_type' | 'scaling_metric' | 'environment_variables' | 'status' | 'status_details' | 'created_at' | 'updated_at'
 >;
 type _serverlessShow = Satisfies<{ container: ServerlessContainerChecked }, ServerlessShow>;
 
@@ -264,3 +275,13 @@ type _guardEventsTruncated = AssertTrue<Exact<RapidsEvents['meta']['truncated'],
 type _guardRevisionGeneration = AssertTrue<Exact<RapidsRevision['generation'], number | null>>;
 type _guardRevisionDesiredReplicas = AssertTrue<Exact<RapidsRevision['desired_replicas'], number | null>>;
 type _guardRevisionActualReplicas = AssertTrue<Exact<RapidsRevision['actual_replicas'], number | null>>;
+
+/**
+ * Third-generation tripwire, same defect one field over: `status_details` on
+ * the container is an object at runtime and `string` in the deployed spec.
+ * danubedata 1059f32b fixes it. When this stops compiling, regenerate types and
+ * drop `status_details` from the ServerlessContainerChecked exclusion above.
+ */
+type _tripwireStatusDetails = AssertTrue<
+  Exact<ServerlessShow['container']['status_details'], string>
+>;
