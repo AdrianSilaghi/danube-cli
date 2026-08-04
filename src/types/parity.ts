@@ -226,39 +226,41 @@ type _rapidsEvents = Satisfies<{
 }, RapidsEvents>;
 
 /**
- * Exact type equality. `Satisfies` cannot express these tripwires: it only
- * checks assignability, and every type is assignable to `unknown`, so a
- * `Satisfies`-based tripwire on `meta.level` would never fire.
+ * Exact type equality — a stricter check than `Satisfies`, which only tests
+ * assignability.
  */
 type Exact<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
 type AssertTrue<T extends true> = T;
 
 /**
- * Second-generation tripwires — the SAME Scramble defect, in the fields the
- * first fix did not reach. Backend 0bd150bc fixes all seven; it is committed
- * but NOT yet deployed, so `npm run gen:types` today still produces the wrong
- * types asserted below.
+ * Regression guards on seven fields that Scramble twice published as the wrong
+ * type. These were tripwires asserting the BROKEN shapes; backend 0bd150bc
+ * deployed and all seven fired, so they now assert the CORRECT shapes.
  *
- * Each assertion holds against the currently-deployed spec and breaks the
- * moment 0bd150bc goes live. That is the signal to regenerate and replace
- * these with real checks — exactly how the first generation was retired.
+ * Kept as exact-equality checks rather than folded into the `Satisfies` blocks
+ * above, because assignability cannot detect the specific relapse we care
+ * about: `string` IS assignable to `string | null`, so a `Satisfies` check on
+ * `next_cursor` would sit there green while the spec regressed to the exact
+ * bug this file exists to catch. `Exact` fails on it.
  *
- * Why these are wrong: Scramble cannot infer a type through an array-shape
- * offset (`$result['truncated']`) and falls back to `string` rather than
- * admitting it does not know.
+ * The defect: Scramble cannot infer a type through an array-shape offset
+ * (`$result['truncated']`) and falls back to `string` rather than admitting it
+ * does not know. It reappears whenever a controller passes an array value
+ * straight through instead of casting at the construction site — which is easy
+ * to do and invisible in review, hence these guards.
  *
  * `actual_replicas` is the consequential one. Its own spec description says
  * zero alongside a failed Ready condition means no pod was ever scheduled —
- * so a generated client compares `"0" === 0` and the check never fires. The
- * CLI is unaffected only because it reads `Record<string, unknown>` and
- * coerces; a stricter consumer would not be.
+ * the incident these endpoints exist for. Typed `string`, a generated client
+ * compares `"0" === 0` and the check never fires. The CLI escaped that only
+ * because it reads `Record<string, unknown>` and coerces.
  */
 type RapidsRevision = RapidsRevisions['data']['revisions'][number];
 
-type _tripwireLogsTruncated = AssertTrue<Exact<RapidsLogs['meta']['truncated'], string>>;
-type _tripwireLogsNextCursor = AssertTrue<Exact<RapidsLogs['meta']['next_cursor'], string>>;
-type _tripwireLogsLevel = AssertTrue<Exact<RapidsLogs['meta']['level'], unknown>>;
-type _tripwireEventsTruncated = AssertTrue<Exact<RapidsEvents['meta']['truncated'], string>>;
-type _tripwireRevisionGeneration = AssertTrue<Exact<RapidsRevision['generation'], string | null>>;
-type _tripwireRevisionDesiredReplicas = AssertTrue<Exact<RapidsRevision['desired_replicas'], string | null>>;
-type _tripwireRevisionActualReplicas = AssertTrue<Exact<RapidsRevision['actual_replicas'], string | null>>;
+type _guardLogsTruncated = AssertTrue<Exact<RapidsLogs['meta']['truncated'], boolean>>;
+type _guardLogsNextCursor = AssertTrue<Exact<RapidsLogs['meta']['next_cursor'], string | null>>;
+type _guardLogsLevel = AssertTrue<Exact<RapidsLogs['meta']['level'], string | null>>;
+type _guardEventsTruncated = AssertTrue<Exact<RapidsEvents['meta']['truncated'], boolean>>;
+type _guardRevisionGeneration = AssertTrue<Exact<RapidsRevision['generation'], number | null>>;
+type _guardRevisionDesiredReplicas = AssertTrue<Exact<RapidsRevision['desired_replicas'], number | null>>;
+type _guardRevisionActualReplicas = AssertTrue<Exact<RapidsRevision['actual_replicas'], number | null>>;

@@ -2701,15 +2701,15 @@ export interface components {
             /** @description ISO-8601 creation time. */
             created_at: string | null;
             /** @description Configuration generation this revision came from. */
-            generation: string | null;
+            generation: number | null;
             /** @description True when this is the newest revision Knative created. */
             is_latest_created: boolean;
             /** @description True when this is the newest revision that became ready — i.e. what is serving. */
             is_latest_ready: boolean;
             /** @description Replicas Knative wants. */
-            desired_replicas: string | null;
+            desired_replicas: number | null;
             /** @description Replicas actually running. Zero with a failed Ready condition means no pod was ever scheduled. */
-            actual_replicas: string | null;
+            actual_replicas: number | null;
             conditions: components["schemas"]["ServerlessRevisionConditionResource"][];
         };
         /** ServerlessRouteStatusResource */
@@ -6987,15 +6987,25 @@ export interface operations {
                         error: null;
                         meta: {
                             limit: number;
-                            next_cursor: string;
+                            /**
+                             * @description The casts below are load-bearing for the OpenAPI spec, not for
+                             *     runtime: Scramble cannot infer a type through an array-shape
+                             *     offset and falls back to `string`, so a passed-through
+                             *     `$result['truncated']` gets published as a string.
+                             */
+                            next_cursor: string | null;
                             /**
                              * @description `truncated` tells a client the page was capped rather than
                              *     exhausted, so "I received fewer rows than I asked for" is never
                              *     mistaken for "that is all there is".
                              */
-                            truncated: string;
+                            truncated: boolean;
                             container: string;
-                            level: unknown;
+                            /**
+                             * @description The redundant-looking cast is what gives Scramble a concrete type;
+                             *     `$request->input()` is `mixed` and it will not narrow on is_string().
+                             */
+                            level: string | null;
                             retention_days: number;
                             max_limit: number;
                         };
@@ -7026,15 +7036,25 @@ export interface operations {
                         };
                         meta: {
                             limit: number;
-                            next_cursor: string;
+                            /**
+                             * @description The casts below are load-bearing for the OpenAPI spec, not for
+                             *     runtime: Scramble cannot infer a type through an array-shape
+                             *     offset and falls back to `string`, so a passed-through
+                             *     `$result['truncated']` gets published as a string.
+                             */
+                            next_cursor: string | null;
                             /**
                              * @description `truncated` tells a client the page was capped rather than
                              *     exhausted, so "I received fewer rows than I asked for" is never
                              *     mistaken for "that is all there is".
                              */
-                            truncated: string;
+                            truncated: boolean;
                             container: string;
-                            level: unknown;
+                            /**
+                             * @description The redundant-looking cast is what gives Scramble a concrete type;
+                             *     `$request->input()` is `mixed` and it will not narrow on is_string().
+                             */
+                            level: string | null;
                             retention_days: number;
                             max_limit: number;
                         };
@@ -7132,9 +7152,12 @@ export interface operations {
                             event_count: number;
                             /**
                              * @description The namespace query was capped before filtering to this
-                             *     container, so some of its events may be missing.
+                             *     container, so some of its events may be missing. Cast rather than passed through: Scramble cannot infer a type
+                             *     from an array-shape offset and silently documents it as
+                             *     `string`, which is how a client ends up testing a boolean
+                             *     with a string comparison.
                              */
-                            truncated: string;
+                            truncated: boolean;
                             /**
                              * @description Events are garbage-collected by Kubernetes (typically after
                              *     an hour). An absent event is not evidence that nothing
