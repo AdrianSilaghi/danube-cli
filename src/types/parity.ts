@@ -24,12 +24,14 @@
  * each; full root-cause detail is in the task-12 report.
  */
 import type { paths } from './generated.js';
-import type { VpsInstance, CacheInstance, DatabaseInstance, ServerlessContainer } from './api.js';
-// `StorageBucket` and `Pagination` are intentionally not imported: both would
-// only be used by the two dropped tripwire checks below (`_vpsList`,
-// `_bucketShow`), which have no structure to check against. See their
-// comments for the real `Satisfies<...>` checks to restore once the backend
-// bug is fixed.
+import type {
+  VpsInstance,
+  CacheInstance,
+  DatabaseInstance,
+  ServerlessContainer,
+  StorageBucket,
+  Pagination,
+} from './api.js';
 
 type Json<T> = T extends { content: { 'application/json': infer B } } ? B : never;
 
@@ -48,29 +50,18 @@ type ServerlessShow = Json<paths['/serverless/{serverlessContainer}']['get']['re
 type Satisfies<A, B extends A> = B;
 
 /**
- * DROPPED (not narrowed — there is no structure to narrow to).
+ * Real parity check (was a tripwire).
  *
- * The raw spec JSON documents this endpoint's 200 response as
- * `{"type": "integer", "enum": [200]}` for `application/json` — i.e. `Json<...>`
- * resolves to the literal type `200`, not an object. Confirmed against
- * `https://danubedata.ro/docs/api.json` directly (not an openapi-typescript
- * artifact) and against the Laravel source: `VpsManagementController::index()`
- * documents its response with a PHPDoc `@response 200 { "data": [...],
- * "pagination": {...} }` block; Scramble mis-parses that annotation style and
- * emits the leading status-code literal instead of parsing the JSON example
- * into a schema (the same controller's `store()` uses `@response 201 {...}`
- * and comes out as literal `201` — same bug). The controller's actual runtime
- * response (`VpsInstanceResource::collection(...)` + a `data`/`pagination`
- * envelope) is fine; only the *documentation* is broken. Backend fix is
- * out of scope for this CLI task — see the task-12 report.
+ * The spec used to document this 200 response as `{"type": "integer", "enum":
+ * [200]}` — Scramble mis-parsing the controller's `@response 200 {...}`
+ * PHPDoc into the status-code literal instead of a schema. The tripwire
+ * `Satisfies<200, VpsList>` held only while that bug was present, precisely so
+ * it would stop compiling the moment the backend was fixed.
  *
- * This is a tripwire, not a parity check: it holds only while the spec is
- * still broken in this exact way. If Scramble/backend is fixed and `VpsList`
- * becomes a real object, `200 extends VpsList`'s constraint fails and this
- * line stops compiling — that's the signal to replace it with a real
- * `Satisfies<{ data: VpsInstance[]; pagination: Pagination }, VpsList>` check.
+ * It has now fired: the spec carries a real object, so this asserts the shape
+ * the CLI actually reads.
  */
-type _vpsListSpecArtifactTripwire = Satisfies<200, VpsList>;
+type _vpsList = Satisfies<{ data: VpsInstanceChecked[]; pagination: Pagination }, VpsList>;
 
 /**
  * Two fields excluded — both confirmed genuine Scramble inference gaps
@@ -123,21 +114,17 @@ type DatabaseInstanceChecked = Omit<DatabaseInstance, 'provider' | 'engine'> & {
 type _databaseShow = Satisfies<{ instance: DatabaseInstanceChecked }, DatabaseShow>;
 
 /**
- * DROPPED (not narrowed — there is no structure to narrow to).
+ * Real parity check (was a tripwire), same story as the VPS list above:
+ * `StorageManagementController::show()` carried the identical mis-parsed
+ * `@response 200 {...}` PHPDoc, and the spec now documents the real shape.
  *
- * Same root cause as the VPS list tripwire above: the raw spec JSON
- * documents this endpoint's 200 response as `{"type": "integer", "enum":
- * [200]}`. `StorageManagementController::show()` has the identical PHPDoc
- * `@response 200 {...}` annotation Scramble mis-parses. The controller's
- * actual runtime response (`new StorageBucketResource($bucket)`) is fine;
- * only the documentation is broken.
- *
- * Tripwire, not a parity check (see the VPS list comment above for how this
- * fails loudly once fixed) — replace with
- * `Satisfies<{ bucket: StorageBucket }, BucketShow>` once the backend fix
- * lands.
+ * Replacing it surfaced three genuine drifts in the hand-written types —
+ * `size_bytes`, `object_count` and `monthly_cost_cents` are nullable, and
+ * `monthly_cost_dollars` is a number (StorageBucket::getMonthlyCostInDollars()
+ * returns float), not a string. All four are corrected in api.ts; the call
+ * sites already guarded with `?? 0`, so only the declarations were wrong.
  */
-type _bucketShowSpecArtifactTripwire = Satisfies<200, BucketShow>;
+type _bucketShow = Satisfies<{ bucket: StorageBucket }, BucketShow>;
 
 /**
  * Six fields excluded. Root cause is structural, not per-field: unlike the
