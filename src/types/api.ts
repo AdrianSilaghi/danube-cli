@@ -576,6 +576,10 @@ export interface ServerlessContainer {
    * bare string in the spec.
    */
   status_details?: ServerlessStatusDetails;
+  /** Revision currently receiving traffic. Changes when a new one goes live. */
+  current_revision?: string | null;
+  /** Monotonic count of deployments. Changes as soon as a new one is recorded. */
+  deployment_count?: number;
   url: string | null;
   created_at: string;
   updated_at: string;

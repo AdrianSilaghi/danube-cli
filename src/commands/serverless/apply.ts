@@ -2,7 +2,8 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { ApiClient } from '../../lib/api-client.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
-import { waitForTerminal, DEFAULT_WAIT_TIMEOUT_MS } from '../../lib/wait-for-terminal.js';
+import { waitForTerminal, captureBaseline, DEFAULT_WAIT_TIMEOUT_MS } from '../../lib/wait-for-terminal.js';
+import type { WaitBaseline, WaitResult } from '../../lib/wait-for-terminal.js';
 import type { ServerlessContainer, ServerlessStatusDetails } from '../../types/api.js';
 
 interface ListResponse { data: ServerlessContainer[] }
@@ -60,15 +61,31 @@ export const applyCommand = new Command('apply')
     const existing = await findByName(api, opts.name);
 
     let container: ServerlessContainer;
-    let action: 'created' | 'updated';
+    let action: 'created' | 'updated' | 'unchanged';
+    let baseline: WaitBaseline | null = null;
 
     if (existing) {
-      // Only the fields actually supplied are sent, so apply converges the
-      // stated configuration without silently resetting anything the caller
-      // did not mention.
-      const res = await api.put<MutateResponse>(`/api/v1/serverless/${existing.id}`, desired);
-      container = res.container;
-      action = 'updated';
+      // Writing a configuration that already matches produces a new revision
+      // for no reason — churn an agent has no way to know it caused. Compare
+      // first and report `unchanged` instead.
+      const drift = Object.entries(desired).filter(
+        ([k, v]) => String((existing as unknown as Record<string, unknown>)[k] ?? '') !== String(v ?? ''),
+      );
+
+      if (drift.length === 0) {
+        container = existing;
+        action = 'unchanged';
+      } else {
+        // Snapshot BEFORE the write. Without it the first poll cannot tell the
+        // previous operation's verdict from this one's.
+        baseline = await captureBaseline(api, existing.id);
+        // Only the fields actually supplied are sent, so apply converges the
+        // stated configuration without silently resetting anything the caller
+        // did not mention.
+        const res = await api.put<MutateResponse>(`/api/v1/serverless/${existing.id}`, desired);
+        container = res.container;
+        action = 'updated';
+      }
     } else {
       const body = {
         name: opts.name,
@@ -85,9 +102,19 @@ export const applyCommand = new Command('apply')
       action = 'created';
     }
 
-    if (!opts.wait) {
+    // A no-op has nothing to converge to, so waiting would just re-confirm the
+    // state we already read.
+    if (!opts.wait || action === 'unchanged') {
       if (isJsonMode()) {
-        jsonOutput({ action, container });
+        jsonOutput(result(action, container, {
+          settled: action === 'unchanged',
+          status: container.status_details ?? null,
+          url: container.url,
+          targetRevision: container.current_revision ?? null,
+          observedAt: container.status_details?.observed_at ?? null,
+          sawFreshObservation: true,
+          waitedMs: 0,
+        }));
         return;
       }
       console.log(chalk.green(`${action}: ${container.name}`));
@@ -101,12 +128,13 @@ export const applyCommand = new Command('apply')
 
     const wait = await waitForTerminal(api, container.id, {
       timeoutMs: parseDuration(opts.waitTimeout) ?? DEFAULT_WAIT_TIMEOUT_MS,
+      baseline,
     });
 
     if (isJsonMode()) {
-      jsonOutput({ action, container: { ...container, status_details: wait.status }, url: wait.url, settled: wait.settled });
+      jsonOutput(result(action, container, wait));
     } else {
-      report(wait.status, wait.url, wait.settled, container.name);
+      report(wait, container.name);
     }
 
     // Same rule as `create --wait`: only a settled failure is a failure. A
@@ -144,20 +172,54 @@ function parseDuration(value: string | undefined): number | null {
   return parseInt(m[1]!, 10) * ({ s: 1_000, m: 60_000, h: 3_600_000 }[m[2]!] ?? 1_000);
 }
 
-function report(status: ServerlessStatusDetails | null, url: string | null, settled: boolean, name: string): void {
-  if (!settled) {
-    console.error(chalk.yellow(`Still deploying (${status?.summary ?? 'unknown'}). Not a failure — the rollout continues.`));
+/**
+ * Compact result. The full container resource is ~60 fields of git/build
+ * defaults that have nothing to do with the outcome; an agent pays for every
+ * one of them and has to find the four that matter.
+ */
+function result(action: string, container: ServerlessContainer, wait: WaitResult) {
+  return {
+    action,
+    container_id: container.id,
+    name: container.name,
+    settled: wait.settled,
+    terminal: wait.status?.operation.terminal ?? null,
+    summary: wait.status?.summary ?? null,
+    health: wait.status?.health ?? null,
+    target_revision: wait.targetRevision,
+    // Server clock, so a caller can tell a fresh verdict from a cached one.
+    observed_at: wait.observedAt,
+    // False means we never saw the platform re-observe after the write, so the
+    // verdict above describes the PREVIOUS state.
+    fresh_observation: wait.sawFreshObservation,
+    url: wait.url,
+    error: wait.status?.error ?? null,
+    waited_ms: wait.waitedMs,
+  };
+}
+
+function report(wait: WaitResult, name: string): void {
+  const status = wait.status;
+  if (!wait.settled) {
+    if (!wait.sawFreshObservation) {
+      console.error(chalk.yellow(
+        'Timed out before the platform re-observed this container, so no verdict here would describe your change.',
+      ));
+    } else {
+      console.error(chalk.yellow(`Still deploying (${status?.summary ?? 'unknown'}). Not a failure — the rollout continues.`));
+    }
     console.error(chalk.dim(`Watch: danube rapids diagnose ${name} --json`));
     return;
   }
+  if (wait.targetRevision) console.log(chalk.dim(`Revision: ${wait.targetRevision}`));
   if (status?.summary === 'ready') {
     console.log(chalk.green('Ready'));
-    if (url) console.log(`URL: ${url}`);
+    if (wait.url) console.log(`URL: ${wait.url}`);
     return;
   }
   if (status?.summary === 'degraded') {
     console.log(chalk.yellow('Degraded — the new revision failed, an older one is still serving.'));
-    if (url) console.log(`URL: ${url}`);
+    if (wait.url) console.log(`URL: ${wait.url}`);
   } else {
     console.log(chalk.red(String(status?.summary ?? 'unknown')));
   }

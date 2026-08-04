@@ -111,6 +111,99 @@ describe('waitForTerminal', () => {
     expect(get).toHaveBeenCalledTimes(1);
   });
 
+  it('does NOT settle on a terminal verdict that predates the write', async () => {
+    // The reported bug: apply --wait returned settled:true in ~0.6s while
+    // naming the PREVIOUS revision. The first poll lands before the platform
+    // has re-reconciled, so `terminal` is still the last operation's verdict.
+    const stale = {
+      container: {
+        status_details: status({ summary: 'ready', operation: { state: 'succeeded', terminal: true } }),
+        current_revision: 'todo-00002',
+        deployment_count: 2,
+      },
+      url: null,
+    };
+    const fresh = {
+      container: {
+        status_details: status({
+          summary: 'ready',
+          observed_at: '2026-08-04T10:05:00+00:00',
+          operation: { state: 'succeeded', terminal: true },
+        }),
+        current_revision: 'todo-00003',
+        deployment_count: 3,
+      },
+      url: 'https://x.danubedata.run',
+    };
+    const { api } = apiReturning(stale, stale, fresh);
+
+    const promise = waitForTerminal(api, 'abc', {
+      baseline: { observedAt: '2026-08-04T10:00:00+00:00', currentRevision: 'todo-00002', deploymentCount: 2 },
+    });
+    await vi.advanceTimersByTimeAsync(15_000);
+    const result = await promise;
+
+    expect(result.settled).toBe(true);
+    expect(result.sawFreshObservation).toBe(true);
+    // The new revision, not the one that was already serving.
+    expect(result.targetRevision).toBe('todo-00003');
+    expect(result.waitedMs).toBeGreaterThan(0);
+  });
+
+  it('reports fresh_observation false when it never sees the platform re-observe', async () => {
+    const stale = {
+      container: {
+        status_details: status({ summary: 'ready', operation: { state: 'succeeded', terminal: true } }),
+        current_revision: 'todo-00002',
+        deployment_count: 2,
+      },
+      url: null,
+    };
+    const { api } = apiReturning(stale);
+
+    const promise = waitForTerminal(api, 'abc', {
+      timeoutMs: 10_000,
+      baseline: { observedAt: '2026-08-04T10:00:00+00:00', currentRevision: 'todo-00002', deploymentCount: 2 },
+    });
+    await vi.advanceTimersByTimeAsync(30_000);
+    const result = await promise;
+
+    // Honest: terminal was true the whole time, but never about OUR change.
+    expect(result.settled).toBe(false);
+    expect(result.sawFreshObservation).toBe(false);
+  });
+
+  it('accepts a deployment_count change as evidence of a new observation', async () => {
+    const { api } = apiReturning({
+      container: {
+        status_details: status({ summary: 'ready', operation: { state: 'succeeded', terminal: true } }),
+        current_revision: 'todo-00002',
+        deployment_count: 3,
+      },
+      url: null,
+    });
+
+    const result = await waitForTerminal(api, 'abc', {
+      baseline: { observedAt: '2026-08-04T10:00:00+00:00', currentRevision: 'todo-00002', deploymentCount: 2 },
+    });
+
+    expect(result.settled).toBe(true);
+  });
+
+  it('settles on the first poll when there is no baseline (a create)', async () => {
+    // A newly created container has no previous verdict to be confused with,
+    // so the guard must not slow the common case down.
+    const { api, get } = apiReturning({
+      container: { status_details: status({ summary: 'ready', operation: { state: 'succeeded', terminal: true } }) },
+      url: null,
+    });
+
+    const result = await waitForTerminal(api, 'abc');
+
+    expect(result.settled).toBe(true);
+    expect(get).toHaveBeenCalledTimes(1);
+  });
+
   it('reports each poll through onTick', async () => {
     const { api } = apiReturning(
       { container: { status_details: status() }, url: null },
