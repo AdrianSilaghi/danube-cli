@@ -28,6 +28,7 @@ import {
   eventsCommand as rapidsEventsCommand,
 } from './commands/serverless/diagnostics.js';
 import { diagnoseCommand } from './commands/serverless/diagnose.js';
+import { applyCommand as serverlessApplyCommand } from './commands/serverless/apply.js';
 import { registryCommand } from './commands/registry/index.js';
 import { handleError } from './lib/handle-error.js';
 import { getCurrentVersion, checkForUpdate, printUpdateNotification } from './lib/version.js';
@@ -90,6 +91,7 @@ serverlessCommand.addCommand(rapidsLogsCommand);
 serverlessCommand.addCommand(rapidsRevisionsCommand);
 serverlessCommand.addCommand(rapidsEventsCommand);
 serverlessCommand.addCommand(diagnoseCommand);
+serverlessCommand.addCommand(serverlessApplyCommand);
 program.addCommand(serverlessCommand);
 program.addCommand(registryCommand);
 

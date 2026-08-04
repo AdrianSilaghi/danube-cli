@@ -31,12 +31,19 @@ export class ApiClient {
     return new ApiClient(token, config?.apiBase, teamId);
   }
 
-  private async request<T>(method: string, path: string, body?: unknown, timeoutMs: number = 30_000): Promise<T> {
+  private async request<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+    timeoutMs: number = 30_000,
+    extraHeaders?: Record<string, string>,
+  ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const headers: Record<string, string> = {
       'Accept': 'application/json',
       'Authorization': `Bearer ${this.token}`,
       'User-Agent': `DanubeCLI/${getCurrentVersion()}`,
+      ...extraHeaders,
     };
 
     if (this.teamId) {
@@ -107,8 +114,14 @@ export class ApiClient {
     return this.request<T>('GET', path);
   }
 
-  post<T>(path: string, body?: unknown): Promise<T> {
-    return this.request<T>('POST', path, body);
+  /**
+   * `extraHeaders` exists for Idempotency-Key. It is deliberately per-call
+   * rather than per-client: an idempotency key identifies ONE request, so
+   * setting it on the client would silently apply it to every later call and
+   * turn the second one into a replay of the first.
+   */
+  post<T>(path: string, body?: unknown, extraHeaders?: Record<string, string>): Promise<T> {
+    return this.request<T>('POST', path, body, 30_000, extraHeaders);
   }
 
   put<T>(path: string, body?: unknown): Promise<T> {
