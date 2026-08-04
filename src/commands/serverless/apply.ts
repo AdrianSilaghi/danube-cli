@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { ApiClient } from '../../lib/api-client.js';
-import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
+import { isJsonMode, jsonEnvelope } from '../../lib/json-mode.js';
 import { waitForTerminal, captureBaseline, DEFAULT_WAIT_TIMEOUT_MS } from '../../lib/wait-for-terminal.js';
 import type { WaitBaseline, WaitResult } from '../../lib/wait-for-terminal.js';
 import type { ServerlessContainer, ServerlessStatusDetails } from '../../types/api.js';
@@ -106,7 +106,7 @@ export const applyCommand = new Command('apply')
     // state we already read.
     if (!opts.wait || action === 'unchanged') {
       if (isJsonMode()) {
-        jsonOutput(result(action, container, {
+        jsonEnvelope(result(action, container, {
           settled: action === 'unchanged',
           status: container.status_details ?? null,
           url: container.url,
@@ -114,7 +114,7 @@ export const applyCommand = new Command('apply')
           observedAt: container.status_details?.observed_at ?? null,
           sawFreshObservation: true,
           waitedMs: 0,
-        }));
+        }), { meta: { waited: false } });
         return;
       }
       console.log(chalk.green(`${action}: ${container.name}`));
@@ -132,7 +132,11 @@ export const applyCommand = new Command('apply')
     });
 
     if (isJsonMode()) {
-      jsonOutput(result(action, container, wait));
+      const err = wait.status?.error ?? null;
+      jsonEnvelope(result(action, container, wait), {
+        error: wait.settled && err ? { code: err.code, message: err.message ?? undefined, retryable: err.retryable } : null,
+        meta: { waited: true, fresh_observation: wait.sawFreshObservation },
+      });
     } else {
       report(wait, container.name);
     }

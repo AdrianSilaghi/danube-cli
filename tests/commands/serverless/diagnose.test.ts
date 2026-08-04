@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { diagnose } from '../../../src/commands/serverless/diagnose.js';
+import { diagnose, classifyEvent, eventFindings, replicaFindings } from '../../../src/commands/serverless/diagnose.js';
 import type { ServerlessStatusDetails } from '../../../src/types/api.js';
 
 const status = (over: Partial<ServerlessStatusDetails> = {}): ServerlessStatusDetails => ({
@@ -143,11 +143,113 @@ describe('diagnose correlation rules', () => {
     expect(codes(findings)).toContain('diagnose.stale_observation');
   });
 
-  it('reports healthy when nothing is wrong', () => {
-    expect(codes(diagnose(status(), null, null, true))).toEqual(['diagnose.healthy']);
+  it('returns nothing when the status alone shows no problem', () => {
+    // Deliberately NOT `diagnose.healthy`. Status cannot certify health on its
+    // own — the reported defect was "No problems found" printed over unread
+    // warning events. The healthy verdict is only reached once event and
+    // replica findings have also come back empty.
+    expect(codes(diagnose(status(), null, null, true))).toEqual([]);
   });
 
   it('handles a platform that does not report status_details', () => {
     expect(codes(diagnose(null, null, null, true))).toEqual(['diagnose.status_unavailable']);
+  });
+});
+
+
+describe('event classification', () => {
+  const ev = (over: Partial<{ type: string; reason: string; message: string }> = {}) => ({
+    type: 'Warning', reason: 'SomeReason', message: 'something happened', ...over,
+  });
+
+  it('classifies a controller update conflict as recovered, not a fault', () => {
+    // The reported case: an agent sees Warning/InternalError and redeploys,
+    // turning a self-healing optimistic-lock race into a real incident.
+    const s = classifyEvent(
+      ev({ reason: 'InternalError', message: 'Operation cannot be fulfilled: the object has been modified' }),
+      false,
+    );
+    expect(s).toBe('transient_recovered');
+  });
+
+  it('matches a conflict by message even under an unfamiliar reason', () => {
+    expect(classifyEvent(ev({ reason: 'Whatever', message: 'please apply your changes to the latest version' }), false))
+      .toBe('transient_recovered');
+  });
+
+  it('treats Normal events as informational whatever they say', () => {
+    expect(classifyEvent(ev({ type: 'Normal', reason: 'ImagePullBackOff' }), false)).toBe('informational');
+  });
+
+  it('calls a hard failure fatal while the container is not healthy', () => {
+    expect(classifyEvent(ev({ reason: 'ImagePullBackOff' }), false)).toBe('fatal');
+  });
+
+  it('demotes a hard failure the container has since recovered from', () => {
+    // A failed pull on an older revision does not make a serving one broken.
+    expect(classifyEvent(ev({ reason: 'ImagePullBackOff' }), true)).toBe('transient_recovered');
+  });
+
+  it('treats startup readiness noise as recovered once serving', () => {
+    expect(classifyEvent(ev({ reason: 'Unhealthy', message: 'readiness probe failed: 503' }), true))
+      .toBe('transient_recovered');
+    expect(classifyEvent(ev({ reason: 'Unhealthy', message: 'readiness probe failed: 503' }), false))
+      .toBe('action_required');
+  });
+
+  it('reports recovered warnings instead of staying silent about them', () => {
+    // "No problems found" printed over unread warnings was the actual defect.
+    const findings = eventFindings(
+      [
+        ev({ reason: 'InternalError', message: 'the object has been modified' }),
+        ev({ reason: 'Unhealthy', message: 'readiness probe failed: 503' }),
+      ],
+      true,
+    );
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.code).toBe('diagnose.warnings_recovered');
+    expect(findings[0]!.severity).toBe('transient_recovered');
+    expect(findings[0]!.remediation).toContain('Redeploying');
+  });
+
+  it('surfaces a live warning separately from recovered ones', () => {
+    const findings = eventFindings([ev({ reason: 'ImagePullBackOff' })], false);
+
+    expect(findings.some((f) => f.severity === 'fatal')).toBe(true);
+  });
+
+  it('says nothing when there are no warnings', () => {
+    expect(eventFindings([ev({ type: 'Normal', reason: 'Created' })], true)).toEqual([]);
+  });
+});
+
+describe('replica disagreement', () => {
+  const settled = {
+    summary: 'ready', health: 'healthy', observed_at: null, stale: false,
+    operation: { state: 'succeeded', terminal: true }, error: null,
+  } as never;
+
+  it('explains a cached count that disagrees with the live revision', () => {
+    const findings = replicaFindings(
+      { current_replicas: 0, metrics_updated_at: '2026-08-04T10:00:00+00:00' },
+      { name: 'app-00003', actual_replicas: 1, desired_replicas: 1 },
+      settled,
+    );
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.severity).toBe('informational');
+    expect(findings[0]!.remediation).toContain('Trust the revision value');
+  });
+
+  it('says nothing when the two agree', () => {
+    expect(replicaFindings({ current_replicas: 1 }, { name: 'a', actual_replicas: 1, desired_replicas: 1 }, settled))
+      .toEqual([]);
+  });
+
+  it('says nothing mid-rollout, when disagreeing is expected', () => {
+    const rolling = { ...settled as object, operation: { state: 'running', terminal: false } } as never;
+    expect(replicaFindings({ current_replicas: 0 }, { name: 'a', actual_replicas: 1, desired_replicas: 1 }, rolling))
+      .toEqual([]);
   });
 });

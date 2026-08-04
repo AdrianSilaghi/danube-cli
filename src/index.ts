@@ -44,7 +44,18 @@ const program = new Command()
   // inherited by every subcommand — rather than re-implemented per command,
   // which is how a flag came to be honoured by one and ignored by the next.
   .option('--project <id>', 'Run against this project (team) id, for this invocation only')
-  .option('--team <id>', 'Alias for --project (compatibility)');
+  .option('--team <id>', 'Alias for --project (compatibility)')
+  // Commander's default for an unknown TOP-LEVEL command is to print root help
+  // and exit 0, so `danube operations --help` looked like it succeeded while
+  // doing nothing — an agent reads exit 0 as "the command exists and ran".
+  // Unknown subcommands already exited non-zero, so the two disagreed.
+  .showHelpAfterError()
+  .showSuggestionAfterError();
+
+program.on('command:*', (operands: string[]) => {
+  console.error(`error: unknown command '${operands[0]}'`);
+  process.exit(1);
+});
 
 // Set JSON mode and project context before any command runs.
 program.hook('preAction', (thisCommand) => {
@@ -104,6 +115,20 @@ process.on('SIGINT', () => {
 // Global error handler
 program.hook('postAction', () => {});
 process.on('unhandledRejection', (err) => handleError(err));
+
+// `command:*` fires too late for `danube <unknown> --help`: Commander consumes
+// `--help` as the ROOT's help flag, prints root help and exits 0 before any
+// unknown-command handling runs. So the check happens before parse, against the
+// first non-flag token.
+const firstArg = process.argv.slice(2).find((a) => !a.startsWith('-'));
+if (firstArg !== undefined) {
+  const known = new Set(program.commands.flatMap((c) => [c.name(), ...c.aliases()]));
+  if (!known.has(firstArg) && firstArg !== 'help') {
+    console.error(`error: unknown command '${firstArg}'`);
+    console.error(`Run 'danube --help' for the list of commands.`);
+    process.exit(1);
+  }
+}
 
 program.parseAsync()
   .then(async () => {
