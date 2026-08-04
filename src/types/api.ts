@@ -8,6 +8,17 @@ export interface Team {
   id: number;
   name: string;
   personal_team: boolean;
+  /**
+   * Registry path segment for this team: `cr.danubedata.ro/{registry_namespace}/...`,
+   * and the Kubernetes tenant slug.
+   *
+   * NOT derivable from `name` — a team called "Safi" can own the namespace
+   * `safi4`, because the slug is uniquified when assigned. Guessing it produces
+   * an opaque authorization failure from the registry.
+   *
+   * Optional because older deployments do not return it yet.
+   */
+  registry_namespace?: string;
 }
 
 export interface TeamsResponse {

@@ -25,4 +25,15 @@ export const whoamiCommand = new Command('whoami')
     console.log(chalk.bold(user.name));
     console.log(`Email: ${user.email}`);
     console.log(`Teams: ${teams.map(t => t.name).join(', ')}`);
+
+    // The registry namespace is printed here because it cannot be derived from
+    // anything else the user can see: a team named "Safi" owns `safi4`. Without
+    // it the first `docker push` is a guess, and a wrong guess fails as an
+    // opaque "denied: requested access to the resource is denied".
+    const current = teams.find(t => t.id === teamsRes.current_team_id);
+    if (current?.registry_namespace) {
+      console.log(`Project: ${current.name} (id ${current.id})`);
+      console.log(`Registry namespace: ${chalk.cyan(current.registry_namespace)}`);
+      console.log(chalk.dim(`  push to cr.danubedata.ro/${current.registry_namespace}/<repo>:<tag>`));
+    }
   });
