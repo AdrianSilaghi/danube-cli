@@ -2645,6 +2645,103 @@ export interface components {
             created_at: string | null;
             updated_at: string | null;
         };
+        /** ServerlessEventResource */
+        ServerlessEventResource: {
+            /** @description Normal or Warning. */
+            type: string | null;
+            /** @description Short machine reason, e.g. Pulling, Failed, Started. */
+            reason: string | null;
+            /** @description Human-readable detail. */
+            message: string;
+            resource: {
+                /** @description Kind of the object the event concerns, e.g. Revision or Pod. */
+                kind: string | null;
+                /** @description Name of that object. */
+                name: string | null;
+            };
+            /** @description How many times this event has repeated. */
+            count: number;
+            /** @description ISO-8601 first occurrence. */
+            first_seen: string | null;
+            /** @description ISO-8601 most recent occurrence. */
+            last_seen: string | null;
+        };
+        /** ServerlessLogEntryResource */
+        ServerlessLogEntryResource: {
+            /** @description ISO-8601 timestamp of the line. */
+            timestamp: string;
+            /** @description The log line itself, verbatim. */
+            message: string;
+            /** @description Detected level: DEBUG, INFO, WARN or ERROR. */
+            level: string;
+            /** @description Pod that emitted it, when known. */
+            pod: string | null;
+            /** @description Container within the pod (user-container, queue-proxy). */
+            container: string | null;
+            /** @description Output stream. */
+            stream: string;
+        };
+        /** ServerlessRevisionConditionResource */
+        ServerlessRevisionConditionResource: {
+            /** @description Condition type, e.g. Ready, ContainerHealthy, IngressReady. */
+            type: string;
+            /** @description Tri-state: True, False or Unknown. Unknown means still in progress. */
+            status: string;
+            /** @description Provider-native reason, e.g. ContainerMissing. Correlates with kubectl describe. */
+            reason: string | null;
+            /** @description Human-readable detail. */
+            message: string | null;
+            /** @description ISO-8601 time the condition last changed. */
+            last_transition_time: string | null;
+        };
+        /** ServerlessRevisionResource */
+        ServerlessRevisionResource: {
+            /** @description Revision name, e.g. my-api-00007. */
+            name: string | null;
+            /** @description ISO-8601 creation time. */
+            created_at: string | null;
+            /** @description Configuration generation this revision came from. */
+            generation: string | null;
+            /** @description True when this is the newest revision Knative created. */
+            is_latest_created: boolean;
+            /** @description True when this is the newest revision that became ready — i.e. what is serving. */
+            is_latest_ready: boolean;
+            /** @description Replicas Knative wants. */
+            desired_replicas: string | null;
+            /** @description Replicas actually running. Zero with a failed Ready condition means no pod was ever scheduled. */
+            actual_replicas: string | null;
+            conditions: components["schemas"]["ServerlessRevisionConditionResource"][];
+        };
+        /** ServerlessRouteStatusResource */
+        ServerlessRouteStatusResource: {
+            /** @description Knative Route name. */
+            name: string | null;
+            /** @description Public URL the route serves. */
+            url: string | null;
+            traffic: components["schemas"]["ServerlessTrafficTargetResource"][];
+            conditions: components["schemas"]["ServerlessRevisionConditionResource"][];
+        };
+        /** ServerlessServiceStatusResource */
+        ServerlessServiceStatusResource: {
+            /** @description Knative Service name. */
+            name: string | null;
+            /** @description Public URL Knative assigned. */
+            url: string | null;
+            /** @description Newest revision Knative created. */
+            latest_created_revision: string | null;
+            /** @description Newest revision that became ready — what is actually serving. */
+            latest_ready_revision: string | null;
+            conditions: components["schemas"]["ServerlessRevisionConditionResource"][];
+        };
+        /** ServerlessTrafficTargetResource */
+        ServerlessTrafficTargetResource: {
+            /** @description Revision receiving this share of traffic. */
+            revision_name: string | null;
+            /** @description Percentage of requests routed here. */
+            percent: number;
+            /** @description Whether this target tracks the latest ready revision. */
+            latest_revision: boolean;
+        };
         /** ServerlessUsageRecord */
         ServerlessUsageRecord: {
             id: string;
@@ -6885,7 +6982,7 @@ export interface operations {
                         success: boolean;
                         data: {
                             available: boolean;
-                            entries: string;
+                            entries: components["schemas"]["ServerlessLogEntryResource"][];
                         };
                         error: null;
                         meta: {
@@ -6967,9 +7064,9 @@ export interface operations {
                         success: boolean;
                         data: {
                             available: boolean;
-                            revisions: string;
-                            service: string;
-                            route: string;
+                            revisions: components["schemas"]["ServerlessRevisionResource"][];
+                            service: components["schemas"]["ServerlessServiceStatusResource"] | null;
+                            route: components["schemas"]["ServerlessRouteStatusResource"] | null;
                         };
                         error: null;
                         meta: {
@@ -7028,7 +7125,7 @@ export interface operations {
                         success: boolean;
                         data: {
                             available: boolean;
-                            events: string;
+                            events: components["schemas"]["ServerlessEventResource"][];
                         };
                         error: null;
                         meta: {

@@ -175,27 +175,90 @@ type _serverlessShow = Satisfies<{ container: ServerlessContainerChecked }, Serv
 export {};
 
 /**
- * Diagnostics envelope — partial check plus a tripwire.
+ * Diagnostics — real parity checks (were tripwires), plus a new set of
+ * tripwires for the fields that are still wrong.
  *
- * The envelope itself (`success`, `data.available`) is documented correctly and
- * is asserted below, because `available: false` vs an empty collection is the
- * distinction these endpoints exist to preserve.
+ * The old tripwires asserted `entries`, `revisions` and `events` were typed
+ * `string`. They have now FIRED: backend fb617c66 gave each collection a real
+ * component schema, so the checks below assert the fields the commands in
+ * src/commands/serverless/diagnostics.ts actually read.
  *
- * The COLLECTIONS are not: Scramble types `entries`, `revisions` and `events`
- * as `string` rather than arrays, because the controller returns
- * `array<string, mixed>` and there is nothing for it to infer an item shape
- * from. Runtime is unaffected — the commands read their own `Envelope<T>` —
- * but the published spec currently misdescribes them, which matters precisely
- * because these endpoints exist for agents reading that spec.
- *
- * Same tripwire pattern as the VPS/bucket checks above: asserting the broken
- * `string` shape means this stops compiling the moment the backend annotates
- * the item types, which is the signal to replace it with a real check.
+ * `available: false` vs an empty collection is the distinction these endpoints
+ * exist to preserve, so it stays asserted on all three.
  */
-type _rapidsLogsEnvelope = Satisfies<{ success: boolean; data: { available: boolean } }, RapidsLogs>;
-type _rapidsRevisionsEnvelope = Satisfies<{ success: boolean; data: { available: boolean } }, RapidsRevisions>;
-type _rapidsEventsEnvelope = Satisfies<{ success: boolean; data: { available: boolean } }, RapidsEvents>;
+type _rapidsLogs = Satisfies<{
+  success: boolean;
+  data: {
+    available: boolean;
+    entries: Array<{ timestamp: string; level: string; message: string }>;
+  };
+}, RapidsLogs>;
 
-type _rapidsLogsEntriesSpecArtifactTripwire = Satisfies<string, RapidsLogs['data']['entries']>;
-type _rapidsRevisionsSpecArtifactTripwire = Satisfies<string, RapidsRevisions['data']['revisions']>;
-type _rapidsEventsSpecArtifactTripwire = Satisfies<string, RapidsEvents['data']['events']>;
+type _rapidsRevisions = Satisfies<{
+  success: boolean;
+  data: {
+    available: boolean;
+    revisions: Array<{
+      name: string | null;
+      is_latest_ready: boolean;
+      is_latest_created: boolean;
+      // Tri-state, not a boolean — `Unknown` means still rolling out.
+      conditions: Array<{ type: string; status: string; reason: string | null; message: string | null }>;
+    }>;
+    service: { latest_ready_revision: string | null } | null;
+    route: { url: string | null } | null;
+  };
+}, RapidsRevisions>;
+
+type _rapidsEvents = Satisfies<{
+  success: boolean;
+  data: {
+    available: boolean;
+    events: Array<{
+      type: string | null;
+      reason: string | null;
+      message: string;
+      resource: { kind: string | null; name: string | null };
+      count: number;
+      last_seen: string | null;
+    }>;
+  };
+}, RapidsEvents>;
+
+/**
+ * Exact type equality. `Satisfies` cannot express these tripwires: it only
+ * checks assignability, and every type is assignable to `unknown`, so a
+ * `Satisfies`-based tripwire on `meta.level` would never fire.
+ */
+type Exact<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
+type AssertTrue<T extends true> = T;
+
+/**
+ * Second-generation tripwires — the SAME Scramble defect, in the fields the
+ * first fix did not reach. Backend 0bd150bc fixes all seven; it is committed
+ * but NOT yet deployed, so `npm run gen:types` today still produces the wrong
+ * types asserted below.
+ *
+ * Each assertion holds against the currently-deployed spec and breaks the
+ * moment 0bd150bc goes live. That is the signal to regenerate and replace
+ * these with real checks — exactly how the first generation was retired.
+ *
+ * Why these are wrong: Scramble cannot infer a type through an array-shape
+ * offset (`$result['truncated']`) and falls back to `string` rather than
+ * admitting it does not know.
+ *
+ * `actual_replicas` is the consequential one. Its own spec description says
+ * zero alongside a failed Ready condition means no pod was ever scheduled —
+ * so a generated client compares `"0" === 0` and the check never fires. The
+ * CLI is unaffected only because it reads `Record<string, unknown>` and
+ * coerces; a stricter consumer would not be.
+ */
+type RapidsRevision = RapidsRevisions['data']['revisions'][number];
+
+type _tripwireLogsTruncated = AssertTrue<Exact<RapidsLogs['meta']['truncated'], string>>;
+type _tripwireLogsNextCursor = AssertTrue<Exact<RapidsLogs['meta']['next_cursor'], string>>;
+type _tripwireLogsLevel = AssertTrue<Exact<RapidsLogs['meta']['level'], unknown>>;
+type _tripwireEventsTruncated = AssertTrue<Exact<RapidsEvents['meta']['truncated'], string>>;
+type _tripwireRevisionGeneration = AssertTrue<Exact<RapidsRevision['generation'], string | null>>;
+type _tripwireRevisionDesiredReplicas = AssertTrue<Exact<RapidsRevision['desired_replicas'], string | null>>;
+type _tripwireRevisionActualReplicas = AssertTrue<Exact<RapidsRevision['actual_replicas'], string | null>>;
