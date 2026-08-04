@@ -1283,6 +1283,68 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/serverless/{serverlessContainer}/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fetch container logs
+         * @description Returns bounded, cursor-paged log entries from the platform log store.
+         */
+        get: operations["v1.serverless.logs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/serverless/{serverlessContainer}/revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Knative revisions
+         * @description Returns every revision owned by the container's Knative Service with its
+         *     conditions, plus Service and Route readiness.
+         */
+        get: operations["v1.serverless.revisions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/serverless/{serverlessContainer}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Kubernetes events
+         * @description Returns curated platform events for the container's Service, revisions
+         *     and pods.
+         */
+        get: operations["v1.serverless.events"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/serverless": {
         parameters: {
             query?: never;
@@ -2448,60 +2510,13 @@ export interface components {
          * @enum {string}
          */
         QueueInstanceStatus: "pending" | "provisioning" | "running" | "stopped" | "restoring" | "updating" | "error" | "destroying";
-        /** ServerlessBuild */
-        ServerlessBuild: {
+        /** ServerlessContainerResource */
+        ServerlessContainerResource: {
             id: string;
-            serverless_container_id: string;
-            team_id: number;
-            user_id: number | null;
-            build_number: number;
-            tekton_pipeline_run_name: string | null;
-            source_type: string;
-            commit_sha: string | null;
-            commit_message: string | null;
-            commit_author: string | null;
-            branch: string | null;
-            tag: string | null;
-            status: string;
-            built_image_ref: string | null;
-            built_image_digest: string | null;
-            built_image_size_bytes: number | null;
-            /** Format: date-time */
-            started_at: string | null;
-            /** Format: date-time */
-            completed_at: string | null;
-            duration_seconds: number | null;
-            build_logs: string | null;
-            error_message: string | null;
-            error_stage: string | null;
-            detected_runtime: string | null;
-            detected_runtime_version: string | null;
-            buildpack_builder_used: string | null;
-            trigger_type: string | null;
-            trigger_ref: string | null;
-            cpu_millicores_used: number | null;
-            memory_mb_used: number | null;
-            deployed: boolean;
-            /** Format: date-time */
-            deployed_at: string | null;
-            deployment_revision: string | null;
-            /** Format: date-time */
-            created_at: string | null;
-            /** Format: date-time */
-            updated_at: string | null;
-            image_pruned: boolean;
-            /** Format: date-time */
-            image_pruned_at: string | null;
-            target_image_ref: string | null;
-        };
-        /** ServerlessContainer */
-        ServerlessContainer: {
-            id: string;
-            team_id: number;
-            user_id: number;
             name: string;
             slug: string;
             description: string | null;
+            /** @description --- deployment source ------------------------------------- */
             deployment_type: string;
             source_type: string | null;
             repository_url: string | null;
@@ -2509,124 +2524,126 @@ export interface components {
             repository_commit_sha: string | null;
             build_context_path: string;
             dockerfile_path: string;
+            /** @description The auth *mode* is safe to expose; the credential itself is not. */
             git_auth_type: string;
-            detected_runtime: string | null;
             buildpack_builder: string | null;
-            buildpack_env: unknown[] | null;
+            detected_runtime: string | null;
             auto_build_on_push: boolean;
-            pending_commit_sha: string | null;
-            pending_commit_branch: string | null;
-            last_build_id: string | null;
-            /** Format: date-time */
-            last_build_at: string | null;
-            built_image_ref: string | null;
+            auto_deploy: boolean;
+            /** @description --- image ------------------------------------------------- */
             image: string | null;
             image_tag: string;
+            built_image_ref: string | null;
             registry_credential_id: string | null;
+            uses_danube_registry: boolean;
+            /** @description --- runtime configuration --------------------------------- */
             port: number;
             min_scale: number;
             max_scale: number;
             concurrency_target: number;
+            container_concurrency: number;
+            target_concurrency: string;
             scaling_metric: string;
             scaling_target: number;
-            container_concurrency: number;
             timeout_seconds: number;
+            progress_deadline_seconds: number | null;
             resource_profile: string;
             cpu_request: string;
             cpu_limit: string;
             memory_request: string;
             memory_limit: string;
-            environment_variables: unknown[] | null;
             health_check_path: string | null;
+            scale_to_zero_enabled: boolean;
+            /**
+             * @description Environment VALUES are still returned because `danube rapids env
+             *     set` does a read-modify-write against this field and would wipe
+             *     the other variables without it. Removing them is gated on the
+             *     CLI moving to server-side merge semantics (Ticket 5).
+             */
+            environment_variables: unknown[] | null;
+            /** @description --- state ------------------------------------------------- */
             status: string | null;
+            status_details: string;
+            last_error: string | null;
+            error_category: string | null;
             knative_service_name: string | null;
             url: string | null;
             current_revision: string | null;
-            last_error: string | null;
             deployment_count: number;
-            /** Format: date-time */
             deployed_at: string | null;
-            /** Format: date-time */
             last_deployed_at: string | null;
+            last_stopped_at: string | null;
+            last_build_at: string | null;
+            /** @description --- observed metrics -------------------------------------- */
             total_requests: number;
             requests_per_minute: number | null;
             current_replicas: number;
             avg_response_time_ms: number | null;
             error_rate: number | null;
-            metrics_cache: unknown[] | null;
-            /** Format: date-time */
             metrics_updated_at: string | null;
+            /** @description --- billing ----------------------------------------------- */
             current_month_requests: number;
             current_month_compute_seconds: number;
             current_month_cost_cents: number;
             billing_period: string | null;
-            auto_deploy: boolean;
-            scale_to_zero_enabled: boolean;
-            notes: string | null;
-            argocd_data: unknown[] | null;
-            /** Format: date-time */
+            /**
+             * @description Which diagnostic sub-resources this container can serve, so an
+             *     agent can branch without probing and eating a 404/403.
+             */
+            capabilities: {
+                logs: boolean;
+                events: boolean;
+                revisions: boolean;
+            };
+            /**
+             * @description Minimal relation shells. The full models carry team API keys and
+             *     webhook secrets, so only identity is exposed.
+             */
+            team?: {
+                id: number;
+                name: string;
+            };
+            user?: {
+                id: number;
+                name: string;
+            };
+            deployments?: components["schemas"]["ServerlessDeploymentResource"][];
             created_at: string | null;
-            /** Format: date-time */
             updated_at: string | null;
-            /** Format: date-time */
-            deleted_at: string | null;
-            error_category: string | null;
-            /** Format: date-time */
-            last_stopped_at: string | null;
-            progress_deadline_seconds: number | null;
-            target_concurrency: string;
-            uses_danube_registry: string;
         };
-        /** ServerlessDeployment */
-        ServerlessDeployment: {
+        /** ServerlessDeploymentResource */
+        ServerlessDeploymentResource: {
             id: string;
             serverless_container_id: string;
-            team_id: number;
-            user_id: number;
-            revision_name: string;
-            argocd_revision: string | null;
-            knative_revision_name: string | null;
-            argocd_sync_status: string | null;
-            argocd_health_status: string | null;
-            /** Format: date-time */
-            argocd_synced_at: string | null;
             revision_number: number;
+            revision_name: string;
+            knative_revision_name: string | null;
             description: string | null;
             image: string;
             image_tag: string;
             port: number;
             min_scale: number;
             max_scale: number;
-            cpu_request: string | null;
-            cpu_limit: string | null;
-            memory_request: string | null;
-            memory_limit: string | null;
             target_concurrency: number;
             resource_profile: string;
-            environment_variables: unknown[] | null;
             status: string;
+            status_details: string;
             is_current: boolean;
             traffic_percent: number;
-            total_requests: number;
-            /** Format: date-time */
-            first_request_at: string | null;
-            /** Format: date-time */
-            last_request_at: string | null;
-            deployment_log: string | null;
+            /**
+             * @description The failure snapshot stays on the deployment row even after the
+             *     container recovers, so post-incident history survives.
+             */
             error_message: string | null;
-            /** Format: date-time */
-            deployed_at: string | null;
-            /** Format: date-time */
-            activated_at: string | null;
-            /** Format: date-time */
-            deactivated_at: string | null;
-            /** Format: date-time */
-            created_at: string | null;
-            /** Format: date-time */
-            updated_at: string | null;
-            /** Format: date-time */
-            deleted_at: string | null;
             error_category: string | null;
+            total_requests: number;
+            first_request_at: string | null;
+            last_request_at: string | null;
+            deployed_at: string | null;
+            activated_at: string | null;
+            deactivated_at: string | null;
+            created_at: string | null;
+            updated_at: string | null;
         };
         /** ServerlessUsageRecord */
         ServerlessUsageRecord: {
@@ -6835,6 +6852,235 @@ export interface operations {
             404: components["responses"]["ModelNotFoundException"];
         };
     };
+    "v1.serverless.logs": {
+        parameters: {
+            query?: {
+                since?: string;
+                until?: string;
+                /**
+                 * @description An opaque cursor from a previous response. It is a Loki
+                 *     nanosecond timestamp, so digits-only: rejecting everything else
+                 *     keeps a hand-crafted value from reaching the upstream query.
+                 */
+                cursor?: string;
+                limit?: number;
+                level?: "debug" | "info" | "warn" | "error";
+                container?: "user-container" | "queue-proxy" | "all";
+            };
+            header?: never;
+            path: {
+                /** @description The serverless container ID */
+                serverlessContainer: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            available: boolean;
+                            entries: string;
+                        };
+                        error: null;
+                        meta: {
+                            limit: number;
+                            next_cursor: string;
+                            /**
+                             * @description `truncated` tells a client the page was capped rather than
+                             *     exhausted, so "I received fewer rows than I asked for" is never
+                             *     mistaken for "that is all there is".
+                             */
+                            truncated: string;
+                            container: string;
+                            level: unknown;
+                            retention_days: number;
+                            max_limit: number;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            available: boolean;
+                            entries: string[];
+                        };
+                        error: {
+                            /** @constant */
+                            code: "serverless.logs_unavailable";
+                            /** @constant */
+                            message: "The log store did not respond. This says nothing about the container itself — retry shortly.";
+                            retryable: boolean;
+                        };
+                        meta: {
+                            limit: number;
+                            next_cursor: string;
+                            /**
+                             * @description `truncated` tells a client the page was capped rather than
+                             *     exhausted, so "I received fewer rows than I asked for" is never
+                             *     mistaken for "that is all there is".
+                             */
+                            truncated: string;
+                            container: string;
+                            level: unknown;
+                            retention_days: number;
+                            max_limit: number;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    "v1.serverless.revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The serverless container ID */
+                serverlessContainer: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            available: boolean;
+                            revisions: string;
+                            service: string;
+                            route: string;
+                        };
+                        error: null;
+                        meta: {
+                            revision_count: number;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            available: boolean;
+                            revisions: string[];
+                            service: null;
+                            route: null;
+                        };
+                        error: {
+                            /** @constant */
+                            code: "serverless.revisions_unavailable";
+                            /** @constant */
+                            message: "The platform could not read this container's revisions. Retry shortly.";
+                            retryable: boolean;
+                        };
+                        meta: string;
+                    };
+                };
+            };
+        };
+    };
+    "v1.serverless.events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The serverless container ID */
+                serverlessContainer: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            available: boolean;
+                            events: string;
+                        };
+                        error: null;
+                        meta: {
+                            event_count: number;
+                            /**
+                             * @description The namespace query was capped before filtering to this
+                             *     container, so some of its events may be missing.
+                             */
+                            truncated: string;
+                            /**
+                             * @description Events are garbage-collected by Kubernetes (typically after
+                             *     an hour). An absent event is not evidence that nothing
+                             *     happened, and automation must not read it that way.
+                             */
+                            ephemeral: boolean;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            available: boolean;
+                            events: string[];
+                        };
+                        error: {
+                            /** @enum {string} */
+                            code: "serverless.events_not_permitted" | "serverless.events_unavailable";
+                            /** @constant */
+                            message: "Platform events could not be read for this container. Revision conditions remain available and are the more reliable signal.";
+                            /**
+                             * @description A missing RBAC grant will not fix itself on retry; a
+                             *     transient API-server failure will.
+                             */
+                            retryable: boolean;
+                        };
+                        meta: {
+                            reason: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
     "v1.serverless.index": {
         parameters: {
             query?: {
@@ -6852,7 +7098,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        data: components["schemas"]["ServerlessContainer"][];
+                        data: unknown[];
                         pagination: {
                             current_page: number;
                             last_page: number;
@@ -6883,7 +7129,7 @@ export interface operations {
                     "application/json": {
                         /** @constant */
                         message: "Serverless container created successfully";
-                        container: components["schemas"]["ServerlessContainer"];
+                        container: components["schemas"]["ServerlessContainerResource"] & Record<string, never>;
                     };
                 };
             };
@@ -6910,7 +7156,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        container: components["schemas"]["ServerlessContainer"];
+                        container: components["schemas"]["ServerlessContainerResource"] & Record<string, never>;
                         metrics: unknown[];
                         url: string;
                         monthly_cost: string;
@@ -6946,11 +7192,11 @@ export interface operations {
                     "application/json": {
                         /** @constant */
                         message: "Serverless container update initiated";
-                        container: components["schemas"]["ServerlessContainer"];
+                        container: components["schemas"]["ServerlessContainerResource"] & Record<string, never>;
                     } | {
                         /** @constant */
                         message: "Serverless container deployment source changed";
-                        container: components["schemas"]["ServerlessContainer"];
+                        container: components["schemas"]["ServerlessContainerResource"] & Record<string, never>;
                     };
                 };
             };
@@ -7007,7 +7253,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        data: components["schemas"]["ServerlessDeployment"][];
+                        data: unknown[];
                         pagination: {
                             current_page: number;
                             last_page: number;
@@ -7163,7 +7409,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        data: components["schemas"]["ServerlessBuild"] | null;
+                        data: unknown[] | null;
                     };
                 };
             };

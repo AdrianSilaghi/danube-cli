@@ -41,6 +41,9 @@ type CacheShow = Json<paths['/cache/{cacheInstance}']['get']['responses'][200]>;
 type DatabaseShow = Json<paths['/database/{databaseInstance}']['get']['responses'][200]>;
 type BucketShow = Json<paths['/storage/buckets/{bucket}']['get']['responses'][200]>;
 type ServerlessShow = Json<paths['/serverless/{serverlessContainer}']['get']['responses'][200]>;
+type RapidsLogs = Json<paths['/serverless/{serverlessContainer}/logs']['get']['responses'][200]>;
+type RapidsRevisions = Json<paths['/serverless/{serverlessContainer}/revisions']['get']['responses'][200]>;
+type RapidsEvents = Json<paths['/serverless/{serverlessContainer}/events']['get']['responses'][200]>;
 
 /**
  * Each check asserts the spec's response type (`B`) is assignable to the shape
@@ -170,3 +173,29 @@ type ServerlessContainerChecked = Omit<
 type _serverlessShow = Satisfies<{ container: ServerlessContainerChecked }, ServerlessShow>;
 
 export {};
+
+/**
+ * Diagnostics envelope — partial check plus a tripwire.
+ *
+ * The envelope itself (`success`, `data.available`) is documented correctly and
+ * is asserted below, because `available: false` vs an empty collection is the
+ * distinction these endpoints exist to preserve.
+ *
+ * The COLLECTIONS are not: Scramble types `entries`, `revisions` and `events`
+ * as `string` rather than arrays, because the controller returns
+ * `array<string, mixed>` and there is nothing for it to infer an item shape
+ * from. Runtime is unaffected — the commands read their own `Envelope<T>` —
+ * but the published spec currently misdescribes them, which matters precisely
+ * because these endpoints exist for agents reading that spec.
+ *
+ * Same tripwire pattern as the VPS/bucket checks above: asserting the broken
+ * `string` shape means this stops compiling the moment the backend annotates
+ * the item types, which is the signal to replace it with a real check.
+ */
+type _rapidsLogsEnvelope = Satisfies<{ success: boolean; data: { available: boolean } }, RapidsLogs>;
+type _rapidsRevisionsEnvelope = Satisfies<{ success: boolean; data: { available: boolean } }, RapidsRevisions>;
+type _rapidsEventsEnvelope = Satisfies<{ success: boolean; data: { available: boolean } }, RapidsEvents>;
+
+type _rapidsLogsEntriesSpecArtifactTripwire = Satisfies<string, RapidsLogs['data']['entries']>;
+type _rapidsRevisionsSpecArtifactTripwire = Satisfies<string, RapidsRevisions['data']['revisions']>;
+type _rapidsEventsSpecArtifactTripwire = Satisfies<string, RapidsEvents['data']['events']>;
