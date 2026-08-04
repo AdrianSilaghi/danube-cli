@@ -85,10 +85,6 @@ describe('unknown commands are reported at every depth', () => {
 });
 
 describe('valid invocations resolve', () => {
-  // `rapids preflight` and `operations` are intentionally absent from this
-  // list: the code exists but is not registered until its API endpoints are
-  // deployed, so the CLI correctly reports them as unknown commands for now.
-
   const valid = [
     'whoami',
     'whoami --help',
@@ -105,6 +101,9 @@ describe('valid invocations resolve', () => {
     'storage buckets ls',
     'project select',
     'rapids probe my-api',
+    'rapids preflight --image cr.danubedata.ro/ns/app:v1',
+    'operations wait op-1 --timeout 30m',
+    'operations inspect op-1',
   ];
 
   for (const line of valid) {
