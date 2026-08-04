@@ -30,8 +30,6 @@ import {
 import { diagnoseCommand } from './commands/serverless/diagnose.js';
 import { applyCommand as serverlessApplyCommand } from './commands/serverless/apply.js';
 import { probeCommand } from './commands/serverless/probe.js';
-import { preflightCommand } from './commands/serverless/preflight.js';
-import { operationsCommand } from './commands/operations.js';
 import { registryCommand } from './commands/registry/index.js';
 import { getCurrentVersion } from './lib/version.js';
 import { setJsonMode } from './lib/json-mode.js';
@@ -119,10 +117,13 @@ export function buildProgram(): Command {
   serverlessCommand.addCommand(diagnoseCommand);
   serverlessCommand.addCommand(serverlessApplyCommand);
   serverlessCommand.addCommand(probeCommand);
-  serverlessCommand.addCommand(preflightCommand);
+  // `rapids preflight` and the `operations` group are written and tested but
+  // deliberately NOT registered yet: both call API endpoints that are not
+  // deployed. Shipping a command that can only 404 is worse than not shipping
+  // it — an agent reads the failure as "my image is broken", not "this command
+  // has no server". They are registered the moment the endpoints are live.
   program.addCommand(serverlessCommand);
   program.addCommand(registryCommand);
-  program.addCommand(operationsCommand);
 
   return program;
 }

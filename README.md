@@ -106,42 +106,20 @@ The deploy path, each step answering before the next can waste time on it:
 
 ```bash
 danube registry verify-push safi4/danube-todo --json      # may I push here?
-danube rapids preflight --image cr.danubedata.ro/safi4/danube-todo:v1.0.0 --json
 danube rapids apply --name danube-todo --image ... --wait --idempotency-key "$KEY" --json
 danube rapids probe danube-todo --path /healthz --cold --warm-requests 5 --json
 danube rapids diagnose danube-todo --json                 # only if something looks wrong
 ```
 
-`preflight` resolves the digest and the image's architectures, and reports whether a pull can
-succeed at all — a missing tag or an arm64-only image otherwise surfaces as a revision stuck in
-`ContainerMissing` minutes later, naming neither. `can_pull: null` means the image lives in a
-registry DanubeData cannot read; that is *unknown*, not a failure, and does not exit non-zero.
+`rapids preflight` and the `operations` group are built and tested but not yet
+enabled: they call API endpoints that are not deployed. They ship the moment
+those are live.
 
 `probe` reaches the URL from outside the platform and reports DNS, TLS (issuer and days to
 expiry), status, upstream service time, and warm-vs-first latency. A plain-HTTP URL reports
 `tls.negotiated: null` — **not** a TLS failure: internal Knative URLs are HTTP by design and
 public TLS terminates at the edge proxy. `cold_start_likely` is an inference from the warm
 median, and is `null` without `--warm-requests`, because nothing can force a scale-to-zero first.
-
-### Operations
-
-Create, deploy and redeploy return before the work is done, so they hand back an operation:
-
-```json
-{"operation_id": "...", "resource_id": "...", "state": "queued",
- "terminal": false, "poll_after_ms": 3000}
-```
-
-```bash
-danube operations wait <operation-id> --timeout 30m --json
-danube operations inspect <operation-id> --json
-```
-
-**`terminal` is the stop condition.** Do not infer it from `state`: a state you do not recognise
-must be treated as still running. `wait` honours the server's `poll_after_ms` so pacing can change
-without updating clients, and reports a timeout as `operation.wait_timeout` — the operation has
-not failed, it has not finished. The id of the resource works as well as the operation id, because
-for the first seconds after a create the operation row does not exist yet.
 
 ### Freshness
 
@@ -188,8 +166,6 @@ the command as missing rather than printing the parent's help and exiting 0.
 | `danube login` | Authenticate with an API token |
 | `danube logout` | Remove stored credentials |
 | `danube whoami` | Show authenticated user and teams |
-| `danube operations inspect <id>` | Show the state of a long-running operation |
-| `danube operations wait <id>` | Block until an operation is terminal (`--timeout 30m`) |
 
 ### VPS Instances (`danube vps`)
 
@@ -412,7 +388,6 @@ Knative-based serverless containers with scale-to-zero.
 | `danube rapids events <name-or-id>` | Curated platform events for the container's service, revisions and pods |
 | `danube rapids diagnose <name-or-id>` | Correlate status, revisions, events and logs into ranked findings with remediation |
 | `danube rapids apply` | Create-or-update idempotently (`--wait`, `--idempotency-key`) |
-| `danube rapids preflight --image <ref>` | Check namespace, credential, manifest, digest and architecture before deploying |
 | `danube rapids probe [name]` | Reach the public URL from outside: DNS, TLS, status, cold vs warm latency |
 
 Diagnostics notes:
