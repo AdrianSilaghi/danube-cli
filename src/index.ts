@@ -27,6 +27,8 @@ import {
   revisionsCommand as rapidsRevisionsCommand,
   eventsCommand as rapidsEventsCommand,
 } from './commands/serverless/diagnostics.js';
+import { diagnoseCommand } from './commands/serverless/diagnose.js';
+import { registryCommand } from './commands/registry/index.js';
 import { handleError } from './lib/handle-error.js';
 import { getCurrentVersion, checkForUpdate, printUpdateNotification } from './lib/version.js';
 import { setJsonMode, isJsonMode } from './lib/json-mode.js';
@@ -87,7 +89,9 @@ serverlessCommand.addCommand(serverlessUsageCommand);
 serverlessCommand.addCommand(rapidsLogsCommand);
 serverlessCommand.addCommand(rapidsRevisionsCommand);
 serverlessCommand.addCommand(rapidsEventsCommand);
+serverlessCommand.addCommand(diagnoseCommand);
 program.addCommand(serverlessCommand);
+program.addCommand(registryCommand);
 
 // Graceful SIGINT fallback — clean exit when Ctrl+C is pressed outside polling loops
 process.on('SIGINT', () => {
