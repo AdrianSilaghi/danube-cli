@@ -114,11 +114,11 @@ export interface StorageBucket {
   public_access: boolean;
   versioning_enabled: boolean;
   encryption_enabled: boolean;
-  size_bytes: number;
-  object_count: number;
+  size_bytes: number | null;
+  object_count: number | null;
   size_limit_bytes: number | null;
-  monthly_cost_cents: number;
-  monthly_cost_dollars: string;
+  monthly_cost_cents: number | null;
+  monthly_cost_dollars: number;
   created_at: string;
   updated_at: string;
 }

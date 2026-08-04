@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
 import { ApiClient } from '../../lib/api-client.js';
+import { resolveAlias } from '../../lib/flag-alias.js';
 import { resolveContainer } from './resolve.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import type { ServerlessContainer } from '../../types/api.js';
@@ -11,7 +12,8 @@ export const updateCommand = new Command('update')
   .argument('<name-or-id>', 'Container name or ID')
   .option('--image <image>', 'Docker image')
   .option('--tag <tag>', 'Image tag')
-  .option('--profile <profile>', 'Resource profile')
+  .option('--resource-profile <profile>', 'Resource profile (canonical)')
+  .option('--profile <profile>', 'Alias for --resource-profile')
   .option('--port <port>', 'Container port')
   .option('--min-scale <n>', 'Minimum replicas (0 for scale-to-zero)')
   .option('--max-scale <n>', 'Maximum replicas')
@@ -37,7 +39,11 @@ export const updateCommand = new Command('update')
     const body: Record<string, unknown> = {};
     if (opts.image) body.image = opts.image;
     if (opts.tag) body.image_tag = opts.tag;
-    if (opts.profile) body.resource_profile = opts.profile;
+    const resourceProfile = resolveAlias('resource-profile', [
+      ['--resource-profile', opts.resourceProfile],
+      ['--profile', opts.profile],
+    ]);
+    if (resourceProfile) body.resource_profile = resourceProfile;
     if (opts.port) body.port = parseIntOption(opts.port, '--port');
     if (opts.minScale !== undefined) body.min_scale = parseIntOption(opts.minScale, '--min-scale');
     if (opts.maxScale !== undefined) body.max_scale = parseIntOption(opts.maxScale, '--max-scale');

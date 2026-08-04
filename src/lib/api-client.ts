@@ -1,5 +1,6 @@
 import { getApiBase, readConfig, getToken, getTeamId } from './config.js';
 import { ApiError, NotAuthenticatedError } from './errors.js';
+import { getProjectOverride } from './project-context.js';
 import { getCurrentVersion } from './version.js';
 
 export class ApiClient {
@@ -19,7 +20,15 @@ export class ApiClient {
     if (!token) {
       throw new NotAuthenticatedError();
     }
-    return new ApiClient(token, config?.apiBase, getTeamId(config));
+    // An explicit --project on this invocation outranks DANUBE_TEAM_ID and the
+    // saved selection. It scopes the actual request via X-Team-Id rather than
+    // being passed as a body field the server is free to ignore.
+    //
+    // Project-locked tokens stay server-enforced: a header the token is not
+    // permitted to use is rejected upstream, never silently honoured here.
+    const teamId = getProjectOverride() ?? getTeamId(config);
+
+    return new ApiClient(token, config?.apiBase, teamId);
   }
 
   private async request<T>(method: string, path: string, body?: unknown, timeoutMs: number = 30_000): Promise<T> {
@@ -61,8 +70,21 @@ export class ApiClient {
         if (res.status === 401) {
           throw new NotAuthenticatedError();
         }
-        const message = json?.message || json?.error || `Request failed with status ${res.status}`;
-        throw new ApiError(res.status, message, json?.errors);
+        // Newer endpoints answer with a {success,data,error,meta} envelope, in
+        // which `error` is an OBJECT carrying the failure code and whether a
+        // retry can help. Stringifying it would throw that away and print
+        // "[object Object]" as the message; older endpoints still send a plain
+        // string, so both shapes are handled.
+        const envelopeError = json?.error;
+        const structured = envelopeError && typeof envelopeError === 'object' ? envelopeError : undefined;
+
+        const message =
+          json?.message ||
+          structured?.message ||
+          (typeof envelopeError === 'string' ? envelopeError : undefined) ||
+          `Request failed with status ${res.status}`;
+
+        throw new ApiError(res.status, message, json?.errors, structured);
       }
 
       return json as T;

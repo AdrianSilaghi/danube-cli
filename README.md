@@ -60,13 +60,44 @@ Errors are single-line JSON on stderr; results are JSON on stdout. (Some inline
 validation errors still print plain text; they always exit non-zero.) List commands return the
 complete collection (all pages).
 
+### Selecting a project
+
+`--project <id>` (any position) scopes a single invocation, and is inherited by
+every command:
+
+```bash
+danube --project 42 rapids get my-api --json
+danube project select --project 42          # persists the default, no prompt
+```
+
+Precedence is explicit flag, then `DANUBE_TEAM_ID`, then the saved selection,
+then the account default. A flag applies to **one invocation** and never
+mutates saved config, so a script iterating over projects leaves nothing behind
+for the next process. `--team` is accepted as an alias; supplying both with
+different values is a usage error rather than a silent preference.
+
+### Structured API failures
+
+In JSON mode an API failure keeps its existing `{"code":"api_error",...}` shape
+and adds a `cause` object carrying the backend's failure code, the resource it
+concerns, and whether a retry can help:
+
+```json
+{"code":"api_error","status":503,"message":"...",
+ "cause":{"code":"serverless.image_pull_auth","retryable":false,
+          "resource":{"kind":"Revision","name":"my-api-00007"}}}
+```
+
+Check `cause.retryable` before retrying — a rejected registry credential will
+never clear on its own.
+
 ### Exit codes
 
 | Code | Meaning |
 |------|---------|
 | 0 | Success |
 | 1 | Generic or API error |
-| 2 | Missing required flag (non-interactive) |
+| 2 | Missing required flag (non-interactive), or a usage error such as a conflicting selector or a non-integer project id |
 | 3 | Not authenticated |
 | 4 | Resource not found |
 | 5 | Confirmation required (add `--force`) |
@@ -302,6 +333,23 @@ Knative-based serverless containers with scale-to-zero.
 | `danube rapids rm <name-or-id>` | Delete a serverless container |
 | `danube rapids deployments <name-or-id>` | List deployments for a serverless container |
 | `danube rapids usage <name-or-id>` | Show usage and billing for a serverless container |
+| `danube rapids logs <name-or-id>` | Fetch container logs (`--since 1h`, `--level error`, `--container user-container`, `--cursor`) |
+| `danube rapids revisions <name-or-id>` | List Knative revisions with their conditions, plus Service and Route readiness |
+| `danube rapids events <name-or-id>` | Curated platform events for the container's service, revisions and pods |
+
+Diagnostics notes:
+
+- `logs` and `events` require a token with the `serverless:diagnostics`
+  ability; `revisions` needs only `serverless:read`.
+- In `--json` mode these emit the API envelope verbatim, so `data.available`,
+  `meta.next_cursor` and `meta.retention_days` reach the caller. **An empty
+  `data.entries` with `available: true` means the container printed nothing;
+  `available: false` means the log store did not answer** — the two are not the
+  same answer, and only the second is worth retrying.
+- Revision conditions are tri-state: `Unknown` means the rollout is still in
+  progress, not that it failed.
+- Always pass `--since` to `logs`; without it the query covers only the last
+  30 minutes.
 
 ## Configuration
 

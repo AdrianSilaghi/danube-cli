@@ -10,6 +10,7 @@ import { formatTable, statusColor, formatDate, printDetails } from '../../lib/ou
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import { canPrompt, promptOr, confirmDestruction } from '../../lib/interactive.js';
 import { MissingFlagsError } from '../../lib/errors.js';
+import { resolveAlias } from '../../lib/flag-alias.js';
 import type {
   VpsInstance,
   VpsConnectionInfo,
@@ -68,16 +69,38 @@ export const createCommand = new Command('create')
   .description('Create a new VPS instance')
   .option('--name <name>', 'Instance name (lowercase, alphanumeric, hyphens)')
   .option('--image <image>', 'OS image ID (e.g. ubuntu-24.04)')
-  .option('--plan <plan>', 'Resource profile slug (run interactively to list available plans)')
-  .option('--cpu-type <type>', 'CPU allocation: shared or dedicated')
-  .option('--network <stack>', 'Network stack: dual_stack, ipv4_only, ipv6_only')
+  // Canonical names match the API fields an agent reads in the reference docs;
+  // the shorter aliases below stay for humans. Both are accepted, and only the
+  // canonical field is ever sent.
+  .option('--resource-profile <slug>', 'Resource profile slug (canonical)')
+  .option('--plan <plan>', 'Alias for --resource-profile')
+  .option('--cpu-allocation-type <type>', 'CPU allocation: shared or dedicated (canonical)')
+  .option('--cpu-type <type>', 'Alias for --cpu-allocation-type')
+  .option('--network-stack <stack>', 'Network stack: dual_stack, ipv4_only, ipv6_only (canonical)')
+  .option('--network <stack>', 'Alias for --network-stack')
   .option('--ssh-key-id <id>', 'SSH key ID for authentication')
   .option('--password <password>', 'Root password (min 12 chars)')
   .option('--datacenter <dc>', 'Datacenter region', 'fsn1')
-  .action(async (opts: {
-    name?: string; image?: string; plan?: string; cpuType?: string;
-    network?: string; sshKeyId?: string; password?: string; datacenter: string;
+  .action(async (rawOpts: {
+    name?: string; image?: string; plan?: string; resourceProfile?: string;
+    cpuType?: string; cpuAllocationType?: string; network?: string; networkStack?: string;
+    sshKeyId?: string; password?: string; datacenter: string;
   }) => {
+    const opts = {
+      ...rawOpts,
+      plan: resolveAlias('resource-profile', [
+        ['--resource-profile', rawOpts.resourceProfile],
+        ['--plan', rawOpts.plan],
+      ]),
+      cpuType: resolveAlias('cpu-allocation-type', [
+        ['--cpu-allocation-type', rawOpts.cpuAllocationType],
+        ['--cpu-type', rawOpts.cpuType],
+      ]),
+      network: resolveAlias('network-stack', [
+        ['--network-stack', rawOpts.networkStack],
+        ['--network', rawOpts.network],
+      ]),
+    };
     let sshKeyId = opts.sshKeyId;
     let pass = opts.password;
     let authMethod: string;
