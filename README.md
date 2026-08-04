@@ -91,13 +91,27 @@ concerns, and whether a retry can help:
 Check `cause.retryable` before retrying — a rejected registry credential will
 never clear on its own.
 
+### Unknown commands
+
+A command that does not exist exits **2** and names the alternatives, at any
+depth and whether or not `--help` follows it:
+
+```json
+{"code":"unknown_command","message":"unknown command 'probe' for 'danube rapids'",
+ "command":"probe","parent":"rapids","known_commands":["apply","create",...],
+ "retryable":false}
+```
+
+Probing for a command is therefore safe: `danube rapids probe --help` reports
+the command as missing rather than printing the parent's help and exiting 0.
+
 ### Exit codes
 
 | Code | Meaning |
 |------|---------|
 | 0 | Success |
 | 1 | Generic or API error |
-| 2 | Missing required flag (non-interactive), or a usage error such as a conflicting selector or a non-integer project id |
+| 2 | Missing required flag (non-interactive), or a usage error such as an unknown command, a conflicting selector, or a non-integer project id |
 | 3 | Not authenticated |
 | 4 | Resource not found |
 | 5 | Confirmation required (add `--force`) |

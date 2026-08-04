@@ -1,110 +1,10 @@
-import { Command } from 'commander';
-import { loginCommand } from './commands/login.js';
-import { logoutCommand } from './commands/logout.js';
-import { whoamiCommand } from './commands/whoami.js';
-import { linkCommand } from './commands/link.js';
-import { deployCommand } from './commands/deploy.js';
-import { deploymentsCommand } from './commands/deployments.js';
-import { domainsCommand } from './commands/domains.js';
-import { authCommand } from './commands/auth.js';
-import { storageCommand } from './commands/storage/index.js';
-import { vpsCommand } from './commands/vps/index.js';
-import { cacheCommand } from './commands/cache/index.js';
-import { databaseCommand } from './commands/database/index.js';
-import { parameterGroupsCommand } from './commands/parameter-groups.js';
-import { projectCommand } from './commands/project.js';
-import { lsCommand as serverlessLsCommand } from './commands/serverless/ls.js';
-import { createCommand as serverlessCreateCommand } from './commands/serverless/create.js';
-import { deployCommand as serverlessDeployCommand } from './commands/serverless/deploy.js';
-import { redeployCommand as serverlessRedeployCommand } from './commands/serverless/redeploy.js';
-import { showCommand as serverlessShowCommand } from './commands/serverless/show.js';
-import { updateCommand as serverlessUpdateCommand } from './commands/serverless/update.js';
-import { rmCommand as serverlessRmCommand } from './commands/serverless/rm.js';
-import { deploymentsCommand as serverlessDeploymentsCommand } from './commands/serverless/deployments.js';
-import { usageCommand as serverlessUsageCommand } from './commands/serverless/usage.js';
-import {
-  logsCommand as rapidsLogsCommand,
-  revisionsCommand as rapidsRevisionsCommand,
-  eventsCommand as rapidsEventsCommand,
-} from './commands/serverless/diagnostics.js';
-import { diagnoseCommand } from './commands/serverless/diagnose.js';
-import { applyCommand as serverlessApplyCommand } from './commands/serverless/apply.js';
-import { registryCommand } from './commands/registry/index.js';
+import { buildProgram } from './program.js';
 import { handleError } from './lib/handle-error.js';
-import { getCurrentVersion, checkForUpdate, printUpdateNotification } from './lib/version.js';
-import { setJsonMode, isJsonMode } from './lib/json-mode.js';
-import { setProjectOverride, resolveProjectFlag } from './lib/project-context.js';
+import { checkForUpdate, printUpdateNotification } from './lib/version.js';
+import { isJsonMode } from './lib/json-mode.js';
+import { findUnknownCommand, formatUnknownCommand, wantsJsonOutput } from './lib/command-resolution.js';
 
-const program = new Command()
-  .name('danube')
-  .description('DanubeData CLI')
-  .version(getCurrentVersion())
-  .option('--json', 'Output results as JSON (for scripting and LLM tool use)')
-  // Project context is a REQUEST concern, so it is declared once here and
-  // inherited by every subcommand — rather than re-implemented per command,
-  // which is how a flag came to be honoured by one and ignored by the next.
-  .option('--project <id>', 'Run against this project (team) id, for this invocation only')
-  .option('--team <id>', 'Alias for --project (compatibility)')
-  // Commander's default for an unknown TOP-LEVEL command is to print root help
-  // and exit 0, so `danube operations --help` looked like it succeeded while
-  // doing nothing — an agent reads exit 0 as "the command exists and ran".
-  // Unknown subcommands already exited non-zero, so the two disagreed.
-  .showHelpAfterError()
-  .showSuggestionAfterError();
-
-program.on('command:*', (operands: string[]) => {
-  console.error(`error: unknown command '${operands[0]}'`);
-  process.exit(1);
-});
-
-// Set JSON mode and project context before any command runs.
-program.hook('preAction', (thisCommand) => {
-  const opts = thisCommand.optsWithGlobals();
-  if (opts.json) {
-    setJsonMode(true);
-  }
-  // A global flag scopes THIS invocation and never mutates saved config;
-  // persisting it would leak the selection into the next process.
-  setProjectOverride(resolveProjectFlag(opts));
-});
-
-program.addCommand(loginCommand);
-program.addCommand(authCommand);
-program.addCommand(logoutCommand);
-program.addCommand(whoamiCommand);
-program.addCommand(storageCommand);
-program.addCommand(vpsCommand);
-program.addCommand(cacheCommand);
-program.addCommand(databaseCommand);
-program.addCommand(parameterGroupsCommand);
-program.addCommand(projectCommand);
-
-const pagesCommand = new Command('pages')
-  .description('Manage static sites');
-pagesCommand.addCommand(linkCommand);
-pagesCommand.addCommand(deployCommand);
-pagesCommand.addCommand(deploymentsCommand);
-pagesCommand.addCommand(domainsCommand);
-program.addCommand(pagesCommand);
-
-const serverlessCommand = new Command('rapids')
-  .description('Manage rapids containers');
-serverlessCommand.addCommand(serverlessLsCommand);
-serverlessCommand.addCommand(serverlessCreateCommand);
-serverlessCommand.addCommand(serverlessDeployCommand);
-serverlessCommand.addCommand(serverlessRedeployCommand);
-serverlessCommand.addCommand(serverlessShowCommand);
-serverlessCommand.addCommand(serverlessUpdateCommand);
-serverlessCommand.addCommand(serverlessRmCommand);
-serverlessCommand.addCommand(serverlessDeploymentsCommand);
-serverlessCommand.addCommand(serverlessUsageCommand);
-serverlessCommand.addCommand(rapidsLogsCommand);
-serverlessCommand.addCommand(rapidsRevisionsCommand);
-serverlessCommand.addCommand(rapidsEventsCommand);
-serverlessCommand.addCommand(diagnoseCommand);
-serverlessCommand.addCommand(serverlessApplyCommand);
-program.addCommand(serverlessCommand);
-program.addCommand(registryCommand);
+const program = buildProgram();
 
 // Graceful SIGINT fallback — clean exit when Ctrl+C is pressed outside polling loops
 process.on('SIGINT', () => {
@@ -112,22 +12,19 @@ process.on('SIGINT', () => {
   process.exit(130);
 });
 
-// Global error handler
-program.hook('postAction', () => {});
 process.on('unhandledRejection', (err) => handleError(err));
 
-// `command:*` fires too late for `danube <unknown> --help`: Commander consumes
-// `--help` as the ROOT's help flag, prints root help and exits 0 before any
-// unknown-command handling runs. So the check happens before parse, against the
-// first non-flag token.
-const firstArg = process.argv.slice(2).find((a) => !a.startsWith('-'));
-if (firstArg !== undefined) {
-  const known = new Set(program.commands.flatMap((c) => [c.name(), ...c.aliases()]));
-  if (!known.has(firstArg) && firstArg !== 'help') {
-    console.error(`error: unknown command '${firstArg}'`);
-    console.error(`Run 'danube --help' for the list of commands.`);
-    process.exit(1);
-  }
+// Resolve the command path before Commander parses. Commander consumes
+// `--help` as a flag of whatever command it has resolved SO FAR, so
+// `danube rapids probe --help` printed the `rapids` help and exited 0 while
+// `danube rapids probe` exited 1 — the same non-existent command reported two
+// different ways depending on a flag.
+const argv = process.argv.slice(2);
+const unknown = findUnknownCommand(program, argv);
+if (unknown) {
+  const { lines, exitCode } = formatUnknownCommand(unknown, wantsJsonOutput(argv));
+  for (const line of lines) console.error(line);
+  process.exit(exitCode);
 }
 
 program.parseAsync()

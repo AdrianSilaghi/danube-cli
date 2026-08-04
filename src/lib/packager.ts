@@ -1,7 +1,11 @@
 import { readFile, readdir, realpath, stat } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
 import ignore from 'ignore';
-import archiver from 'archiver';
+// archiver 8 is ESM-only and exports format classes instead of the v7 factory
+// function. The upgrade is what removes the deprecated `glob@10` from the
+// install tree: v8 dropped `archiver-utils`, which was the only thing pulling
+// it in.
+import { ZipArchive } from 'archiver';
 
 async function collectFiles(dir: string, ig: ReturnType<typeof ignore>, base: string): Promise<string[]> {
   const entries = await readdir(dir, { withFileTypes: true });
@@ -73,7 +77,7 @@ export async function packageDirectory(dir: string, extraIgnore?: string[]): Pro
   const chunks: Buffer[] = [];
 
   await new Promise<void>((resolve, reject) => {
-    const archive = archiver('zip', { zlib: { level: 9 } });
+    const archive = new ZipArchive({ zlib: { level: 9 } });
 
     archive.on('data', (chunk: Buffer) => chunks.push(chunk));
     archive.on('end', resolve);

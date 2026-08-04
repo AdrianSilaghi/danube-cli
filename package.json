@@ -1,6 +1,6 @@
 {
   "name": "@danubedata/cli",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "DanubeData CLI — manage infrastructure from the terminal",
   "type": "module",
   "bin": {
@@ -43,14 +43,14 @@
   },
   "dependencies": {
     "@inquirer/prompts": "^8.2.1",
-    "archiver": "^7.0.1",
+    "archiver": "^8.0.0",
     "chalk": "^5.6.2",
     "commander": "^14.0.3",
     "ignore": "^7.0.5",
     "ora": "^9.3.0"
   },
   "devDependencies": {
-    "@types/archiver": "^7.0.0",
+    "@types/archiver": "^8.0.0",
     "@types/node": "^25.3.0",
     "@vitest/coverage-v8": "^4.0.18",
     "openapi-typescript": "^7.13.0",
