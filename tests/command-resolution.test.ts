@@ -59,8 +59,11 @@ describe('unknown commands are reported at every depth', () => {
   });
 
   it('reports an unknown subcommand under its parent', () => {
-    const report = resolve('rapids probe');
-    expect(report?.token).toBe('probe');
+    // Deliberately a token that will never become a command. `rapids probe`
+    // used to sit here and started passing the day probe shipped — which is
+    // precisely why these tests run against the real tree.
+    const report = resolve('rapids no-such-subcommand');
+    expect(report?.token).toBe('no-such-subcommand');
     expect(report?.parentPath).toEqual(['rapids']);
     expect(report?.known).toContain('diagnose');
   });
@@ -68,11 +71,11 @@ describe('unknown commands are reported at every depth', () => {
   it('reports it identically when --help is appended', () => {
     // The reported inconsistency: Commander consumes `--help` as a flag of the
     // command it has resolved so far, prints the PARENT's help and exits 0.
-    expect(resolve('rapids probe --help')).toEqual(resolve('rapids probe'));
+    expect(resolve('rapids no-such-subcommand --help')).toEqual(resolve('rapids no-such-subcommand'));
   });
 
   it('reports an unknown top-level command with --help the same way', () => {
-    expect(resolve('operations --help')).toEqual(resolve('operations'));
+    expect(resolve('no-such-command --help')).toEqual(resolve('no-such-command'));
   });
 
   it('reports an unknown command three levels down', () => {
@@ -97,6 +100,10 @@ describe('valid invocations resolve', () => {
     'registry verify-push safi4/app:1',
     'storage buckets ls',
     'project select',
+    'rapids probe my-api',
+    'rapids preflight --image cr.danubedata.ro/ns/app:v1',
+    'operations wait op-1 --timeout 30m',
+    'operations inspect op-1',
   ];
 
   for (const line of valid) {
@@ -122,17 +129,21 @@ describe('valid invocations resolve', () => {
 describe('output format', () => {
   const report = { token: 'probe', parentPath: ['rapids'], known: ['diagnose', 'logs'] };
 
-  it('emits a parseable object under --json', () => {
-    const { lines, exitCode } = formatUnknownCommand(report, true);
+  it('emits the standard envelope under --json', () => {
+    const { lines, exitCode, stream } = formatUnknownCommand(report, true);
 
     expect(lines).toHaveLength(1);
     const payload = JSON.parse(lines[0]!);
-    expect(payload.code).toBe('unknown_command');
-    expect(payload.command).toBe('probe');
-    expect(payload.parent).toBe('rapids');
-    expect(payload.known_commands).toEqual(['diagnose', 'logs']);
+    expect(payload.success).toBe(false);
+    expect(payload.data).toBeNull();
+    expect(payload.error.code).toBe('unknown_command');
+    expect(payload.error.command).toBe('probe');
+    expect(payload.error.parent).toBe('rapids');
     // An unknown command never succeeds on a second attempt.
-    expect(payload.retryable).toBe(false);
+    expect(payload.error.retryable).toBe(false);
+    expect(payload.meta.known_commands).toEqual(['diagnose', 'logs']);
+    // Same destination as every other envelope, so one capture finds it.
+    expect(stream).toBe('stdout');
     expect(exitCode).toBe(2);
   });
 

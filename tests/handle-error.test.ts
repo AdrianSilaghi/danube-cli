@@ -41,8 +41,12 @@ describe('handleError', () => {
   it('exits 2 on MissingFlagsError and emits flags in JSON mode', () => {
     setJsonMode(true);
     expect(exitCodeOf(new MissingFlagsError(['--name']))).toBe(2);
-    const payload = JSON.parse((errorSpy.mock.calls.at(-1)![0]) as string);
-    expect(payload).toMatchObject({ code: 'missing_required_flag', flags: ['--name'] });
+    // Errors now travel in the same envelope as results, on stdout — a caller
+    // that captured only stdout used to get nothing at all on failure.
+    const payload = JSON.parse((logSpy.mock.calls.at(-1)![0]) as string);
+    expect(payload.success).toBe(false);
+    expect(payload.data).toBeNull();
+    expect(payload.error).toMatchObject({ code: 'missing_required_flag', flags: ['--name'] });
   });
 
   it('exits 5 on ConfirmationRequiredError', () => {
@@ -56,8 +60,8 @@ describe('handleError', () => {
   it('emits code "not_found" for ResourceNotFoundError in JSON mode', () => {
     setJsonMode(true);
     expect(exitCodeOf(new ResourceNotFoundError("VPS 'x' not found."))).toBe(4);
-    const payload = JSON.parse((errorSpy.mock.calls.at(-1)![0]) as string);
-    expect(payload).toMatchObject({ code: 'not_found', message: "VPS 'x' not found." });
+    const payload = JSON.parse((logSpy.mock.calls.at(-1)![0]) as string);
+    expect(payload.error).toMatchObject({ code: 'not_found', message: "VPS 'x' not found." });
   });
 
   it('exits 130 with "Cancelled." on aborted prompt', () => {

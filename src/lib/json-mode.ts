@@ -8,29 +8,65 @@ export function isJsonMode(): boolean {
   return _jsonMode;
 }
 
-export function jsonOutput(data: unknown): void {
-  console.log(JSON.stringify(data, null, 2));
+/**
+ * The envelope every `--json` invocation emits, success or failure.
+ */
+export interface JsonEnvelope {
+  success: boolean;
+  data: unknown;
+  error: JsonErrorBody | null;
+  meta: Record<string, unknown>;
+}
+
+export interface JsonErrorBody {
+  code: string;
+  message?: string;
+  [k: string]: unknown;
 }
 
 /**
- * The single JSON shape every command emits.
+ * One writer, one destination.
  *
- * Registry commands already returned `{success, data, error, meta}` because the
- * API does, while diagnose and apply invented their own top-level structures.
- * An agent had to know which command it was talking to before it could find the
- * payload — which defeats the point of machine-readable output.
+ * Everything goes to stdout — including errors, which used to go to stderr.
+ * A caller that captured only stdout got an empty string on failure and had to
+ * infer the reason from the exit code; now there is exactly one place to look
+ * and `success` always answers the question.
+ */
+function emit(payload: JsonEnvelope): void {
+  console.log(JSON.stringify(payload, null, 2));
+}
+
+/**
+ * Emit a successful result.
  *
- * `meta` is always an object, never an array: a client that types it as a map
- * breaks on the one response that happens to have nothing in it.
+ * Wrapping happens here rather than at the ~100 call sites, so a command
+ * cannot forget to do it and the shape cannot drift between commands.
+ */
+export function jsonOutput(data: unknown): void {
+  emit({
+    success: true,
+    data,
+    error: null,
+    // A list's length is worth stating outright: it is the first thing a
+    // caller checks, and counting client-side invites off-by-one paging bugs.
+    meta: Array.isArray(data) ? { count: data.length } : {},
+  });
+}
+
+/**
+ * Emit a result with explicit metadata, or a structured failure.
  */
 export function jsonEnvelope(
   data: unknown,
-  opts: { error?: { code: string; message?: string; retryable?: boolean; hint?: string } | null; meta?: Record<string, unknown> } = {},
+  opts: { error?: JsonErrorBody | null; meta?: Record<string, unknown> } = {},
 ): void {
   const error = opts.error ?? null;
-  jsonOutput({ success: error === null, data, error, meta: opts.meta ?? {} });
+  emit({ success: error === null, data, error, meta: opts.meta ?? {} });
 }
 
-export function jsonError(error: { code: string; message: string; [k: string]: unknown }): void {
-  console.error(JSON.stringify(error));
+/**
+ * Emit a failure. `data` is null: there is no partial result to salvage.
+ */
+export function jsonError(error: JsonErrorBody): void {
+  emit({ success: false, data: null, error, meta: {} });
 }

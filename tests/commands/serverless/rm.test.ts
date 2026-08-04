@@ -98,7 +98,7 @@ describe('serverless rm command', () => {
 
     await rmCommand.parseAsync(['node', 'test', 'my-api', '--force']);
 
-    const printed = JSON.parse(consoleLogSpy.mock.calls.at(-1)![0] as string);
+    const printed = JSON.parse(consoleLogSpy.mock.calls.at(-1)![0] as string).data;
     expect(printed).toEqual({ status: 'deleted', id: 'abc-123' });
     setJsonMode(false);
   });

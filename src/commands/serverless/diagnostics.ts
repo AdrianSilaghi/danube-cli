@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { ApiClient } from '../../lib/api-client.js';
 import { resolveContainer } from './resolve.js';
-import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
+import { isJsonMode, jsonEnvelope } from '../../lib/json-mode.js';
 import { UsageError } from '../../lib/errors.js';
 
 /** Container values the API accepts. Mirrors ServerlessLogsService::CONTAINERS. */
@@ -99,7 +99,7 @@ const logsCommand = new Command('logs')
       // Emit the envelope verbatim: availability, cursor and retention are
       // exactly what a caller needs to page correctly and to tell an empty
       // stream apart from an unreachable backend.
-      jsonOutput(res);
+      jsonEnvelope(res.data, { error: res.error ?? null, meta: res.meta ?? {} });
       return;
     }
 
@@ -140,7 +140,7 @@ const revisionsCommand = new Command('revisions')
     }>>(`/api/v1/serverless/${container.id}/revisions`);
 
     if (isJsonMode()) {
-      jsonOutput(res);
+      jsonEnvelope(res.data, { error: res.error ?? null, meta: res.meta ?? {} });
       return;
     }
 
@@ -184,7 +184,7 @@ const eventsCommand = new Command('events')
     );
 
     if (isJsonMode()) {
-      jsonOutput(res);
+      jsonEnvelope(res.data, { error: res.error ?? null, meta: res.meta ?? {} });
       return;
     }
 

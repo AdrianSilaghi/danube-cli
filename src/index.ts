@@ -22,8 +22,9 @@ process.on('unhandledRejection', (err) => handleError(err));
 const argv = process.argv.slice(2);
 const unknown = findUnknownCommand(program, argv);
 if (unknown) {
-  const { lines, exitCode } = formatUnknownCommand(unknown, wantsJsonOutput(argv));
-  for (const line of lines) console.error(line);
+  const { lines, exitCode, stream } = formatUnknownCommand(unknown, wantsJsonOutput(argv));
+  const write = stream === 'stdout' ? console.log : console.error;
+  for (const line of lines) write(line);
   process.exit(exitCode);
 }
 

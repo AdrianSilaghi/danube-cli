@@ -199,7 +199,7 @@ describe('serverless deploy command', () => {
 
     await deployCommand.parseAsync(['node', 'test', 'my-api', '--dir', testDir, '--no-wait']);
 
-    const printed = JSON.parse(consoleLogSpy.mock.calls.at(-1)![0] as string);
+    const printed = JSON.parse(consoleLogSpy.mock.calls.at(-1)![0] as string).data;
     expect(printed).toEqual({ id: 'abc-123', name: 'my-api', status: 'building' });
     setJsonMode(false);
   });
@@ -218,7 +218,7 @@ describe('serverless deploy command', () => {
 
     await deployCommand.parseAsync(['node', 'test', 'my-api', '--dir', testDir]);
 
-    const printed = JSON.parse(consoleLogSpy.mock.calls.at(-1)![0] as string);
+    const printed = JSON.parse(consoleLogSpy.mock.calls.at(-1)![0] as string).data;
     expect(printed).toEqual({
       id: 'abc-123', name: 'my-api', status: 'succeeded', build_number: 1,
       url: 'https://my-api.serverless.danubedata.ro',
@@ -242,7 +242,7 @@ describe('serverless deploy command', () => {
     ).rejects.toThrow(ExitError);
 
     expect(process.exit).toHaveBeenCalledWith(1);
-    const printed = JSON.parse(consoleErrorSpy.mock.calls.at(-1)![0] as string);
+    const printed = JSON.parse(consoleLogSpy.mock.calls.at(-1)![0] as string).error;
     expect(printed).toEqual({ code: 'build_failed', message: 'Dockerfile not found' });
     setJsonMode(false);
   });
@@ -270,7 +270,7 @@ describe('serverless deploy command', () => {
       ).rejects.toThrow(ExitError);
 
       expect(process.exit).toHaveBeenCalledWith(1);
-      const printed = JSON.parse(consoleErrorSpy.mock.calls.at(-1)![0] as string);
+      const printed = JSON.parse(consoleLogSpy.mock.calls.at(-1)![0] as string).error;
       expect(printed).toEqual({ code: 'build_timeout', message: 'Timed out waiting for build.' });
     } finally {
       Date.now = original;

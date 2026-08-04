@@ -84,7 +84,7 @@ describe('serverless deployments command', () => {
 
     await deploymentsCommand.parseAsync(['node', 'test', 'my-api']);
 
-    const printed = JSON.parse(consoleLogSpy.mock.calls.at(-1)![0] as string);
+    const printed = JSON.parse(consoleLogSpy.mock.calls.at(-1)![0] as string).data;
     expect(printed[0].id).toBe('d-1');
     setJsonMode(false);
   });

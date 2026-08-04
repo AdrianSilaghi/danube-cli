@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { ApiClient } from '../../lib/api-client.js';
-import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
+import { isJsonMode, jsonEnvelope } from '../../lib/json-mode.js';
 
 interface Envelope<T> {
   success: boolean;
@@ -41,7 +41,7 @@ const contextCommand = new Command('context')
     const res = await api.get<Envelope<RegistryContext>>('/api/v1/registry/context');
 
     if (isJsonMode()) {
-      jsonOutput(res);
+      jsonEnvelope(res.data, { error: res.error ?? null, meta: res.meta ?? {} });
       return;
     }
 
@@ -70,7 +70,7 @@ const verifyPushCommand = new Command('verify-push')
     );
 
     if (isJsonMode()) {
-      jsonOutput(res);
+      jsonEnvelope(res.data, { error: res.error ?? null, meta: res.meta ?? {} });
       // A refusal is a failed check, not a failed command invocation — but a
       // script running this in a pipeline needs a non-zero exit to branch on.
       if (!res.data.permitted) process.exitCode = 1;

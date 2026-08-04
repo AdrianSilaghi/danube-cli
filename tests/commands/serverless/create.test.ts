@@ -241,7 +241,7 @@ describe('serverless create command', () => {
       '--port', '3000',
     ]);
 
-    const printed = JSON.parse(consoleLogSpy.mock.calls.at(-1)![0] as string);
+    const printed = JSON.parse(consoleLogSpy.mock.calls.at(-1)![0] as string).data;
     expect(printed).toMatchObject({ id: 'abc-123', name: 'my-api' });
     setJsonMode(false);
   });

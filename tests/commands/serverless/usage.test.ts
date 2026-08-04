@@ -109,7 +109,7 @@ describe('serverless usage command', () => {
 
     await usageCommand.parseAsync(['node', 'test', 'my-api']);
 
-    const printed = JSON.parse(consoleLogSpy.mock.calls.at(-1)![0] as string);
+    const printed = JSON.parse(consoleLogSpy.mock.calls.at(-1)![0] as string).data;
     expect(printed).toMatchObject({ period: '2024-01', summary: { total_requests: 15000 } });
     setJsonMode(false);
   });

@@ -68,7 +68,7 @@ describe('project select command', () => {
 
     expect(mockSelect).not.toHaveBeenCalled();
     expect(mockWriteConfig).toHaveBeenCalledWith({ token: 'tok', teamId: 1, teamName: 'Solo Team' });
-    const printed = JSON.parse(consoleLogSpy.mock.calls.at(-1)![0] as string);
+    const printed = JSON.parse(consoleLogSpy.mock.calls.at(-1)![0] as string).data;
     expect(printed).toEqual({ id: 1, name: 'Solo Team' });
     setJsonMode(false);
   });

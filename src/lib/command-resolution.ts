@@ -131,9 +131,10 @@ export function wantsJsonOutput(argv: readonly string[]): boolean {
 }
 
 export interface UnknownCommandOutput {
-  /** Lines to write to stderr. */
   lines: string[];
   exitCode: number;
+  /** JSON goes to stdout with every other envelope; prose goes to stderr. */
+  stream: 'stdout' | 'stderr';
 }
 
 /**
@@ -151,14 +152,19 @@ export function formatUnknownCommand(report: UnknownCommandReport, json: boolean
   if (json) {
     return {
       lines: [JSON.stringify({
-        code: 'unknown_command',
-        message,
-        command: report.token,
-        parent: report.parentPath.join(' '),
-        known_commands: report.known,
-        retryable: false,
-      })],
+        success: false,
+        data: null,
+        error: {
+          code: 'unknown_command',
+          message,
+          command: report.token,
+          parent: report.parentPath.join(' '),
+          retryable: false,
+        },
+        meta: { known_commands: report.known },
+      }, null, 2)],
       exitCode: 2,
+      stream: 'stdout',
     };
   }
 
@@ -169,5 +175,6 @@ export function formatUnknownCommand(report: UnknownCommandReport, json: boolean
       `Run '${parent} --help' for details.`,
     ],
     exitCode: 2,
+    stream: 'stderr',
   };
 }

@@ -90,7 +90,7 @@ describe('serverless show command', () => {
       .mockResolvedValueOnce({ data: [makeContainer()] })                       // resolve
       .mockResolvedValueOnce({ container: makeContainer(), url: 'https://x', monthly_cost: 1.5 });
     await showCommand.parseAsync(['node', 'test', 'my-api']);
-    const printed = JSON.parse(consoleLogSpy.mock.calls.at(-1)![0] as string);
+    const printed = JSON.parse(consoleLogSpy.mock.calls.at(-1)![0] as string).data;
     expect(printed).toMatchObject({ url: 'https://x', monthly_cost: 1.5 });
     setJsonMode(false);
   });

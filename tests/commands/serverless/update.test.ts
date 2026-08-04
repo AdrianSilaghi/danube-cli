@@ -187,7 +187,7 @@ describe('serverless update command', () => {
 
     await updateCommand.parseAsync(['node', 'test', 'my-api', '--image', 'node', '--tag', '18']);
 
-    const printed = JSON.parse(consoleLogSpy.mock.calls.at(-1)![0] as string);
+    const printed = JSON.parse(consoleLogSpy.mock.calls.at(-1)![0] as string).data;
     expect(printed).toMatchObject({ image: 'node' });
     setJsonMode(false);
   });

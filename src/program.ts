@@ -29,6 +29,9 @@ import {
 } from './commands/serverless/diagnostics.js';
 import { diagnoseCommand } from './commands/serverless/diagnose.js';
 import { applyCommand as serverlessApplyCommand } from './commands/serverless/apply.js';
+import { probeCommand } from './commands/serverless/probe.js';
+import { preflightCommand } from './commands/serverless/preflight.js';
+import { operationsCommand } from './commands/operations.js';
 import { registryCommand } from './commands/registry/index.js';
 import { getCurrentVersion } from './lib/version.js';
 import { setJsonMode } from './lib/json-mode.js';
@@ -60,11 +63,12 @@ export function buildProgram(): Command {
   // declined to judge. It reports through the same formatter so an agent sees
   // one shape whichever path produced the error.
   program.on('command:*', (operands: string[]) => {
-    const { lines, exitCode } = formatUnknownCommand(
+    const { lines, exitCode, stream } = formatUnknownCommand(
       { token: operands[0] ?? '', parentPath: [], known: program.commands.map((c) => c.name()).sort() },
       wantsJsonOutput(process.argv.slice(2)),
     );
-    for (const line of lines) console.error(line);
+    const write = stream === 'stdout' ? console.log : console.error;
+    for (const line of lines) write(line);
     process.exit(exitCode);
   });
 
@@ -114,8 +118,11 @@ export function buildProgram(): Command {
   serverlessCommand.addCommand(rapidsEventsCommand);
   serverlessCommand.addCommand(diagnoseCommand);
   serverlessCommand.addCommand(serverlessApplyCommand);
+  serverlessCommand.addCommand(probeCommand);
+  serverlessCommand.addCommand(preflightCommand);
   program.addCommand(serverlessCommand);
   program.addCommand(registryCommand);
+  program.addCommand(operationsCommand);
 
   return program;
 }

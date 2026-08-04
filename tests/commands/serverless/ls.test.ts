@@ -56,7 +56,7 @@ describe('serverless ls command', () => {
     mockGet.mockResolvedValue({ data: [makeContainer()], pagination: { current_page: 1, last_page: 1, per_page: 100, total: 1 } });
     await lsCommand.parseAsync(['node', 'test']);
     const printed = consoleLogSpy.mock.calls.at(-1)![0] as string;
-    expect(JSON.parse(printed)[0].name).toBe(makeContainer().name);
+    expect(JSON.parse(printed).data[0].name).toBe(makeContainer().name);
     expect(consoleLogSpy).toHaveBeenCalledTimes(1);
     setJsonMode(false);
   });
