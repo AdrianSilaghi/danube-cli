@@ -187,9 +187,33 @@ export const diagnoseCommand = new Command('diagnose')
 
     if (isJsonMode()) {
       const worst = findings.find((f) => f.severity === 'fatal');
+
+      // BREAKING at 1.0: `success` reports the CALL, not the verdict.
+      //
+      // This used to set `error` from the worst finding, which made
+      // `success: false` — so a diagnosis that worked perfectly and correctly
+      // identified a broken container reported itself as a failure. Callers
+      // could not tell "we could not diagnose" from "we diagnosed, and the
+      // news is bad", and `preflight` already disagreed with it.
+      //
+      // The verdict now lives where every other product puts it: in `data`,
+      // and in the exit code, which is still 1 on a fatal finding.
       jsonEnvelope(report, {
-        error: worst ? { code: worst.code, message: worst.summary, retryable: worst.retryable } : null,
-        meta: { finding_count: findings.length, observed_at: status?.observed_at ?? null },
+        error: null,
+        meta: {
+          finding_count: findings.length,
+          observed_at: status?.observed_at ?? null,
+          // Hoisted so a caller reading only `meta` gets the verdict without
+          // walking the findings array. Derived from SEVERITY, not from the
+          // count: a healthy container still carries an informational
+          // `diagnose.healthy` finding, so counting would report it as
+          // "something was found".
+          verdict: worst
+            ? 'fatal'
+            : findings.some((f) => f.severity === 'action_required')
+              ? 'action_required'
+              : 'healthy',
+        },
       });
     } else {
       render(report);
