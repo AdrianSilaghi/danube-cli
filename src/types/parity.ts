@@ -269,27 +269,33 @@ type AssertTrue<T extends true> = T;
 type RapidsRevision = RapidsRevisions['data']['revisions'][number];
 
 /**
- * REGRESSION, currently live. The four guards that used to assert
- * `meta.truncated` / `.next_cursor` / `.level` individually cannot even be
- * written today: the deployed spec types the WHOLE `meta` object as `string`,
- * so indexing into it does not compile.
+ * FIRED, and half-fixed — the tripwire moves down a level rather than being
+ * deleted.
  *
- * Cause: `RespondsWithEnvelope::envelope()` returns `'meta' => (object) $meta`
- * (danubedata f671ec94). Scramble cannot infer a shape through the cast, falls
- * back to `string`, and scrapes the adjacent `//` comment as the description —
- * the published description is literally
- * "(object) so an empty meta serialises as {} rather than [].".
+ * `meta` used to be typed `string` in the deployed spec, for every diagnostics
+ * endpoint on every product: `RespondsWithEnvelope::envelope()` returns
+ * `'meta' => (object) $meta`, Scramble could not infer through the cast, fell
+ * back to `string`, and scraped the adjacent `//` comment as the description.
+ * danubedata #298 added a `@var object` annotation and regenerated the whole
+ * contract after seven months of staleness, so `meta` is an object again.
  *
- * The RUNTIME payload is correct; only the spec is wrong. But it is wrong for
- * every diagnostics endpoint on every product now, not just rapids, because
- * they all share that trait.
+ * What it is NOT is described. The annotation says `object` with no
+ * properties, which openapi-typescript renders as `Record<string, never>`:
+ * `meta.truncated` still does not type-check, and every value is `never`. The
+ * runtime payload does carry `truncated`, `next_cursor` and friends, so the
+ * four per-field guards this file used to want remain unwritable.
  *
- * These assert the BROKEN shape on purpose, per this file's idiom. When the
- * backend teaches Scramble the meta shape, they stop compiling — at which
- * point restore the four per-field Exact guards from git history.
+ * These therefore assert the REMAINING gap — meta is an undocumented bag — and
+ * fire when the backend declares real per-endpoint meta shapes, at which point
+ * per-field `Exact` guards become writable for the first time.
+ *
+ * Deliberately not chased further backend-side: a free-form envelope field
+ * typed loosely is a documentation gap, not a defect, and per-endpoint meta
+ * schemas are a lot of machinery for a field the CLI already reads
+ * defensively.
  */
-type _tripwireLogsMetaIsString = AssertTrue<Exact<RapidsLogs['meta'], string>>;
-type _tripwireEventsMetaIsString = AssertTrue<Exact<RapidsEvents['meta'], string>>;
+type _tripwireLogsMetaIsUndocumented = AssertTrue<Exact<RapidsLogs['meta'], Record<string, never>>>;
+type _tripwireEventsMetaIsUndocumented = AssertTrue<Exact<RapidsEvents['meta'], Record<string, never>>>;
 type _guardRevisionGeneration = AssertTrue<Exact<RapidsRevision['generation'], number | null>>;
 type _guardRevisionDesiredReplicas = AssertTrue<Exact<RapidsRevision['desired_replicas'], number | null>>;
 type _guardRevisionActualReplicas = AssertTrue<Exact<RapidsRevision['actual_replicas'], number | null>>;
