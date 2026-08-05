@@ -20,6 +20,68 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/cache/{cacheInstance}/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fetch cache instance logs
+         * @description Returns bounded, cursor-paged log entries from the platform log store.
+         */
+        get: operations["v1.cache.logs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cache/{cacheInstance}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Kubernetes events
+         * @description Returns curated platform events for the instance's pods, workloads and
+         *     volumes.
+         */
+        get: operations["v1.cache.events"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cache/{cacheInstance}/diagnose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Diagnose the instance
+         * @description Correlates status, events and log availability into ranked findings
+         *     with remediation.
+         */
+        get: operations["v1.cache.diagnose"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/cache": {
         parameters: {
             query?: never;
@@ -194,6 +256,68 @@ export interface paths {
          * @description Returns a summary (not time-series) suitable for CLI/dashboard consumption.
          */
         get: operations["v1.cache.metrics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/database/{databaseInstance}/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fetch database instance logs
+         * @description Returns bounded, cursor-paged log entries from the platform log store.
+         */
+        get: operations["v1.database.logs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/database/{databaseInstance}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Kubernetes events
+         * @description Returns curated platform events for the instance's pods, workloads and
+         *     volumes.
+         */
+        get: operations["v1.database.events"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/database/{databaseInstance}/diagnose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Diagnose the instance
+         * @description Correlates status, events and log availability into ranked findings
+         *     with remediation.
+         */
+        get: operations["v1.database.diagnose"];
         put?: never;
         post?: never;
         delete?: never;
@@ -569,6 +693,195 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/apps/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the app catalog
+         * @description What can be created, with the resource profiles and published versions
+         *     each type offers. An agent needs this before it can call store().
+         */
+        get: operations["v1.apps.catalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/apps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List app instances */
+        get: operations["v1.apps.index"];
+        put?: never;
+        /**
+         * Create an app instance
+         * @description Provisioning is asynchronous: poll the returned resource's
+         *     `status_details.operation.terminal` rather than assuming the app is
+         *     reachable on return. Send an Idempotency-Key header to make a retry
+         *     safe.
+         */
+        post: operations["v1.apps.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/apps/{appInstance}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Show an app instance */
+        get: operations["v1.apps.show"];
+        /**
+         * Resize an app instance
+         * @description Changes the resource profile. Scaling down is rejected because the
+         *     underlying volume cannot shrink.
+         */
+        put: operations["v1.apps.update"];
+        post?: never;
+        /** Delete an app instance */
+        delete: operations["v1.apps.destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/apps/{appInstance}/restart": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restart an app instance
+         * @description The only lifecycle verb managed apps have — there is no start or stop.
+         */
+        post: operations["v1.apps.restart"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/apps/{appInstance}/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read resource metrics */
+        get: operations["v1.apps.metrics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/apps/{appInstance}/credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the admin credentials
+         * @description Behind its own ability rather than app:read: this returns a working
+         *     password, and a token that merely lists apps must not come away with
+         *     the credentials to every one of them.
+         */
+        get: operations["v1.apps.credentials"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/apps/{appInstance}/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read application logs
+         * @description Returns the app container's output. Sidecar containers (database,
+         *     cache) are excluded — they are platform components, not the app.
+         */
+        get: operations["v1.apps.logs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/apps/{appInstance}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Kubernetes events
+         * @description Returns platform events for the app's StatefulSet, pod and volumes.
+         */
+        get: operations["v1.apps.events"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/apps/{appInstance}/diagnose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Diagnose the app
+         * @description Correlates status, platform events, error logs and upgrade history
+         *     into ranked findings with remediation.
+         */
+        get: operations["v1.apps.diagnose"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/kubernetes": {
         parameters: {
             query?: never;
@@ -902,6 +1215,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/storage/buckets/{bucket}/diagnose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Diagnose the bucket
+         * @description Correlates provisioning status, quota headroom and usage freshness into
+         *     ranked findings with remediation. Most importantly it answers "why are
+         *          * my writes failing?" — a bucket at its size limit has every PUT rejected
+         *     by the storage backend, which is otherwise visible only in access logs.
+         */
+        get: operations["v1.storage.buckets.diagnose"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/storage/access-keys": {
         parameters: {
             query?: never;
@@ -947,6 +1283,27 @@ export interface paths {
          * @description Revokes a storage access key, preventing it from being used for future requests.
          */
         delete: operations["v1.storage.access-keys.destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/operations/{operation}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show an operation
+         * @description `terminal` is the stop condition. Do not infer it from `state` — a state
+         *     you do not recognise must be treated as still running, not as finished.
+         */
+        get: operations["v1.operations.show"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1129,6 +1486,68 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/queue/{queueInstance}/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fetch queue instance logs
+         * @description Returns bounded, cursor-paged broker logs from the platform log store.
+         */
+        get: operations["v1.queue.logs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/queue/{queueInstance}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Kubernetes events
+         * @description Returns curated platform events for the broker's pods, workload and
+         *     volumes.
+         */
+        get: operations["v1.queue.events"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/queue/{queueInstance}/diagnose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Diagnose the instance
+         * @description Correlates status, events and log availability into ranked findings
+         *     with remediation.
+         */
+        get: operations["v1.queue.diagnose"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/queue": {
         parameters: {
             query?: never;
@@ -1201,6 +1620,94 @@ export interface paths {
             cookie?: never;
         };
         get: operations["v1.queue.connection-info"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/queue/{queueInstance}/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Broker metrics
+         * @description Mirrors the cache and database metrics endpoints; the service behind it
+         *     already powered the dashboard and was simply never exposed to the API.
+         */
+        get: operations["v1.queue.metrics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/registry/context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Registry context for the current project
+         * @description Where this project may push, and how much room is left. Use
+         *     `push_prefix` verbatim rather than deriving it from the project name.
+         */
+        get: operations["v1.registry.context"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/registry/verify-push": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Check whether a push would be permitted
+         * @description Answers before the push what Distribution would only tell you afterwards,
+         *     and never in terms you could act on. `permitted: false` always carries a
+         *     machine-readable `code` and a concrete `hint`.
+         */
+        get: operations["v1.registry.verify-push"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/registry/preflight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Check whether an image can be deployed, before deploying it
+         * @description Answers in one call everything a deploy needs to be true: the image is in
+         *     a namespace this project owns, a credential with pull rights exists, the
+         *     tag is actually present, and it was built for an architecture the cluster
+         *     can run. Each answer that is `false` carries the code and remediation for
+         *     that specific cause.
+         */
+        get: operations["v1.registry.preflight"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1361,6 +1868,11 @@ export interface paths {
         /**
          * Create a new serverless container
          * @description Creates a new serverless container with the specified configuration.
+         *
+         *     Which fields are required depends on `deployment_type`: `docker_image`
+         *     needs `image` and `image_tag`; `git_repository` needs `repository_url`,
+         *     `source_type` and `git_auth_type`; `zip_upload` builds from code you
+         *     upload afterwards with the deploy endpoint.
          */
         post: operations["v1.serverless.store"];
         delete?: never;
@@ -1698,6 +2210,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/static-sites/{staticSite}/diagnose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Diagnose the site
+         * @description Correlates status, the latest build and custom-domain verification into
+         *     ranked findings with remediation.
+         */
+        get: operations["v1.static-sites.diagnose"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/teams/{team}/static-sites": {
         parameters: {
             query?: never;
@@ -1884,6 +2417,48 @@ export interface paths {
         post?: never;
         /** Remove a custom domain */
         delete: operations["v1.static-sites.domains.destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/vps/{vpsInstance}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Kubernetes events
+         * @description Returns curated platform events for the VM, its instance, launcher pod
+         *     and disks.
+         */
+        get: operations["v1.vps.events"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/vps/{vpsInstance}/diagnose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Diagnose the instance
+         * @description Correlates status and platform events into ranked findings with
+         *     remediation. Guest-side problems are out of scope.
+         */
+        get: operations["v1.vps.diagnose"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2118,6 +2693,118 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/vps/{vpsInstance}/volumes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List volumes on an instance */
+        get: operations["v1.vps.volumes.index"];
+        put?: never;
+        /**
+         * Create and attach a volume
+         * @description The volume is provisioned asynchronously: poll the returned resource's
+         *     `status_details.operation.terminal` rather than assuming it is usable
+         *     on return.
+         */
+        post: operations["v1.vps.volumes.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/vps/{vpsInstance}/volumes/{vpsVolume}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Show a volume */
+        get: operations["v1.vps.volumes.show"];
+        /**
+         * Resize a volume
+         * @description Expansion only — Longhorn grows a volume online but cannot shrink one.
+         */
+        put: operations["v1.vps.volumes.update"];
+        post?: never;
+        /**
+         * Detach and delete a volume
+         * @description Detaching destroys the volume and its data — there is no detached-but-kept
+         *     state in this product.
+         */
+        delete: operations["v1.vps.volumes.destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/vps/{vpsInstance}/volumes/{vpsVolume}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Kubernetes events
+         * @description Returns platform events for the volume's PersistentVolumeClaim —
+         *     provisioning, binding and expansion.
+         */
+        get: operations["v1.vps.volumes.events"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/vps/{vpsInstance}/volumes/{vpsVolume}/diagnose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Diagnose the volume
+         * @description Correlates the volume's status, its claim's events and the state of the
+         *     VPS it belongs to into ranked findings with remediation.
+         */
+        get: operations["v1.vps.volumes.diagnose"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/volumes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List every volume in the team
+         * @description The instance-scoped listing needs an instance ID; this one does not,
+         *     which is what an agent taking stock of a team's storage actually wants.
+         */
+        get: operations["v1.volumes.index"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/webhooks/config": {
         parameters: {
             query?: never;
@@ -2187,6 +2874,43 @@ export interface components {
         AddApiDatabaseReplicasRequest: {
             replica_count: number;
         };
+        /** AppInstanceResource */
+        AppInstanceResource: {
+            id: string;
+            name: string;
+            app_type: string;
+            status: string | components["schemas"]["AppInstanceStatus"];
+            status_details: components["schemas"]["StatusDetailsResource"];
+            capabilities: string;
+            version: string;
+            resource_profile: string;
+            datacenter: string;
+            subdomain: string;
+            hostname: string;
+            url: string;
+            /**
+             * @description The admin USERNAME is not a secret and is needed to sign in;
+             *     the password is not here on purpose.
+             */
+            admin_user: string;
+            monthly_cost_cents: number;
+            monthly_cost_dollars: number;
+            automated_snapshots_enabled: boolean;
+            current_bundle_id: string | null;
+            rollback_available_until: string | null;
+            deployed_at: string | null;
+            created_at: string | null;
+            updated_at: string | null;
+            team_id: number;
+            user_id: number;
+            can_be_restarted: boolean;
+            can_be_destroyed: boolean;
+        };
+        /**
+         * AppInstanceStatus
+         * @enum {string}
+         */
+        AppInstanceStatus: "pending" | "provisioning" | "running" | "stopped" | "error" | "destroying" | "updating" | "restoring" | "restarting" | "upgrading" | "rolling_back";
         /** CacheInstanceResource */
         CacheInstanceResource: {
             id: string;
@@ -2194,6 +2918,12 @@ export interface components {
             status: string;
             /** @enum {string} */
             status_label: "Pending" | "Provisioning" | "Running" | "Stopped" | "Restoring" | "Updating" | "Error" | "Destroying";
+            status_details: components["schemas"]["StatusDetailsResource"];
+            /**
+             * @description Which diagnostics this resource supports — derived, so an agent
+             *     knows which endpoints are worth calling before calling them.
+             */
+            capabilities: string;
             resource_profile: string | null;
             cpu_cores: number;
             memory_size_mb: number;
@@ -2278,6 +3008,12 @@ export interface components {
             status: string;
             /** @enum {string} */
             status_label: "Pending" | "Starting" | "Stopping" | "Provisioning" | "Running" | "Stopped" | "Restoring" | "Updating" | "Error" | "Destroying";
+            status_details: components["schemas"]["StatusDetailsResource"];
+            /**
+             * @description Which diagnostics this resource supports — derived, so an agent
+             *     knows which endpoints are worth calling before calling them.
+             */
+            capabilities: string;
             resource_profile: string;
             cpu_cores: number;
             memory_size_mb: number;
@@ -2376,6 +3112,16 @@ export interface components {
             created_at: string;
             updated_at: string;
         };
+        /** DiagnosticEventResource */
+        DiagnosticEventResource: {
+            type: string;
+            reason: string;
+            message: string;
+            resource: string;
+            count: string;
+            first_seen: string;
+            last_seen: string;
+        };
         /**
          * DigestFrequency
          * @enum {string}
@@ -2420,6 +3166,15 @@ export interface components {
          * @enum {string}
          */
         FirewallStatus: "draft" | "active" | "applying" | "error";
+        /** InstanceLogEntryResource */
+        InstanceLogEntryResource: {
+            timestamp: string;
+            message: string;
+            level: string;
+            pod: string;
+            container: string;
+            stream: string;
+        };
         /** KubernetesClusterResource */
         KubernetesClusterResource: {
             id: string;
@@ -2504,6 +3259,9 @@ export interface components {
             mqtts_port: number | null;
             stomp_port: number | null;
             stomps_port: number | null;
+            /** Format: date-time */
+            status_observed_at: string | null;
+            failure_details: unknown[] | null;
         };
         /**
          * QueueInstanceStatus
@@ -2563,7 +3321,8 @@ export interface components {
             environment_variables: unknown[] | null;
             /** @description --- state ------------------------------------------------- */
             status: string | null;
-            status_details: string;
+            /** @description The truthful state of this container. Read this rather than `status`. */
+            status_details: components["schemas"]["ServerlessStatusDetailsResource"];
             last_error: string | null;
             error_category: string | null;
             knative_service_name: string | null;
@@ -2733,6 +3492,47 @@ export interface components {
             latest_ready_revision: string | null;
             conditions: components["schemas"]["ServerlessRevisionConditionResource"][];
         };
+        /** ServerlessStatusDetailsResource */
+        ServerlessStatusDetailsResource: {
+            /** @description Overall state: pending, in_progress, ready, degraded, failed, stopped, deleting, unknown. */
+            summary: string;
+            /** @description What is CURRENTLY SERVING: healthy, degraded, unhealthy, unknown. `unknown` during a rollout is not a failure. */
+            health: string;
+            /** @description ISO-8601 time this status was last confirmed. Falls back to the row's last write when the platform has never recorded a check. */
+            observed_at: string | null;
+            /** @description True only when an IN-FLIGHT operation has gone unconfirmed for 15 minutes. A settled state never goes stale, so `false` with an old `observed_at` is correct and expected — an error established an hour ago is still an error. */
+            stale: boolean;
+            operation: components["schemas"]["ServerlessStatusOperationResource"];
+            error: components["schemas"]["ServerlessStatusErrorResource"] | null;
+        };
+        /** ServerlessStatusErrorResource */
+        ServerlessStatusErrorResource: {
+            /** @description Stable automation key, e.g. `serverless.image_pull_auth`. Branch on this, not on `message`. */
+            code: string;
+            /** @description Which subsystem observed it, e.g. `reconciler`. */
+            source: string | null;
+            resource: {
+                /** @description Kubernetes kind, e.g. Revision or Pod. */
+                kind: string | null;
+                /** @description Name of that object. */
+                name: string | null;
+            } | null;
+            /** @description Provider-native reason, e.g. `ContainerMissing`. Correlates with kubectl describe. */
+            reason: string | null;
+            /** @description Human-readable detail. Not a stable interface. */
+            message: string | null;
+            /** @description Whether retrying can possibly help. Retrying a false here only consumes quota. */
+            retryable: boolean;
+            /** @description ISO-8601 time this failure was observed. */
+            observed_at: string | null;
+        };
+        /** ServerlessStatusOperationResource */
+        ServerlessStatusOperationResource: {
+            /** @description queued, running, succeeded, failed or cancelled. */
+            state: string;
+            /** @description THE STOP CONDITION FOR POLLING. Do not infer this from `summary`. */
+            terminal: boolean;
+        };
         /** ServerlessTrafficTargetResource */
         ServerlessTrafficTargetResource: {
             /** @description Revision receiving this share of traffic. */
@@ -2789,6 +3589,15 @@ export interface components {
             source_size_bytes: number | null;
             duration_seconds: number | null;
             error_message: string | null;
+            /**
+             * @description Build output is the one thing that actually explains a failed
+             *     build, and it has been stored all along without ever being
+             *     served. It sits behind `static-site:diagnostics` rather than
+             *     plain read: build output echoes the customer's build
+             *     environment and can carry secrets that a read-scoped token has
+             *     no business seeing.
+             */
+            build_logs?: string;
             commit_sha: string | null;
             commit_message: string | null;
             created_at: string;
@@ -2835,6 +3644,12 @@ export interface components {
             status: string;
             /** @enum {string} */
             status_label: "Pending" | "Building" | "Deploying" | "Active" | "Stopped" | "Error" | "Suspended" | "Pending Review";
+            status_details: components["schemas"]["StatusDetailsResource"];
+            /**
+             * @description Which diagnostics this resource supports — derived, so an agent
+             *     knows which endpoints are worth calling before calling them.
+             */
+            capabilities: string;
             last_error: string | null;
             plan: string;
             deploy_method: string;
@@ -2845,6 +3660,15 @@ export interface components {
             deployed_at: string | null;
             created_at: string;
             updated_at: string;
+        };
+        /** StatusDetailsResource */
+        StatusDetailsResource: {
+            summary: string;
+            health: string;
+            observed_at: string;
+            stale: string;
+            operation: string;
+            error: string;
         };
         /** StorageAccessKeyResource */
         StorageAccessKeyResource: {
@@ -2879,9 +3703,21 @@ export interface components {
             id: string;
             name: string;
             display_name: string | null;
-            status: string;
-            /** @enum {string} */
-            status_label: "Pending" | "Creating" | "Active" | "Updating" | "Error" | "Destroying";
+            /**
+             * @description Defensive against a raw string: the model's canBeModified()
+             *     and canBeDestroyed() already guard for it, and a serializer
+             *     that fatals is a worse answer than an unlabelled status.
+             */
+            status: string | components["schemas"]["StorageBucketStatus"];
+            /** @enum {string|null} */
+            status_label: "Pending" | "Creating" | "Active" | "Updating" | "Error" | "Destroying" | null;
+            status_details: components["schemas"]["StatusDetailsResource"];
+            /**
+             * @description Derived: a bucket has no workload and no cluster object, so it
+             *     offers neither logs nor events — say so rather than making an
+             *     agent find out by 404.
+             */
+            capabilities: string;
             region: string;
             provider: string;
             /** @enum {string} */
@@ -2928,6 +3764,11 @@ export interface components {
             can_be_modified: boolean;
             can_be_destroyed: boolean;
         };
+        /**
+         * StorageBucketStatus
+         * @enum {string}
+         */
+        StorageBucketStatus: "pending" | "creating" | "active" | "updating" | "error" | "destroying";
         /**
          * StoreApiCacheInstanceRequest
          * @description API request for creating cache instances.
@@ -2995,6 +3836,29 @@ export interface components {
             name: string;
             plan?: components["schemas"]["StaticSitePlan"] | null;
         };
+        /**
+         * StoreAppInstanceApiRequest
+         * @description The dashboard's create rules, with the token ability checked FIRST.
+         *
+         *     A FormRequest validates before the controller body runs, so checking
+         *     `app:write` in the controller would let an under-scoped token receive a 422
+         *     instead of a 403 — and subdomain uniqueness is enforced globally, so those
+         *     validation messages would let it probe whether an arbitrary subdomain is
+         *     taken anywhere on the platform. Overriding authorize() moves the check in
+         *     front of the rules; every rule is inherited unchanged, so the two surfaces
+         *     cannot validate differently.
+         */
+        StoreAppInstanceApiRequest: {
+            /** @enum {string} */
+            app_type: "n8n" | "wordpress" | "ghost";
+            name: string;
+            subdomain: string;
+            resource_profile: string;
+            version?: string | null;
+            /** @enum {string} */
+            datacenter: "fsn1";
+            admin_user?: string | null;
+        };
         /** StoreFirewallRequest */
         StoreFirewallRequest: {
             name: string;
@@ -3035,6 +3899,8 @@ export interface components {
             plan: string;
             nodes: number;
         };
+        /** StoreServerlessContainerRequest */
+        StoreServerlessContainerRequest: Record<string, never>;
         /** StoreSshKeyRequest */
         StoreSshKeyRequest: {
             name: string;
@@ -3168,6 +4034,11 @@ export interface components {
             resource_profile?: string;
             configuration?: string[];
             automated_snapshots_enabled?: boolean;
+        };
+        /** UpdateAppInstanceRequest */
+        UpdateAppInstanceRequest: {
+            /** @enum {string} */
+            resource_profile: "";
         };
         /** UpdateFirewallRequest */
         UpdateFirewallRequest: {
@@ -3342,6 +4213,13 @@ export interface components {
             status: string;
             /** @enum {string} */
             status_label: "Pending" | "Provisioning" | "Starting" | "Running" | "Stopping" | "Stopped" | "Rebooting" | "Restoring" | "Reinstalling" | "Error" | "Destroying" | "Recreating";
+            status_details: components["schemas"]["StatusDetailsResource"];
+            /**
+             * @description Which diagnostics this resource supports — derived, so an agent
+             *     knows which endpoints are worth calling. `logs` is false by
+             *     design here: guest output is the customer's own data.
+             */
+            capabilities: string;
             resource_profile: string | null;
             cpu_allocation_type: string;
             cpu_cores: number;
@@ -3365,6 +4243,11 @@ export interface components {
             can_be_rebooted: boolean;
             can_be_destroyed: boolean;
         };
+        /**
+         * VpsInstanceStatus
+         * @enum {string}
+         */
+        VpsInstanceStatus: "pending" | "provisioning" | "starting" | "running" | "stopping" | "stopped" | "rebooting" | "restoring" | "reinstalling" | "error" | "destroying" | "recreating";
         /** VpsSnapshotResource */
         VpsSnapshotResource: {
             id: number;
@@ -3379,6 +4262,42 @@ export interface components {
             };
             created_at: string;
             updated_at: string;
+        };
+        /** VpsVolumeResource */
+        VpsVolumeResource: {
+            id: string;
+            name: string;
+            status: string;
+            status_details: components["schemas"]["StatusDetailsResource"];
+            /**
+             * @description Derived, not hardcoded: a block device has no logs, and saying
+             *     so here saves an agent a 404 to find out.
+             */
+            capabilities: string;
+            size_gb: number;
+            /**
+             * @description The cluster-side names, so an operator reading a support ticket
+             *     can correlate the API object with what they see in Kubernetes.
+             */
+            pvc_name: string;
+            disk_name: string;
+            monthly_cost_cents: number;
+            /**
+             * @description Legacy free-text reason. The machine-readable classification is
+             *     status_details.error — branch on that, not on this prose.
+             */
+            failure_reason: string | null;
+            vps_instance?: {
+                id: string;
+                name: string;
+                status: string | components["schemas"]["VpsInstanceStatus"];
+            };
+            vps_instance_id: string;
+            team_id: number;
+            can_be_resized: boolean;
+            can_be_detached: boolean;
+            created_at: string | null;
+            updated_at: string | null;
         };
         /** WebhookDelivery */
         WebhookDelivery: {
@@ -3482,12 +4401,213 @@ export interface operations {
                             id: number;
                             name: string;
                             personal_team: boolean;
+                            /**
+                             * @description The registry path segment, and the Kubernetes tenant slug.
+                             *     It is NOT derivable from `name`: a team called "Safi" can own
+                             *     the namespace `safi4`, because the slug is uniquified at
+                             *     assignment. Without this field a client has to guess the
+                             *     first segment of `cr.danubedata.ro/{ns}/...`, and a wrong
+                             *     guess fails as an opaque authorization error.
+                             */
+                            registry_namespace: string | null;
                         }[];
                         current_team_id: number;
                     };
                 };
             };
             401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "v1.cache.logs": {
+        parameters: {
+            query?: {
+                since?: string;
+                until?: string;
+                /**
+                 * @description An opaque cursor from a previous response. It is a Loki
+                 *     nanosecond timestamp, so digits-only: rejecting everything else
+                 *     keeps a hand-crafted value from reaching the upstream query.
+                 */
+                cursor?: string;
+                limit?: number;
+                level?: "debug" | "info" | "warn" | "error";
+            };
+            header?: never;
+            path: {
+                /** @description The cache instance ID */
+                cacheInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            available: boolean;
+                            entries: components["schemas"]["InstanceLogEntryResource"][];
+                        };
+                        error: null;
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            available: boolean;
+                            entries: string[];
+                        };
+                        error: {
+                            code: string;
+                            /** @constant */
+                            message: "The log store did not respond. This says nothing about the workload itself — retry shortly.";
+                            retryable: boolean;
+                        };
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
+                    };
+                };
+            };
+        };
+    };
+    "v1.cache.events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The cache instance ID */
+                cacheInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            available: boolean;
+                            events: components["schemas"]["DiagnosticEventResource"][];
+                        };
+                        error: null;
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            available: boolean;
+                            events: string[];
+                        };
+                        error: {
+                            code: string;
+                            /** @constant */
+                            message: "Platform events could not be read for this resource.";
+                            /**
+                             * @description A missing RBAC grant will not fix itself on retry; a
+                             *     transient API-server failure will.
+                             */
+                            retryable: boolean;
+                        };
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
+                    };
+                };
+            };
+        };
+    };
+    "v1.cache.diagnose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The cache instance ID */
+                cacheInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            verdict: string;
+                            status: {
+                                summary: string;
+                                health: string;
+                                observed_at: string;
+                                stale: boolean;
+                                operation: {
+                                    state: string;
+                                    terminal: boolean;
+                                };
+                                error: {
+                                    code: string;
+                                    source: string;
+                                    resource: {
+                                        kind: string | null;
+                                        name: string | null;
+                                    } | null;
+                                    reason: string | null;
+                                    message: string;
+                                    retryable: boolean;
+                                    observed_at: string;
+                                };
+                            };
+                            findings: unknown[];
+                            sections: {
+                                events: {
+                                    available: boolean;
+                                    count: number;
+                                    truncated: boolean;
+                                } | null;
+                                logs: {
+                                    available: boolean;
+                                    sampled_lines: number;
+                                } | null;
+                            };
+                        };
+                        error: null;
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
         };
     };
     "v1.cache.index": {
@@ -3956,6 +5076,198 @@ export interface operations {
             };
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.database.logs": {
+        parameters: {
+            query?: {
+                since?: string;
+                until?: string;
+                /**
+                 * @description An opaque cursor from a previous response. It is a Loki
+                 *     nanosecond timestamp, so digits-only: rejecting everything else
+                 *     keeps a hand-crafted value from reaching the upstream query.
+                 */
+                cursor?: string;
+                limit?: number;
+                level?: "debug" | "info" | "warn" | "error";
+            };
+            header?: never;
+            path: {
+                /** @description The database instance ID */
+                databaseInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            available: boolean;
+                            entries: components["schemas"]["InstanceLogEntryResource"][];
+                        };
+                        error: null;
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            available: boolean;
+                            entries: string[];
+                        };
+                        error: {
+                            code: string;
+                            /** @constant */
+                            message: "The log store did not respond. This says nothing about the workload itself — retry shortly.";
+                            retryable: boolean;
+                        };
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
+                    };
+                };
+            };
+        };
+    };
+    "v1.database.events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The database instance ID */
+                databaseInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            available: boolean;
+                            events: components["schemas"]["DiagnosticEventResource"][];
+                        };
+                        error: null;
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            available: boolean;
+                            events: string[];
+                        };
+                        error: {
+                            code: string;
+                            /** @constant */
+                            message: "Platform events could not be read for this resource.";
+                            /**
+                             * @description A missing RBAC grant will not fix itself on retry; a
+                             *     transient API-server failure will.
+                             */
+                            retryable: boolean;
+                        };
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
+                    };
+                };
+            };
+        };
+    };
+    "v1.database.diagnose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The database instance ID */
+                databaseInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            verdict: string;
+                            status: {
+                                summary: string;
+                                health: string;
+                                observed_at: string;
+                                stale: boolean;
+                                operation: {
+                                    state: string;
+                                    terminal: boolean;
+                                };
+                                error: {
+                                    code: string;
+                                    source: string;
+                                    resource: {
+                                        kind: string | null;
+                                        name: string | null;
+                                    } | null;
+                                    reason: string | null;
+                                    message: string;
+                                    retryable: boolean;
+                                    observed_at: string;
+                                };
+                            };
+                            findings: unknown[];
+                            sections: {
+                                events: {
+                                    available: boolean;
+                                    count: number;
+                                    truncated: boolean;
+                                } | null;
+                                logs: {
+                                    available: boolean;
+                                    sampled_lines: number;
+                                } | null;
+                            };
+                        };
+                        error: null;
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -5067,6 +6379,522 @@ export interface operations {
             };
         };
     };
+    "v1.apps.catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            app_type: string;
+                            display_name: string;
+                            description: string | null;
+                            versions: {
+                                [key: string]: {
+                                    default: boolean;
+                                };
+                            };
+                            resource_profiles: unknown[];
+                        }[];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "v1.apps.index": {
+        parameters: {
+            query?: {
+                per_page?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AppInstanceResource"][];
+                        pagination: {
+                            current_page: number;
+                            last_page: number;
+                            per_page: number;
+                            total: number;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "v1.apps.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoreAppInstanceApiRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "App instance created";
+                        instance: components["schemas"]["AppInstanceResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.apps.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The app instance ID */
+                appInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        instance: components["schemas"]["AppInstanceResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.apps.update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The app instance ID */
+                appInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAppInstanceRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "App instance update initiated";
+                        instance: components["schemas"]["AppInstanceResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.apps.destroy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The app instance ID */
+                appInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "App deletion initiated";
+                        /** @constant */
+                        status: "destroying";
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        error: "App cannot be destroyed in its current state";
+                        status: string;
+                    };
+                };
+            };
+        };
+    };
+    "v1.apps.restart": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The app instance ID */
+                appInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "App restart initiated";
+                        /** @constant */
+                        status: "restarting";
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        error: "App cannot be restarted in its current state";
+                        status: string;
+                    };
+                };
+            };
+        };
+    };
+    "v1.apps.metrics": {
+        parameters: {
+            query?: {
+                hours?: number;
+                step?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The app instance ID */
+                appInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            metrics: {
+                                cpu_usage: string[];
+                                memory_usage: string[];
+                                network: string[];
+                            } | {
+                                cpu_usage: {
+                                    cpu_total_percentage: unknown;
+                                    cpu_app_percentage: unknown;
+                                    cpu_db_percentage: unknown;
+                                };
+                                memory_usage: {
+                                    memory_total: unknown;
+                                    memory_app: unknown;
+                                    memory_db: unknown;
+                                };
+                                network: {
+                                    bytes_received_per_sec: unknown;
+                                    bytes_sent_per_sec: unknown;
+                                };
+                            };
+                            summary: {
+                                cpu_percentage: number;
+                                memory_bytes: string;
+                                memory_mb: number;
+                                retrieved_at: string | null;
+                            };
+                        };
+                        meta: {
+                            hours: Record<string, never> | null;
+                            step: string;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.apps.credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The app instance ID */
+                appInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            admin_user: string;
+                            admin_password: string;
+                            url: string;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.apps.logs": {
+        parameters: {
+            query?: {
+                since?: string;
+                until?: string;
+                /**
+                 * @description An opaque cursor from a previous response. It is a Loki
+                 *     nanosecond timestamp, so digits-only: rejecting everything else
+                 *     keeps a hand-crafted value from reaching the upstream query.
+                 */
+                cursor?: string;
+                limit?: number;
+                level?: "debug" | "info" | "warn" | "error";
+            };
+            header?: never;
+            path: {
+                /** @description The app instance ID */
+                appInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            available: boolean;
+                            entries: components["schemas"]["InstanceLogEntryResource"][];
+                        };
+                        error: null;
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            available: boolean;
+                            entries: string[];
+                        };
+                        error: {
+                            code: string;
+                            /** @constant */
+                            message: "The log store did not respond. This says nothing about the workload itself — retry shortly.";
+                            retryable: boolean;
+                        };
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
+                    };
+                };
+            };
+        };
+    };
+    "v1.apps.events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The app instance ID */
+                appInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            available: boolean;
+                            events: components["schemas"]["DiagnosticEventResource"][];
+                        };
+                        error: null;
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            available: boolean;
+                            events: string[];
+                        };
+                        error: {
+                            code: string;
+                            /** @constant */
+                            message: "Platform events could not be read for this resource.";
+                            /**
+                             * @description A missing RBAC grant will not fix itself on retry; a
+                             *     transient API-server failure will.
+                             */
+                            retryable: boolean;
+                        };
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
+                    };
+                };
+            };
+        };
+    };
+    "v1.apps.diagnose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The app instance ID */
+                appInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            verdict: string;
+                            status: {
+                                summary: string;
+                                health: string;
+                                observed_at: string;
+                                stale: boolean;
+                                operation: {
+                                    state: string;
+                                    terminal: boolean;
+                                };
+                                error: {
+                                    code: string;
+                                    source: string;
+                                    resource: {
+                                        kind: string | null;
+                                        name: string | null;
+                                    } | null;
+                                    reason: string | null;
+                                    message: string;
+                                    retryable: boolean;
+                                    observed_at: string;
+                                };
+                            };
+                            findings: unknown[];
+                            sections: {
+                                events: {
+                                    available: boolean;
+                                    count: number;
+                                    truncated: boolean;
+                                } | null;
+                                logs: {
+                                    available: boolean;
+                                    sampled_lines: number;
+                                } | null;
+                            };
+                        };
+                        error: null;
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
     "v1.kubernetes.index": {
         parameters: {
             query?: {
@@ -5867,6 +7695,72 @@ export interface operations {
             404: components["responses"]["ModelNotFoundException"];
         };
     };
+    "v1.storage.buckets.diagnose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The bucket ID */
+                bucket: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            verdict: string;
+                            status: {
+                                summary: string;
+                                health: string;
+                                observed_at: string;
+                                stale: boolean;
+                                operation: {
+                                    state: string;
+                                    terminal: boolean;
+                                };
+                                error: {
+                                    code: string;
+                                    source: string;
+                                    resource: {
+                                        kind: string | null;
+                                        name: string | null;
+                                    } | null;
+                                    reason: string | null;
+                                    message: string;
+                                    retryable: boolean;
+                                    observed_at: string;
+                                };
+                            };
+                            findings: unknown[];
+                            sections: {
+                                events: {
+                                    available: boolean;
+                                    count: number;
+                                    truncated: boolean;
+                                } | null;
+                                logs: {
+                                    available: boolean;
+                                    sampled_lines: number;
+                                } | null;
+                            };
+                        };
+                        error: null;
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
     "v1.storage.access-keys.index": {
         parameters: {
             query?: {
@@ -6028,6 +7922,108 @@ export interface operations {
                     "application/json": {
                         /** @constant */
                         error: "Access key is already revoked";
+                    };
+                };
+            };
+        };
+    };
+    "v1.operations.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                operation: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            operation_id: string;
+                            resource_id: string;
+                            /** @constant */
+                            resource_type: "serverless_container";
+                            /** @constant */
+                            kind: "deploy";
+                            state: string;
+                            terminal: string;
+                            /** @enum {integer|null} */
+                            poll_after_ms: 3000 | null;
+                            revision: string;
+                            knative_revision: string | null;
+                            image: string | null;
+                            started_at: string;
+                            finished_at: string | null;
+                            error: {
+                                code: string;
+                                message: string | null;
+                                /**
+                                 * @description Whether a retry can possibly help. A rejected registry credential
+                                 *     never clears on its own; a node eviction does.
+                                 */
+                                retryable: boolean;
+                                reason: null;
+                            } | null;
+                        };
+                        error: null;
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
+                    } | {
+                        success: boolean;
+                        data: {
+                            operation_id: string;
+                            resource_id: string;
+                            /** @constant */
+                            resource_type: "serverless_container";
+                            /** @constant */
+                            kind: "deploy";
+                            /** @constant */
+                            state: "queued";
+                            terminal: boolean;
+                            /** @constant */
+                            poll_after_ms: 3000;
+                            revision: null;
+                            knative_revision: null;
+                            image: null;
+                            started_at: string;
+                            finished_at: null;
+                            error: null;
+                        };
+                        error: null;
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            /**
+             * @description A 404 rather than a 403: whether an id exists is itself
+             *     information, and an id is guessable in a way a name is not.
+             */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: null;
+                        error: {
+                            /** @constant */
+                            code: "operation.not_found";
+                            /** @constant */
+                            message: "No such operation.";
+                            retryable: boolean;
+                        };
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
                     };
                 };
             };
@@ -6489,6 +8485,198 @@ export interface operations {
             422: components["responses"]["ValidationException"];
         };
     };
+    "v1.queue.logs": {
+        parameters: {
+            query?: {
+                since?: string;
+                until?: string;
+                /**
+                 * @description An opaque cursor from a previous response. It is a Loki
+                 *     nanosecond timestamp, so digits-only: rejecting everything else
+                 *     keeps a hand-crafted value from reaching the upstream query.
+                 */
+                cursor?: string;
+                limit?: number;
+                level?: "debug" | "info" | "warn" | "error";
+            };
+            header?: never;
+            path: {
+                /** @description The queue instance ID */
+                queueInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            available: boolean;
+                            entries: components["schemas"]["InstanceLogEntryResource"][];
+                        };
+                        error: null;
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            available: boolean;
+                            entries: string[];
+                        };
+                        error: {
+                            code: string;
+                            /** @constant */
+                            message: "The log store did not respond. This says nothing about the workload itself — retry shortly.";
+                            retryable: boolean;
+                        };
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
+                    };
+                };
+            };
+        };
+    };
+    "v1.queue.events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The queue instance ID */
+                queueInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            available: boolean;
+                            events: components["schemas"]["DiagnosticEventResource"][];
+                        };
+                        error: null;
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            available: boolean;
+                            events: string[];
+                        };
+                        error: {
+                            code: string;
+                            /** @constant */
+                            message: "Platform events could not be read for this resource.";
+                            /**
+                             * @description A missing RBAC grant will not fix itself on retry; a
+                             *     transient API-server failure will.
+                             */
+                            retryable: boolean;
+                        };
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
+                    };
+                };
+            };
+        };
+    };
+    "v1.queue.diagnose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The queue instance ID */
+                queueInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            verdict: string;
+                            status: {
+                                summary: string;
+                                health: string;
+                                observed_at: string;
+                                stale: boolean;
+                                operation: {
+                                    state: string;
+                                    terminal: boolean;
+                                };
+                                error: {
+                                    code: string;
+                                    source: string;
+                                    resource: {
+                                        kind: string | null;
+                                        name: string | null;
+                                    } | null;
+                                    reason: string | null;
+                                    message: string;
+                                    retryable: boolean;
+                                    observed_at: string;
+                                };
+                            };
+                            findings: unknown[];
+                            sections: {
+                                events: {
+                                    available: boolean;
+                                    count: number;
+                                    truncated: boolean;
+                                } | null;
+                                logs: {
+                                    available: boolean;
+                                    sampled_lines: number;
+                                } | null;
+                            };
+                        };
+                        error: null;
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
     "v1.queue.index": {
         parameters: {
             query?: {
@@ -6571,6 +8759,9 @@ export interface operations {
                         connection_info: string;
                         management_url: string;
                         monthly_cost: number;
+                        /** @description Poll operation.terminal, never the status string. */
+                        status_details: string;
+                        capabilities: string;
                     };
                 };
             };
@@ -6765,6 +8956,375 @@ export interface operations {
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.queue.metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The queue instance ID */
+                queueInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        summary: {
+                            connections: string | 0;
+                            channels: string | 0;
+                            queues: string | 0;
+                            memory_percent: string | 0;
+                            health_status: string | "unknown";
+                        };
+                        health: {
+                            /** @constant */
+                            status: "unknown";
+                            issues: [
+                                "Unable to fetch metrics"
+                            ];
+                        } | {
+                            /** @enum {string} */
+                            status: "critical" | "warning";
+                            issues: ("Memory usage above 80%" | "Memory usage critical (>95%)" | "File descriptor usage above 80%")[];
+                            memory_percent: number;
+                            connections: number;
+                            channels: number;
+                            queues: number;
+                            fd_percent: number;
+                            disk_free_bytes: number;
+                        };
+                        instance: {
+                            id: string;
+                            name: string;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.registry.context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            registry_host: string;
+                            namespace: string;
+                            /**
+                             * @description Given verbatim so a client never has to build it. Concatenate a
+                             *     repository and tag onto this and the push is correctly scoped.
+                             */
+                            push_prefix: string;
+                            repositories: {
+                                used: number;
+                                /**
+                                 * @description 0 is the unlimited sentinel in account_limits; null is
+                                 *     clearer over the wire than a magic zero.
+                                 */
+                                limit: number | null;
+                                can_create: boolean;
+                            };
+                            storage: {
+                                used_bytes: number;
+                                limit_bytes: number | null;
+                                can_push: boolean;
+                            };
+                        };
+                        error: null;
+                        /**
+                         * @description (object) so an empty meta serialises as {} rather than [].
+                         *     A client typing meta as an object breaks on a bare array, and
+                         *     PHP cannot tell an empty map from an empty list.
+                         */
+                        meta: string;
+                    };
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: string[];
+                        error: {
+                            /** @constant */
+                            code: "registry.no_project";
+                            /** @constant */
+                            message: "No project resolved for this token. Send X-Team-Id.";
+                            retryable: boolean;
+                        };
+                        /**
+                         * @description (object) so an empty meta serialises as {} rather than [].
+                         *     A client typing meta as an object breaks on a bare array, and
+                         *     PHP cannot tell an empty map from an empty list.
+                         */
+                        meta: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "v1.registry.verify-push": {
+        parameters: {
+            query: {
+                /** @description Accept a bare repository path, with or without the host and tag. */
+                repository: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            repository: string;
+                            permitted: boolean;
+                            namespace: string;
+                            provided_namespace: unknown;
+                            push_reference: string;
+                        };
+                        error: null;
+                        /**
+                         * @description (object) so an empty meta serialises as {} rather than [].
+                         *     A client typing meta as an object breaks on a bare array, and
+                         *     PHP cannot tell an empty map from an empty list.
+                         */
+                        meta: string;
+                    } | {
+                        success: boolean;
+                        data: {
+                            repository: string;
+                            permitted: boolean;
+                            namespace: string;
+                            provided_namespace: unknown;
+                            push_reference: null;
+                        };
+                        error: {
+                            /** @constant */
+                            code: "registry.quota_exceeded";
+                            message: string | null;
+                            /**
+                             * @description Freeing space or deleting a repository makes the identical
+                             *     request succeed, so this is retryable — after you act.
+                             */
+                            retryable: boolean;
+                            /** @constant */
+                            hint: "Delete unused tags or repositories, or upgrade the plan, then retry.";
+                        };
+                        /**
+                         * @description (object) so an empty meta serialises as {} rather than [].
+                         *     A client typing meta as an object breaks on a bare array, and
+                         *     PHP cannot tell an empty map from an empty list.
+                         */
+                        meta: string;
+                    } | {
+                        success: boolean;
+                        data: {
+                            repository: string;
+                            permitted: boolean;
+                            namespace: string;
+                            provided_namespace: unknown;
+                            push_reference: null;
+                        };
+                        error: {
+                            /** @constant */
+                            code: "registry.namespace_mismatch";
+                            message: string;
+                            retryable: boolean;
+                            hint: string;
+                        };
+                        /**
+                         * @description (object) so an empty meta serialises as {} rather than [].
+                         *     A client typing meta as an object breaks on a bare array, and
+                         *     PHP cannot tell an empty map from an empty list.
+                         */
+                        meta: string;
+                    };
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: string[];
+                        error: {
+                            /** @constant */
+                            code: "registry.no_project";
+                            /** @constant */
+                            message: "No project resolved for this token. Send X-Team-Id.";
+                            retryable: boolean;
+                        };
+                        /**
+                         * @description (object) so an empty meta serialises as {} rather than [].
+                         *     A client typing meta as an object breaks on a bare array, and
+                         *     PHP cannot tell an empty map from an empty list.
+                         */
+                        meta: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.registry.preflight": {
+        parameters: {
+            query: {
+                image: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            image: string;
+                            registry_host: string | null;
+                            namespace: string;
+                            repository: string | null;
+                            reference: string;
+                            in_namespace: boolean | null;
+                            external: boolean;
+                            credential: {
+                                /** @enum {string} */
+                                scope: "push_pull" | "pull";
+                                keys: number;
+                                push_capable: boolean;
+                            } | {
+                                /** @constant */
+                                scope: "none";
+                                keys: number;
+                                push_capable: boolean;
+                            };
+                            manifest: {
+                                exists: boolean;
+                                digest: null;
+                                media_type: null;
+                                size_bytes: null;
+                                architectures: string[];
+                                reachable: boolean;
+                                error: null;
+                            } | {
+                                exists: boolean;
+                                /**
+                                 * @description The header is authoritative: it is the digest the registry will
+                                 *     serve this reference by, which is what a pull pins to.
+                                 */
+                                digest: string | null;
+                                media_type: string | null;
+                                /** @enum {integer|null} */
+                                size_bytes: 0 | null;
+                                architectures: [
+                                    string
+                                ] | unknown[];
+                                reachable: boolean;
+                                error: null;
+                            } | {
+                                exists: boolean;
+                                digest: null;
+                                media_type: null;
+                                size_bytes: null;
+                                architectures: string[];
+                                reachable: boolean;
+                                error: string;
+                            } | {
+                                exists: boolean;
+                                digest: null;
+                                media_type: null;
+                                size_bytes: null;
+                                architectures: string[];
+                                reachable: boolean;
+                                /** @constant */
+                                error: "The registry could not be reached.";
+                            };
+                            quota: {
+                                repositories_used: number;
+                                repositories_limit: number | null;
+                                can_create_repository: boolean;
+                                storage_used_bytes: number;
+                                storage_limit_bytes: number | null;
+                            };
+                            can_pull: boolean | null;
+                            findings: unknown[];
+                        };
+                        error: null;
+                        /**
+                         * @description (object) so an empty meta serialises as {} rather than [].
+                         *     A client typing meta as an object breaks on a bare array, and
+                         *     PHP cannot tell an empty map from an empty list.
+                         */
+                        meta: string;
+                    };
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: string[];
+                        error: {
+                            /** @constant */
+                            code: "registry.no_project";
+                            /** @constant */
+                            message: "No project resolved for this token. Send X-Team-Id.";
+                            retryable: boolean;
+                        };
+                        /**
+                         * @description (object) so an empty meta serialises as {} rather than [].
+                         *     A client typing meta as an object breaks on a bare array, and
+                         *     PHP cannot tell an empty map from an empty list.
+                         */
+                        meta: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            422: components["responses"]["ValidationException"];
         };
     };
     "v1.registryEvent": {
@@ -6985,30 +9545,8 @@ export interface operations {
                             entries: components["schemas"]["ServerlessLogEntryResource"][];
                         };
                         error: null;
-                        meta: {
-                            limit: number;
-                            /**
-                             * @description The casts below are load-bearing for the OpenAPI spec, not for
-                             *     runtime: Scramble cannot infer a type through an array-shape
-                             *     offset and falls back to `string`, so a passed-through
-                             *     `$result['truncated']` gets published as a string.
-                             */
-                            next_cursor: string | null;
-                            /**
-                             * @description `truncated` tells a client the page was capped rather than
-                             *     exhausted, so "I received fewer rows than I asked for" is never
-                             *     mistaken for "that is all there is".
-                             */
-                            truncated: boolean;
-                            container: string;
-                            /**
-                             * @description The redundant-looking cast is what gives Scramble a concrete type;
-                             *     `$request->input()` is `mixed` and it will not narrow on is_string().
-                             */
-                            level: string | null;
-                            retention_days: number;
-                            max_limit: number;
-                        };
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
                     };
                 };
             };
@@ -7034,30 +9572,8 @@ export interface operations {
                             message: "The log store did not respond. This says nothing about the container itself — retry shortly.";
                             retryable: boolean;
                         };
-                        meta: {
-                            limit: number;
-                            /**
-                             * @description The casts below are load-bearing for the OpenAPI spec, not for
-                             *     runtime: Scramble cannot infer a type through an array-shape
-                             *     offset and falls back to `string`, so a passed-through
-                             *     `$result['truncated']` gets published as a string.
-                             */
-                            next_cursor: string | null;
-                            /**
-                             * @description `truncated` tells a client the page was capped rather than
-                             *     exhausted, so "I received fewer rows than I asked for" is never
-                             *     mistaken for "that is all there is".
-                             */
-                            truncated: boolean;
-                            container: string;
-                            /**
-                             * @description The redundant-looking cast is what gives Scramble a concrete type;
-                             *     `$request->input()` is `mixed` and it will not narrow on is_string().
-                             */
-                            level: string | null;
-                            retention_days: number;
-                            max_limit: number;
-                        };
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
                     };
                 };
             };
@@ -7089,9 +9605,8 @@ export interface operations {
                             route: components["schemas"]["ServerlessRouteStatusResource"] | null;
                         };
                         error: null;
-                        meta: {
-                            revision_count: number;
-                        };
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
                     };
                 };
             };
@@ -7118,6 +9633,7 @@ export interface operations {
                             message: "The platform could not read this container's revisions. Retry shortly.";
                             retryable: boolean;
                         };
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
                         meta: string;
                     };
                 };
@@ -7148,23 +9664,8 @@ export interface operations {
                             events: components["schemas"]["ServerlessEventResource"][];
                         };
                         error: null;
-                        meta: {
-                            event_count: number;
-                            /**
-                             * @description The namespace query was capped before filtering to this
-                             *     container, so some of its events may be missing. Cast rather than passed through: Scramble cannot infer a type
-                             *     from an array-shape offset and silently documents it as
-                             *     `string`, which is how a client ends up testing a boolean
-                             *     with a string comparison.
-                             */
-                            truncated: boolean;
-                            /**
-                             * @description Events are garbage-collected by Kubernetes (typically after
-                             *     an hour). An absent event is not evidence that nothing
-                             *     happened, and automation must not read it that way.
-                             */
-                            ephemeral: boolean;
-                        };
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
                     };
                 };
             };
@@ -7193,9 +9694,8 @@ export interface operations {
                              */
                             retryable: boolean;
                         };
-                        meta: {
-                            reason: string;
-                        };
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
                     };
                 };
             };
@@ -7238,9 +9738,73 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["StoreServerlessContainerRequest"] & {
+                    /** @description Display name. */
+                    name: string;
+                    /** @description DNS label, unique per project. Lowercase alphanumeric and hyphens, max 63 chars. */
+                    slug: string;
+                    /** @description Free-text description. */
+                    description?: string;
+                    /** @description One of `docker_image`, `git_repository`, `zip_upload`. Determines which fields below are required. */
+                    deployment_type: string;
+                    /** @description Port your process listens on. Some platform ports are reserved and rejected. */
+                    port: number;
+                    /** @description CPU/memory profile slug. */
+                    resource_profile: string;
+                    /** @description Minimum replicas. 0 enables scale-to-zero. */
+                    min_scale: number;
+                    /** @description Maximum replicas. Must be >= min_scale. */
+                    max_scale: number;
+                    /** @description Image reference, e.g. `cr.danubedata.ro/{team-slug}/api`. Required for `docker_image`. Must be amd64. */
+                    image?: string;
+                    /** @description Tag to deploy. Required for `docker_image`. Prefer an immutable tag over `latest`. */
+                    image_tag?: string;
+                    /** @description Registry credential UUID. Omit for images in your own team namespace — those authenticate automatically. */
+                    registry_credential_id?: string;
+                    /** @description Build strategy for `git_repository` and `zip_upload`: `dockerfile` or `buildpack`. */
+                    source_type?: string;
+                    /** @description Git remote. Required for `git_repository`. */
+                    repository_url?: string;
+                    /** @description Branch to build. Defaults to the repository default. */
+                    repository_branch?: string;
+                    /** @description Build context within the repository. */
+                    build_context_path?: string;
+                    /** @description One of `none`, `ssh_key`, `access_token`. Required for `git_repository`. */
+                    git_auth_type?: string;
+                    /** @description Deploy key or token. Required unless `git_auth_type` is `none`. Write-only — never returned. */
+                    git_credentials?: string;
+                    /** @description Rebuild automatically on push to the tracked branch. */
+                    auto_build_on_push?: boolean;
+                    /** @description Deploy automatically once a build succeeds. */
+                    auto_deploy?: boolean;
+                    /** @description Object of string key/value pairs injected into the container. */
+                    environment_variables?: Record<string, never>;
+                    /** @description Requests handled concurrently per replica before scaling out. */
+                    concurrency_target?: number;
+                    /** @description Autoscaling signal: `rps` or `concurrency`. */
+                    scaling_metric?: string;
+                    /** @description Target value for the chosen scaling metric. */
+                    scaling_target?: number;
+                    /** @description Per-request timeout, 1-3600. */
+                    timeout_seconds?: number;
+                    /** @description How long a rollout may take before it is failed, 30-1800. */
+                    progress_deadline_seconds?: number;
+                    /** @description Absolute path probed for readiness, e.g. `/healthz`. */
+                    health_check_path?: string;
+                    /** @description CPU request override, e.g. `250m`. */
+                    cpu_request?: string;
+                    /** @description CPU limit override. */
+                    cpu_limit?: string;
+                    /** @description Memory request override, e.g. `256Mi`. */
+                    memory_request?: string;
+                    /** @description Memory limit override. */
+                    memory_limit?: string;
+                };
+            };
+        };
         responses: {
-            /** @description zip_upload containers wait for first deploy via upload */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -7250,6 +9814,18 @@ export interface operations {
                         /** @constant */
                         message: "Serverless container created successfully";
                         container: components["schemas"]["ServerlessContainerResource"] & Record<string, never>;
+                        operation: {
+                            operation_id: string;
+                            resource_id: string;
+                            /** @constant */
+                            resource_type: "serverless_container";
+                            /** @constant */
+                            state: "queued";
+                            terminal: boolean;
+                            /** @constant */
+                            poll_after_ms: 3000;
+                            poll_url: string;
+                        };
                     };
                 };
             };
@@ -7457,6 +10033,18 @@ export interface operations {
                         container_id: string;
                         /** @constant */
                         status: "building";
+                        operation: {
+                            operation_id: string;
+                            resource_id: string;
+                            /** @constant */
+                            resource_type: "serverless_container";
+                            /** @constant */
+                            state: "queued";
+                            terminal: boolean;
+                            /** @constant */
+                            poll_after_ms: 3000;
+                            poll_url: string;
+                        };
                     };
                 };
             };
@@ -8193,6 +10781,72 @@ export interface operations {
             404: components["responses"]["ModelNotFoundException"];
         };
     };
+    "v1.static-sites.diagnose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The static site ID */
+                staticSite: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            verdict: string;
+                            status: {
+                                summary: string;
+                                health: string;
+                                observed_at: string;
+                                stale: boolean;
+                                operation: {
+                                    state: string;
+                                    terminal: boolean;
+                                };
+                                error: {
+                                    code: string;
+                                    source: string;
+                                    resource: {
+                                        kind: string | null;
+                                        name: string | null;
+                                    } | null;
+                                    reason: string | null;
+                                    message: string;
+                                    retryable: boolean;
+                                    observed_at: string;
+                                };
+                            };
+                            findings: unknown[];
+                            sections: {
+                                events: {
+                                    available: boolean;
+                                    count: number;
+                                    truncated: boolean;
+                                } | null;
+                                logs: {
+                                    available: boolean;
+                                    sampled_lines: number;
+                                } | null;
+                            };
+                        };
+                        error: null;
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
     "v1.teams.static-sites.index": {
         parameters: {
             query?: {
@@ -8683,6 +11337,131 @@ export interface operations {
                     "application/json": {
                         /** @constant */
                         message: "Domain removed successfully.";
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.vps.events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The vps instance ID */
+                vpsInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            available: boolean;
+                            events: components["schemas"]["DiagnosticEventResource"][];
+                        };
+                        error: null;
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            available: boolean;
+                            events: string[];
+                        };
+                        error: {
+                            code: string;
+                            /** @constant */
+                            message: "Platform events could not be read for this resource.";
+                            /**
+                             * @description A missing RBAC grant will not fix itself on retry; a
+                             *     transient API-server failure will.
+                             */
+                            retryable: boolean;
+                        };
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
+                    };
+                };
+            };
+        };
+    };
+    "v1.vps.diagnose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The vps instance ID */
+                vpsInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            verdict: string;
+                            status: {
+                                summary: string;
+                                health: string;
+                                observed_at: string;
+                                stale: boolean;
+                                operation: {
+                                    state: string;
+                                    terminal: boolean;
+                                };
+                                error: {
+                                    code: string;
+                                    source: string;
+                                    resource: {
+                                        kind: string | null;
+                                        name: string | null;
+                                    } | null;
+                                    reason: string | null;
+                                    message: string;
+                                    retryable: boolean;
+                                    observed_at: string;
+                                };
+                            };
+                            findings: unknown[];
+                            sections: {
+                                events: {
+                                    available: boolean;
+                                    count: number;
+                                    truncated: boolean;
+                                } | null;
+                                logs: {
+                                    available: boolean;
+                                    sampled_lines: number;
+                                } | null;
+                            };
+                        };
+                        error: null;
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
                     };
                 };
             };
@@ -9270,6 +12049,339 @@ export interface operations {
                     };
                 };
             };
+        };
+    };
+    "v1.vps.volumes.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The vps instance ID */
+                vpsInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["VpsVolumeResource"][];
+                        pagination: {
+                            current_page: number;
+                            last_page: number;
+                            per_page: number;
+                            total: number;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.vps.volumes.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The vps instance ID */
+                vpsInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    size_gb: number;
+                };
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "Volume creation initiated";
+                        volume: components["schemas"]["VpsVolumeResource"] & Record<string, never>;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.vps.volumes.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The vps instance ID */
+                vpsInstance: string;
+                /** @description The vps volume ID */
+                vpsVolume: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        volume: components["schemas"]["VpsVolumeResource"] & Record<string, never>;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.vps.volumes.update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The vps instance ID */
+                vpsInstance: string;
+                /** @description The vps volume ID */
+                vpsVolume: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    size_gb: number;
+                };
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "Volume resize initiated";
+                        volume: components["schemas"]["VpsVolumeResource"] & Record<string, never>;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.vps.volumes.destroy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The vps instance ID */
+                vpsInstance: string;
+                /** @description The vps volume ID */
+                vpsVolume: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "Volume detach initiated";
+                        /** @constant */
+                        status: "detaching";
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        error: "Volume cannot be detached in its current state.";
+                        status: string;
+                    };
+                };
+            };
+        };
+    };
+    "v1.vps.volumes.events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The vps instance ID */
+                vpsInstance: string;
+                /** @description The vps volume ID */
+                vpsVolume: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            available: boolean;
+                            events: components["schemas"]["DiagnosticEventResource"][];
+                        };
+                        error: null;
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            available: boolean;
+                            events: string[];
+                        };
+                        error: {
+                            code: string;
+                            /** @constant */
+                            message: "Platform events could not be read for this resource.";
+                            /**
+                             * @description A missing RBAC grant will not fix itself on retry; a
+                             *     transient API-server failure will.
+                             */
+                            retryable: boolean;
+                        };
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
+                    };
+                };
+            };
+        };
+    };
+    "v1.vps.volumes.diagnose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The vps instance ID */
+                vpsInstance: string;
+                /** @description The vps volume ID */
+                vpsVolume: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            verdict: string;
+                            status: {
+                                summary: string;
+                                health: string;
+                                observed_at: string;
+                                stale: boolean;
+                                operation: {
+                                    state: string;
+                                    terminal: boolean;
+                                };
+                                error: {
+                                    code: string;
+                                    source: string;
+                                    resource: {
+                                        kind: string | null;
+                                        name: string | null;
+                                    } | null;
+                                    reason: string | null;
+                                    message: string;
+                                    retryable: boolean;
+                                    observed_at: string;
+                                };
+                            };
+                            findings: unknown[];
+                            sections: {
+                                events: {
+                                    available: boolean;
+                                    count: number;
+                                    truncated: boolean;
+                                } | null;
+                                logs: {
+                                    available: boolean;
+                                    sampled_lines: number;
+                                } | null;
+                            };
+                        };
+                        error: null;
+                        /** @description (object) so an empty meta serialises as {} rather than []. */
+                        meta: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.volumes.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["VpsVolumeResource"][];
+                        pagination: {
+                            current_page: number;
+                            last_page: number;
+                            per_page: number;
+                            total: number;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
         };
     };
     "v1.webhooks.config.show": {
