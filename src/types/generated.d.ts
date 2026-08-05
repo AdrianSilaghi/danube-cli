@@ -3457,7 +3457,7 @@ export interface components {
             notifiable_id: number;
             data: unknown[];
             category: string | null;
-            severity: string | null;
+            severity: string;
             team_id: number | null;
             resource_type: string | null;
             resource_id: number | null;
@@ -3647,7 +3647,6 @@ export interface components {
             configuration: unknown[] | null;
             parameter_group_id: number | null;
             resource_profile: string | null;
-            desired_replicas: number;
             datacenter: string;
             node: string | null;
             hardware_profile: string | null;
@@ -3655,8 +3654,6 @@ export interface components {
             private_ip: string | null;
             dns_hostname: string | null;
             dns_port: number | null;
-            mqtt_port: number | null;
-            amqps_port: number | null;
             argocd_data: unknown[] | null;
             monthly_cost_cents: number;
             /** Format: date-time */
@@ -3669,6 +3666,9 @@ export interface components {
             updated_at: string | null;
             /** Format: date-time */
             deleted_at: string | null;
+            desired_replicas: number;
+            mqtt_port: number | null;
+            amqps_port: number | null;
             mqtts_port: number | null;
             stomp_port: number | null;
             stomps_port: number | null;
@@ -3756,7 +3756,7 @@ export interface components {
              */
             environment_variables: unknown[] | null;
             /** @description --- state ------------------------------------------------- */
-            status: string | null;
+            status: string;
             /** @description The truthful state of this container. Read this rather than `status`. */
             status_details: components["schemas"]["ServerlessStatusDetailsResource"];
             last_error: string | null;
@@ -3992,8 +3992,6 @@ export interface components {
             recorded_at: string;
             request_count: number;
             total_duration_seconds: number;
-            vcpu_seconds: number;
-            memory_gib_seconds: number;
             avg_memory_mb: number | null;
             avg_cpu_millicores: number | null;
             request_cost_cents: number;
@@ -4006,6 +4004,8 @@ export interface components {
             created_at: string | null;
             /** Format: date-time */
             updated_at: string | null;
+            vcpu_seconds: number;
+            memory_gib_seconds: number;
         };
         /** SshKeyResource */
         SshKeyResource: {
@@ -4208,20 +4208,20 @@ export interface components {
             is_compliance_mode: boolean;
             encryption_enabled: boolean;
             encryption_type: string;
-            size_bytes: number | null;
+            size_bytes: number;
             size_human: string;
             size_limit_bytes: number | null;
             size_limit_human: string | null;
             quota_usage_percent: number | null;
             is_near_quota_limit: boolean;
             has_exceeded_quota: boolean;
-            object_count: number | null;
+            object_count: number;
             lifecycle_rules: unknown[] | null;
             cors_configuration: unknown[] | null;
             custom_policy_statements: unknown[] | null;
             bucket_arn: string;
             tags: unknown[] | null;
-            monthly_cost_cents: number | null;
+            monthly_cost_cents: number;
             monthly_cost_dollars: number;
             requests_24h_total: number | null;
             requests_24h_by_method: unknown[] | null;
@@ -4749,7 +4749,7 @@ export interface components {
             /** @enum {string} */
             cpu_allocation_type?: "shared" | "dedicated";
             /** @enum {string|null} */
-            resource_profile?: "cascade-16x64" | "cascade-2x8" | "cascade-4x16" | "cascade-8x32" | "large_shared" | "medium_shared" | "micro_shared" | "nano_shared" | "small_shared" | null;
+            resource_profile?: "large" | "large_shared" | "medium" | "medium_shared" | "micro" | "micro_shared" | "nano" | "nano_shared" | "pico_shared" | "small" | "small_shared" | "xlarge" | null;
             configuration?: {
                 auto_start?: boolean;
                 backup_enabled?: boolean;
@@ -4808,7 +4808,7 @@ export interface components {
              *     design here: guest output is the customer's own data.
              */
             capabilities: components["schemas"]["CapabilitiesResource"];
-            resource_profile: string | null;
+            resource_profile: string;
             cpu_allocation_type: string;
             cpu_cores: number;
             memory_size_gb: number;
@@ -8619,9 +8619,9 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        size_bytes: number | null;
+                        size_bytes: number;
                         size_human: string;
-                        object_count: number | null;
+                        object_count: number;
                         requests_24h: number | null;
                         requests_24h_by_method: unknown[] | null;
                         requests_24h_by_status: string | null;
@@ -8635,7 +8635,7 @@ export interface operations {
                         egress_human_24h: string;
                         ingress_bytes_24h: string;
                         ingress_human_24h: string | null;
-                        monthly_cost_cents: number | null;
+                        monthly_cost_cents: number;
                         monthly_cost_dollars: number;
                         /** @enum {string} */
                         source: "deltas" | "legacy";
