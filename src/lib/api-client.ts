@@ -128,6 +128,15 @@ export class ApiClient {
     return this.request<T>('PUT', path, body);
   }
 
+  /**
+   * Partial update. Used where the API models a toggle rather than a full
+   * replacement — pausing an uptime check, for instance, which also closes
+   * any open incident and so is not expressible as a PUT of the resource.
+   */
+  patch<T>(path: string, body?: unknown): Promise<T> {
+    return this.request<T>('PATCH', path, body);
+  }
+
   delete<T>(path: string): Promise<T> {
     return this.request<T>('DELETE', path);
   }

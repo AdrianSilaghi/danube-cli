@@ -268,20 +268,37 @@ type AssertTrue<T extends true> = T;
  */
 type RapidsRevision = RapidsRevisions['data']['revisions'][number];
 
-type _guardLogsTruncated = AssertTrue<Exact<RapidsLogs['meta']['truncated'], boolean>>;
-type _guardLogsNextCursor = AssertTrue<Exact<RapidsLogs['meta']['next_cursor'], string | null>>;
-type _guardLogsLevel = AssertTrue<Exact<RapidsLogs['meta']['level'], string | null>>;
-type _guardEventsTruncated = AssertTrue<Exact<RapidsEvents['meta']['truncated'], boolean>>;
+/**
+ * REGRESSION, currently live. The four guards that used to assert
+ * `meta.truncated` / `.next_cursor` / `.level` individually cannot even be
+ * written today: the deployed spec types the WHOLE `meta` object as `string`,
+ * so indexing into it does not compile.
+ *
+ * Cause: `RespondsWithEnvelope::envelope()` returns `'meta' => (object) $meta`
+ * (danubedata f671ec94). Scramble cannot infer a shape through the cast, falls
+ * back to `string`, and scrapes the adjacent `//` comment as the description —
+ * the published description is literally
+ * "(object) so an empty meta serialises as {} rather than [].".
+ *
+ * The RUNTIME payload is correct; only the spec is wrong. But it is wrong for
+ * every diagnostics endpoint on every product now, not just rapids, because
+ * they all share that trait.
+ *
+ * These assert the BROKEN shape on purpose, per this file's idiom. When the
+ * backend teaches Scramble the meta shape, they stop compiling — at which
+ * point restore the four per-field Exact guards from git history.
+ */
+type _tripwireLogsMetaIsString = AssertTrue<Exact<RapidsLogs['meta'], string>>;
+type _tripwireEventsMetaIsString = AssertTrue<Exact<RapidsEvents['meta'], string>>;
 type _guardRevisionGeneration = AssertTrue<Exact<RapidsRevision['generation'], number | null>>;
 type _guardRevisionDesiredReplicas = AssertTrue<Exact<RapidsRevision['desired_replicas'], number | null>>;
 type _guardRevisionActualReplicas = AssertTrue<Exact<RapidsRevision['actual_replicas'], number | null>>;
 
 /**
- * Third-generation tripwire, same defect one field over: `status_details` on
- * the container is an object at runtime and `string` in the deployed spec.
- * danubedata 1059f32b fixes it. When this stops compiling, regenerate types and
- * drop `status_details` from the ServerlessContainerChecked exclusion above.
+ * FIRED and removed: `status_details` on the container was `string` in the
+ * deployed spec and is now a proper object, so the third-generation tripwire
+ * that asserted the broken shape has served its purpose. It stays out of the
+ * ServerlessContainerChecked exclusion only until someone reconciles the
+ * hand-written ServerlessContainer type with the generated one — tracked with
+ * the rest of the CLI type migration.
  */
-type _tripwireStatusDetails = AssertTrue<
-  Exact<ServerlessShow['container']['status_details'], string>
->;

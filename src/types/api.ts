@@ -586,6 +586,39 @@ export interface ServerlessContainer {
 }
 
 /** @see https://docs.danubedata.ro/rapids-automation */
+/**
+ * The cross-product status contract.
+ *
+ * Every non-serverless product now returns this exact shape. Structurally
+ * identical to ServerlessStatusDetails, which is frozen for wire-compat and
+ * therefore kept separate rather than aliased.
+ */
+export interface StatusDetails {
+  summary: 'pending' | 'in_progress' | 'ready' | 'degraded' | 'failed' | 'stopped' | 'deleting' | 'unknown';
+  /** What is CURRENTLY true of the resource. `unknown` is not a failure. */
+  health: 'healthy' | 'degraded' | 'unhealthy' | 'unknown';
+  /** When the platform last CONFIRMED this, not when the row was written. */
+  observed_at: string | null;
+  /** Nobody has confirmed the state recently; treat `summary` as last-known. */
+  stale: boolean;
+  operation: {
+    state: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+    /** THE stop condition for polling. Never infer this from `summary`. */
+    terminal: boolean;
+  };
+  error: {
+    /** Stable automation key, e.g. `uptime.dns`. Branch on this, not prose. */
+    code: string;
+    source: string | null;
+    resource: { kind: string | null; name: string | null } | null;
+    reason: string | null;
+    message: string | null;
+    /** Retrying a `false` here only consumes quota. */
+    retryable: boolean;
+    observed_at: string | null;
+  } | null;
+}
+
 export interface ServerlessStatusDetails {
   summary: 'pending' | 'in_progress' | 'ready' | 'degraded' | 'failed' | 'stopped' | 'deleting' | 'unknown';
   /** What is CURRENTLY SERVING. `unknown` during a rollout is not a failure. */
@@ -663,4 +696,48 @@ export interface ServerlessUsageResponse {
     total_cost_cents: number;
     total_cost_dollars: number;
   };
+}
+
+/**
+ * An uptime check.
+ *
+ * `status_details.health` describes the TARGET being watched, not the check
+ * itself — a check whose site is down is working correctly, which is why the
+ * API reduces `down` to degraded/unhealthy rather than failed.
+ */
+export interface UptimeCheck {
+  id: string;
+  name: string;
+  url: string;
+  method: string;
+  status: 'up' | 'down' | 'paused' | 'unknown';
+  status_details?: StatusDetails;
+  capabilities?: { logs: boolean; events: boolean; diagnose: boolean };
+  enabled: boolean;
+  interval_seconds: number;
+  timeout_seconds: number;
+  expected_status: string;
+  body_keyword: string | null;
+  follow_redirects: boolean;
+  verify_tls: boolean;
+  check_ssl_expiry: boolean;
+  ssl_expiry_threshold_days: number | null;
+  ssl_expires_at: string | null;
+  failure_threshold: number;
+  notify_on_recovery: boolean;
+  notification_channels: string[] | null;
+  consecutive_failures: number;
+  last_checked_at: string | null;
+  last_status_code: number | null;
+  last_response_time_ms: number | null;
+  /** A stable probe error CODE (dns, timeout, tls, refused, …), not prose. */
+  last_error: string | null;
+  team_id: number;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface UptimeCheckResponse {
+  message: string;
+  check: UptimeCheck;
 }
