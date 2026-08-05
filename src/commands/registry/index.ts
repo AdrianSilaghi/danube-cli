@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { ApiClient } from '../../lib/api-client.js';
 import { isJsonMode, jsonEnvelope } from '../../lib/json-mode.js';
+import { repositoriesCommand, usageCommand } from './repositories.js';
 
 interface Envelope<T> {
   success: boolean;
@@ -96,3 +97,5 @@ export const registryCommand = new Command('registry')
 
 registryCommand.addCommand(contextCommand);
 registryCommand.addCommand(verifyPushCommand);
+registryCommand.addCommand(repositoriesCommand);
+registryCommand.addCommand(usageCommand);
