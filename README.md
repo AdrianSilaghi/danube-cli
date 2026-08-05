@@ -163,13 +163,24 @@ the command as missing rather than printing the parent's help and exiting 0.
 | Code | Meaning |
 |------|---------|
 | 0 | Success |
-| 1 | Generic or API error |
+| 1 | Generic or API error, **or a diagnose that found a fatal problem** |
 | 2 | Missing required flag (non-interactive), or a usage error such as an unknown command, a conflicting selector, or a non-integer project id |
 | 3 | Not authenticated |
 | 4 | Resource not found |
 | 5 | Confirmation required (add `--force`) |
 | 8 | Bucket metrics stale or unavailable |
 | 130 | Cancelled (Ctrl+C) |
+
+`diagnose` commands follow the platform contract: `success` in the `--json`
+envelope reports the **call**, not the verdict. A diagnosis that ran correctly
+and found a fatal problem is `success: true` with **exit code 1** — branch on
+the exit code, or on `findings[].severity`, never on `success`.
+
+> **Changed in 1.0.** `rapids diagnose --json` previously reported
+> `success: false` when it found a fatal problem, so a working diagnosis looked
+> like a failed command and disagreed with `preflight`. If you branch on
+> `success`, switch to the exit code.
+
 
 ## Commands
 
