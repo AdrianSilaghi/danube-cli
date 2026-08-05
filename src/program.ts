@@ -11,6 +11,8 @@ import { storageCommand } from './commands/storage/index.js';
 import { vpsCommand } from './commands/vps/index.js';
 import { cacheCommand } from './commands/cache/index.js';
 import { databaseCommand } from './commands/database/index.js';
+import { queueCommand } from './commands/queue/index.js';
+import { appsCommand } from './commands/apps/index.js';
 import { parameterGroupsCommand } from './commands/parameter-groups.js';
 import { uptimeCommand } from './commands/uptime/index.js';
 import { projectCommand } from './commands/project.js';
@@ -92,6 +94,8 @@ export function buildProgram(): Command {
   program.addCommand(vpsCommand);
   program.addCommand(cacheCommand);
   program.addCommand(databaseCommand);
+  program.addCommand(queueCommand);
+  program.addCommand(appsCommand);
   program.addCommand(parameterGroupsCommand);
   program.addCommand(uptimeCommand);
   program.addCommand(projectCommand);

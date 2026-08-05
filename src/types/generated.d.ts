@@ -10282,6 +10282,7 @@ export interface operations {
     "v1.registry.verify-push": {
         parameters: {
             query: {
+                /** @description Accept a bare repository path, with or without the host and tag. */
                 repository: string;
             };
             header?: never;
