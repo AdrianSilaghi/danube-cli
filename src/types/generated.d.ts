@@ -264,6 +264,101 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/registry/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show registry usage against the team's limits
+         * @description An agent about to push wants to know whether it will fit. A limit of 0
+         *     means unlimited, matching the dashboard.
+         */
+        get: operations["v1.registry.usage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/registry/repositories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List repositories */
+        get: operations["v1.registry.repositories.index"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/registry/repositories/{repo}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Show a repository */
+        get: operations["v1.registry.repositories.show"];
+        put?: never;
+        post?: never;
+        /** Delete a repository and every tag in it */
+        delete: operations["v1.registry.repositories.destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/registry/repositories/{repo}/tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List a repository's tags */
+        get: operations["v1.registry.repositories.tags"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/registry/repositories/{repo}/tags/{tag}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a tag
+         * @description Removes the manifest from the registry and the local record. The
+         *     repository row survives even if this was its last tag — removing it is
+         *     a separate, explicit call.
+         */
+        delete: operations["v1.registry.repositories.tags.destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/database/{databaseInstance}/logs": {
         parameters: {
             query?: never;
@@ -924,6 +1019,111 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["v1.kubernetes.scale"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/metric-alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List metric alerts
+         * @description Filterable by the resource being watched, which is how an agent asks
+         *     "what am I already alerting on for this instance?".
+         */
+        get: operations["v1.metric-alerts.index"];
+        put?: never;
+        /** Create a metric alert */
+        post: operations["v1.metric-alerts.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/metric-alerts/available-metrics/{resourceType}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the metrics available for a resource type
+         * @description An agent needs this before it can call store(): the legal
+         *     `metric_type` values differ per resource type, and each carries a
+         *     sensible default threshold and duration.
+         */
+        get: operations["v1.metric-alerts.available-metrics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/metric-alerts/{metricAlert}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Show a metric alert */
+        get: operations["v1.metric-alerts.show"];
+        /**
+         * Update a metric alert
+         * @description `metric_type` and the target are immutable — changing either makes the
+         *     alert a different alert, and its history would no longer describe it.
+         */
+        put: operations["v1.metric-alerts.update"];
+        post?: never;
+        /** Delete a metric alert */
+        delete: operations["v1.metric-alerts.destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/metric-alerts/{metricAlert}/toggle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Enable or disable a metric alert */
+        patch: operations["v1.metric-alerts.toggle"];
+        trace?: never;
+    };
+    "/metric-alerts/{metricAlert}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List an alert's trigger and resolve history
+         * @description This is the alert's diagnosis: every threshold crossing, the value that
+         *     caused it, and the query that measured it.
+         */
+        get: operations["v1.metric-alerts.history"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2422,6 +2622,156 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/uptime-checks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List uptime checks */
+        get: operations["v1.uptime-checks.index"];
+        put?: never;
+        /**
+         * Create an uptime check
+         * @description The check starts in `unknown` and reports nothing until its first probe
+         *     lands — poll `status_details.operation.terminal` rather than treating
+         *     the create response as a verdict on the target.
+         */
+        post: operations["v1.uptime-checks.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/uptime-checks/{uptimeCheck}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Show an uptime check */
+        get: operations["v1.uptime-checks.show"];
+        /**
+         * Update an uptime check
+         * @description `enabled` is not settable here — use the toggle endpoint, which also
+         *     closes any open incident.
+         */
+        put: operations["v1.uptime-checks.update"];
+        post?: never;
+        /** Delete an uptime check */
+        delete: operations["v1.uptime-checks.destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/uptime-checks/{uptimeCheck}/toggle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Pause or resume an uptime check
+         * @description Pausing closes any open incident so a resumed check does not report an
+         *     outage that ended while it was asleep. Resuming clears the streak
+         *     counters and schedules an immediate probe.
+         */
+        patch: operations["v1.uptime-checks.toggle"];
+        trace?: never;
+    };
+    "/uptime-checks/{uptimeCheck}/results": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List recent probe results */
+        get: operations["v1.uptime-checks.results"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/uptime-checks/{uptimeCheck}/incidents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List outage incidents
+         * @description Incidents are never pruned, so this is the durable outage history —
+         *     unlike raw results.
+         */
+        get: operations["v1.uptime-checks.incidents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/uptime-checks/{uptimeCheck}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Probe the target once, right now
+         * @description Runs synchronously and records nothing — it does not create a result,
+         *     move the status, or open an incident. Use it to validate a target
+         *     before relying on a check.
+         */
+        post: operations["v1.uptime-checks.test"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/uptime-checks/{uptimeCheck}/diagnose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Diagnose the check
+         * @description Separates "your target is down" from "your monitor stopped running",
+         *     and surfaces the things a status alone hides: an expiring certificate,
+         *     and repeated short outages that read as healthy in between.
+         */
+        get: operations["v1.uptime-checks.diagnose"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/vps/{vpsInstance}/events": {
         parameters: {
             query?: never;
@@ -2874,6 +3224,11 @@ export interface components {
         AddApiDatabaseReplicasRequest: {
             replica_count: number;
         };
+        /**
+         * AlertStatus
+         * @enum {string}
+         */
+        AlertStatus: "active" | "triggered" | "resolved" | "disabled";
         /** AppInstanceResource */
         AppInstanceResource: {
             id: string;
@@ -2881,7 +3236,7 @@ export interface components {
             app_type: string;
             status: string | components["schemas"]["AppInstanceStatus"];
             status_details: components["schemas"]["StatusDetailsResource"];
-            capabilities: string;
+            capabilities: components["schemas"]["CapabilitiesResource"];
             version: string;
             resource_profile: string;
             datacenter: string;
@@ -2923,7 +3278,7 @@ export interface components {
              * @description Which diagnostics this resource supports — derived, so an agent
              *     knows which endpoints are worth calling before calling them.
              */
-            capabilities: string;
+            capabilities: components["schemas"]["CapabilitiesResource"];
             resource_profile: string | null;
             cpu_cores: number;
             memory_size_mb: number;
@@ -2978,6 +3333,17 @@ export interface components {
             created_at: string;
             updated_at: string;
         };
+        /** CapabilitiesResource */
+        CapabilitiesResource: {
+            /** @description Whether `/logs` serves workload output. False where there is no log surface, or where guest privacy excludes it (VPS). */
+            logs: boolean;
+            /** @description Whether `/events` serves cluster events for this resource's objects. */
+            events: boolean;
+            /** @description Whether `/diagnose` is served. False where the product's own history is the better surface (metric alerts). */
+            diagnose: boolean;
+            /** @description Static sites only: whether this site's build logs are readable. Absent for every other product. */
+            build_logs?: boolean;
+        };
         /** CloneApiCacheInstanceRequest */
         CloneApiCacheInstanceRequest: {
             name: string;
@@ -2994,6 +3360,11 @@ export interface components {
             /** @enum {string} */
             source_type: "volume_snapshot" | "velero_backup";
         };
+        /**
+         * ComparisonOperator
+         * @enum {string}
+         */
+        ComparisonOperator: "gt" | "gte" | "lt" | "lte";
         /** CreatePartnerSubTeamRequest */
         CreatePartnerSubTeamRequest: {
             name: string;
@@ -3013,7 +3384,7 @@ export interface components {
              * @description Which diagnostics this resource supports — derived, so an agent
              *     knows which endpoints are worth calling before calling them.
              */
-            capabilities: string;
+            capabilities: components["schemas"]["CapabilitiesResource"];
             resource_profile: string;
             cpu_cores: number;
             memory_size_mb: number;
@@ -3188,6 +3559,48 @@ export interface components {
             node_count: number;
             created_at: string;
         };
+        /** MetricAlertResource */
+        MetricAlertResource: {
+            id: string;
+            name: string | null;
+            description: string | null;
+            status: string | components["schemas"]["AlertStatus"];
+            status_details: components["schemas"]["StatusDetailsResource"];
+            capabilities: components["schemas"]["CapabilitiesResource"];
+            enabled: boolean;
+            resource_type: string;
+            resource_id: string;
+            resource_name: string;
+            metric_type: string | components["schemas"]["MetricType"];
+            /** @enum {string|null} */
+            metric_label: "CPU Usage" | "Memory Usage" | "Disk Usage" | "Network Receive Rate" | "Network Transmit Rate" | "CPU Steal" | "Load Ratio" | "Cache Connections" | "Cache Hit Ratio" | "Cache Ops/sec" | "DB Connections" | "DB Connection Usage" | "DB Replication Lag" | "DB Queries/sec" | "Request Rate" | "Request Latency (p99)" | "Error Rate" | null;
+            /** @enum {string|null} */
+            metric_unit: "%" | "bytes/s" | "ratio" | "connections" | "ops/s" | "seconds" | "req/s" | "ms" | null;
+            comparison_operator: string | components["schemas"]["ComparisonOperator"];
+            /** @enum {string|null} */
+            comparison_symbol: ">" | ">=" | "<" | "<=" | null;
+            threshold_value: number;
+            last_metric_value: number | null;
+            /**
+             * @description The evaluator runs every minute, so this doubles as the number
+             *     of minutes a breach must persist before the alert fires.
+             */
+            duration_minutes: number;
+            consecutive_breaches: number;
+            trigger_count: number;
+            notification_channels: unknown[] | null;
+            last_evaluated_at: string | null;
+            triggered_at: string | null;
+            resolved_at: string | null;
+            team_id: number;
+            created_at: string | null;
+            updated_at: string | null;
+        };
+        /**
+         * MetricType
+         * @enum {string}
+         */
+        MetricType: "cpu_usage" | "memory_usage" | "disk_usage" | "network_receive_rate" | "network_transmit_rate" | "cpu_steal" | "load_ratio" | "cache_connections" | "cache_hit_ratio" | "cache_ops_per_second" | "db_connections" | "db_connection_usage" | "db_replication_lag" | "db_queries_per_second" | "request_rate" | "request_latency_p99" | "error_rate";
         /**
          * NotificationCategory
          * @enum {string}
@@ -3268,6 +3681,29 @@ export interface components {
          * @enum {string}
          */
         QueueInstanceStatus: "pending" | "provisioning" | "running" | "stopped" | "restoring" | "updating" | "error" | "destroying";
+        /** RegistryRepositoryResource */
+        RegistryRepositoryResource: {
+            id: string;
+            /**
+             * @description The pull path, e.g. `team-42/api`. Prefix with the registry
+             *     host to get a usable image reference.
+             */
+            path: string;
+            bytes_used: number;
+            tag_count: number;
+            last_push_at: string | null;
+            tags?: components["schemas"]["RegistryRepositoryTagResource"][];
+            team_id: number;
+            created_at: string | null;
+        };
+        /** RegistryRepositoryTagResource */
+        RegistryRepositoryTagResource: {
+            tag: string;
+            digest: string;
+            media_type: string;
+            bytes_size: number;
+            pushed_at: string | null;
+        };
         /** ServerlessContainerResource */
         ServerlessContainerResource: {
             id: string;
@@ -3386,7 +3822,11 @@ export interface components {
             target_concurrency: number;
             resource_profile: string;
             status: string;
-            status_details: string;
+            /**
+             * @description Same documentation wrapper the container resource already uses.
+             *     Unwrapped, a plain array publishes as `"type": "string"`.
+             */
+            status_details: components["schemas"]["ServerlessStatusDetailsResource"];
             is_current: boolean;
             traffic_percent: number;
             /**
@@ -3649,7 +4089,7 @@ export interface components {
              * @description Which diagnostics this resource supports — derived, so an agent
              *     knows which endpoints are worth calling before calling them.
              */
-            capabilities: string;
+            capabilities: components["schemas"]["CapabilitiesResource"];
             last_error: string | null;
             plan: string;
             deploy_method: string;
@@ -3663,12 +4103,44 @@ export interface components {
         };
         /** StatusDetailsResource */
         StatusDetailsResource: {
+            /** @description Overall state: pending, in_progress, ready, degraded, failed, stopped, deleting, unknown. */
             summary: string;
+            /** @description What is CURRENTLY SERVING: healthy, degraded, unhealthy, unknown. `unknown` during an operation is not a failure. */
             health: string;
-            observed_at: string;
-            stale: string;
-            operation: string;
-            error: string;
+            /** @description ISO-8601 time this status was last confirmed. Falls back to the row's last write when the platform has never recorded a check. */
+            observed_at: string | null;
+            /** @description True only when an IN-FLIGHT operation has gone unconfirmed for 15 minutes. A settled state never goes stale, so `false` with an old `observed_at` is correct and expected — an error established an hour ago is still an error. */
+            stale: boolean;
+            operation: components["schemas"]["StatusOperationResource"];
+            error: components["schemas"]["StatusErrorResource"] | null;
+        };
+        /** StatusErrorResource */
+        StatusErrorResource: {
+            /** @description Stable automation key, e.g. `cache.oom_killed`. Branch on this, not on `message`. */
+            code: string;
+            /** @description Which subsystem observed it, e.g. `reconciler`. */
+            source: string | null;
+            resource: {
+                /** @description Kubernetes kind, e.g. Pod or PersistentVolumeClaim. */
+                kind: string | null;
+                /** @description Name of that object. */
+                name: string | null;
+            } | null;
+            /** @description Provider-native reason, e.g. `CrashLoopBackOff`. Correlates with kubectl describe. */
+            reason: string | null;
+            /** @description Human-readable detail. Not a stable interface. */
+            message: string | null;
+            /** @description Whether retrying can possibly help. Retrying a false here only consumes quota. */
+            retryable: boolean;
+            /** @description ISO-8601 time this failure was observed. */
+            observed_at: string | null;
+        };
+        /** StatusOperationResource */
+        StatusOperationResource: {
+            /** @description queued, running, succeeded, failed or cancelled. */
+            state: string;
+            /** @description THE STOP CONDITION FOR POLLING. Do not infer this from `summary`. */
+            terminal: boolean;
         };
         /** StorageAccessKeyResource */
         StorageAccessKeyResource: {
@@ -3717,7 +4189,7 @@ export interface components {
              *     offers neither logs nor events — say so rather than making an
              *     agent find out by 404.
              */
-            capabilities: string;
+            capabilities: components["schemas"]["CapabilitiesResource"];
             region: string;
             provider: string;
             /** @enum {string} */
@@ -3899,6 +4371,35 @@ export interface components {
             plan: string;
             nodes: number;
         };
+        /**
+         * StoreMetricAlertApiRequest
+         * @description Creating an alert through the API, where the caller names the target.
+         *
+         *     The dashboard never does: its only create route is nested under a VPS and
+         *     derives both `resource_type` and `resource_id` from the route binding. An
+         *     API caller supplies them in the body, which introduces two problems the web
+         *     path never had — an unowned `resource_id`, and a `resource_type` that no
+         *     evaluator can actually handle. Both are rejected here.
+         */
+        StoreMetricAlertApiRequest: {
+            /**
+             * @description Only types with a registered query resolver. The metric
+             *     catalogue lists more, but an alert on one of those would be
+             *     stored and then never evaluated.
+             * @enum {string}
+             */
+            resource_type: "vps";
+            resource_id: string;
+            /** @enum {string} */
+            metric_type: "";
+            /** @enum {string} */
+            comparison_operator: "gt" | "gte" | "lt" | "lte";
+            threshold_value: number;
+            duration_minutes?: number;
+            name?: string | null;
+            description?: string | null;
+            notification_channels?: ("database" | "mail" | "webhook")[] | null;
+        };
         /** StoreServerlessContainerRequest */
         StoreServerlessContainerRequest: Record<string, never>;
         /** StoreSshKeyRequest */
@@ -3962,6 +4463,36 @@ export interface components {
             }[] | null;
             /** @description Tags validation */
             tags?: string[] | null;
+        };
+        /**
+         * StoreUptimeCheckApiRequest
+         * @description The dashboard's create rules, with the token ability checked FIRST and the
+         *     per-team cap enforced as validation rather than in the controller.
+         *
+         *     Checking the ability first matters more here than anywhere else in the
+         *     program: StoreUptimeCheckRequest::after() runs the SSRF validator, which
+         *     performs a LIVE DNS RESOLVE of the submitted URL. Leaving that behind a
+         *     controller-body permission check would let a token without `uptime:write`
+         *     make the platform resolve arbitrary hostnames on its behalf.
+         */
+        StoreUptimeCheckApiRequest: {
+            name: string;
+            /** Format: uri */
+            url: string;
+            /** @enum {string} */
+            method?: "GET" | "HEAD";
+            /** @enum {integer} */
+            interval_seconds?: "60" | "300";
+            timeout_seconds?: number;
+            expected_status?: string;
+            body_keyword?: string | null;
+            follow_redirects?: boolean;
+            verify_tls?: boolean;
+            check_ssl_expiry?: boolean;
+            ssl_expiry_threshold_days?: number;
+            failure_threshold?: number;
+            notify_on_recovery?: boolean;
+            notification_channels?: ("database" | "mail" | "webhook")[] | null;
         };
         /** StoreVpsInstanceRequest */
         StoreVpsInstanceRequest: {
@@ -4193,12 +4724,32 @@ export interface components {
             /** @description Tags validation */
             tags?: string[] | null;
         };
+        /** UpdateUptimeCheckRequest */
+        UpdateUptimeCheckRequest: {
+            name: string;
+            /** Format: uri */
+            url: string;
+            /** @enum {string} */
+            method?: "GET" | "HEAD";
+            /** @enum {integer} */
+            interval_seconds?: "60" | "300";
+            timeout_seconds?: number;
+            expected_status?: string;
+            body_keyword?: string | null;
+            follow_redirects?: boolean;
+            verify_tls?: boolean;
+            check_ssl_expiry?: boolean;
+            ssl_expiry_threshold_days?: number;
+            failure_threshold?: number;
+            notify_on_recovery?: boolean;
+            notification_channels?: ("database" | "mail" | "webhook")[] | null;
+        };
         /** UpdateVpsInstanceRequest */
         UpdateVpsInstanceRequest: {
             /** @enum {string} */
             cpu_allocation_type?: "shared" | "dedicated";
             /** @enum {string|null} */
-            resource_profile?: "nano_shared" | "micro_shared" | "cascade-2x8" | "small_shared" | "cascade-4x16" | "medium_shared" | "cascade-8x32" | "large_shared" | "cascade-16x64" | null;
+            resource_profile?: "cascade-16x64" | "cascade-2x8" | "cascade-4x16" | "cascade-8x32" | "large_shared" | "medium_shared" | "micro_shared" | "nano_shared" | "small_shared" | null;
             configuration?: {
                 auto_start?: boolean;
                 backup_enabled?: boolean;
@@ -4206,6 +4757,43 @@ export interface components {
             };
             automated_snapshots_enabled?: boolean;
         };
+        /** UptimeCheckResource */
+        UptimeCheckResource: {
+            id: string;
+            name: string;
+            url: string;
+            method: string;
+            status: string | components["schemas"]["UptimeCheckStatus"];
+            status_details: components["schemas"]["StatusDetailsResource"];
+            capabilities: components["schemas"]["CapabilitiesResource"];
+            enabled: boolean;
+            interval_seconds: number;
+            timeout_seconds: number;
+            expected_status: string;
+            body_keyword: string | null;
+            follow_redirects: boolean;
+            verify_tls: boolean;
+            check_ssl_expiry: boolean;
+            ssl_expiry_threshold_days: number;
+            ssl_expires_at: string | null;
+            failure_threshold: number;
+            notify_on_recovery: boolean;
+            notification_channels: unknown[] | null;
+            consecutive_failures: number;
+            last_checked_at: string | null;
+            last_status_code: number | null;
+            last_response_time_ms: number | null;
+            /** @description A stable probe error CODE (dns, timeout, tls, …), not prose. */
+            last_error: string | null;
+            team_id: number;
+            created_at: string | null;
+            updated_at: string | null;
+        };
+        /**
+         * UptimeCheckStatus
+         * @enum {string}
+         */
+        UptimeCheckStatus: "up" | "down" | "unknown" | "paused";
         /** VpsInstanceResource */
         VpsInstanceResource: {
             id: string;
@@ -4219,7 +4807,7 @@ export interface components {
              *     knows which endpoints are worth calling. `logs` is false by
              *     design here: guest output is the customer's own data.
              */
-            capabilities: string;
+            capabilities: components["schemas"]["CapabilitiesResource"];
             resource_profile: string | null;
             cpu_allocation_type: string;
             cpu_cores: number;
@@ -4273,7 +4861,7 @@ export interface components {
              * @description Derived, not hardcoded: a block device has no logs, and saying
              *     so here saves an agent a 404 to find out.
              */
-            capabilities: string;
+            capabilities: components["schemas"]["CapabilitiesResource"];
             size_gb: number;
             /**
              * @description The cluster-side names, so an operator reading a support ticket
@@ -4453,8 +5041,14 @@ export interface operations {
                             entries: components["schemas"]["InstanceLogEntryResource"][];
                         };
                         error: null;
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -4478,8 +5072,14 @@ export interface operations {
                             message: "The log store did not respond. This says nothing about the workload itself — retry shortly.";
                             retryable: boolean;
                         };
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -4509,8 +5109,14 @@ export interface operations {
                             events: components["schemas"]["DiagnosticEventResource"][];
                         };
                         error: null;
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -4537,8 +5143,14 @@ export interface operations {
                              */
                             retryable: boolean;
                         };
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -4601,8 +5213,14 @@ export interface operations {
                             };
                         };
                         error: null;
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -5079,6 +5697,199 @@ export interface operations {
             404: components["responses"]["ModelNotFoundException"];
         };
     };
+    "v1.registry.usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            bytes_used: number;
+                            repository_count: number;
+                            max_bytes: number;
+                            max_repositories: number;
+                        };
+                        meta: {
+                            unlimited_is_zero: boolean;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "v1.registry.repositories.index": {
+        parameters: {
+            query?: {
+                per_page?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["RegistryRepositoryResource"][];
+                        pagination: {
+                            current_page: number;
+                            last_page: number;
+                            per_page: number;
+                            total: number;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "v1.registry.repositories.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The repo ID */
+                repo: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        repository: components["schemas"]["RegistryRepositoryResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.registry.repositories.destroy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The repo ID */
+                repo: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        error: "The registry did not confirm every delete, so the repository was left intact.";
+                        retryable: boolean;
+                    };
+                };
+            };
+        };
+    };
+    "v1.registry.repositories.tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The repo ID */
+                repo: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["RegistryRepositoryTagResource"][];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.registry.repositories.tags.destroy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The repo ID */
+                repo: string;
+                tag: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        error: "The registry did not confirm the delete, so nothing was removed.";
+                        retryable: boolean;
+                    };
+                };
+            };
+        };
+    };
     "v1.database.logs": {
         parameters: {
             query?: {
@@ -5114,8 +5925,14 @@ export interface operations {
                             entries: components["schemas"]["InstanceLogEntryResource"][];
                         };
                         error: null;
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -5139,8 +5956,14 @@ export interface operations {
                             message: "The log store did not respond. This says nothing about the workload itself — retry shortly.";
                             retryable: boolean;
                         };
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -5170,8 +5993,14 @@ export interface operations {
                             events: components["schemas"]["DiagnosticEventResource"][];
                         };
                         error: null;
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -5198,8 +6027,14 @@ export interface operations {
                              */
                             retryable: boolean;
                         };
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -5262,8 +6097,14 @@ export interface operations {
                             };
                         };
                         error: null;
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -6738,8 +7579,14 @@ export interface operations {
                             entries: components["schemas"]["InstanceLogEntryResource"][];
                         };
                         error: null;
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -6763,8 +7610,14 @@ export interface operations {
                             message: "The log store did not respond. This says nothing about the workload itself — retry shortly.";
                             retryable: boolean;
                         };
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -6794,8 +7647,14 @@ export interface operations {
                             events: components["schemas"]["DiagnosticEventResource"][];
                         };
                         error: null;
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -6822,8 +7681,14 @@ export interface operations {
                              */
                             retryable: boolean;
                         };
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -6886,8 +7751,14 @@ export interface operations {
                             };
                         };
                         error: null;
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -7055,6 +7926,259 @@ export interface operations {
                 };
             };
             422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.metric-alerts.index": {
+        parameters: {
+            query?: {
+                per_page?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["MetricAlertResource"][];
+                        pagination: {
+                            current_page: number;
+                            last_page: number;
+                            per_page: number;
+                            total: number;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "v1.metric-alerts.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoreMetricAlertApiRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "Metric alert created";
+                        alert: components["schemas"]["MetricAlertResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.metric-alerts.available-metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                resourceType: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: unknown[];
+                        meta: {
+                            resource_type: string;
+                            /**
+                             * @description A type can have metrics listed and still have no evaluator,
+                             *     in which case an alert on it would never fire. Say so here
+                             *     rather than letting store() be the first hint.
+                             */
+                            alertable: boolean;
+                            alertable_resource_types: unknown[];
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "v1.metric-alerts.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The metric alert ID */
+                metricAlert: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        alert: components["schemas"]["MetricAlertResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.metric-alerts.update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The metric alert ID */
+                metricAlert: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    comparison_operator?: "gt" | "gte" | "lt" | "lte";
+                    threshold_value?: number;
+                    duration_minutes?: number;
+                    name?: string | null;
+                    description?: string | null;
+                    notification_channels?: ("database" | "mail" | "webhook")[] | null;
+                };
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "Metric alert updated";
+                        alert: components["schemas"]["MetricAlertResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.metric-alerts.destroy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The metric alert ID */
+                metricAlert: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "Metric alert deleted";
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.metric-alerts.toggle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The metric alert ID */
+                metricAlert: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        message: "Metric alert enabled" | "Metric alert disabled";
+                        alert: components["schemas"]["MetricAlertResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.metric-alerts.history": {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The metric alert ID */
+                metricAlert: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            event_type: string;
+                            metric_value: number | null;
+                            threshold_value: number | null;
+                            prometheus_query: string | null;
+                            occurred_at: string | null;
+                        }[];
+                        meta: {
+                            limit: Record<string, never> | null;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
         };
     };
     "v1.notification-preferences.show": {
@@ -7752,8 +8876,14 @@ export interface operations {
                             };
                         };
                         error: null;
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -7953,7 +9083,12 @@ export interface operations {
                             /** @constant */
                             kind: "deploy";
                             state: string;
-                            terminal: string;
+                            /**
+                             * @description Cast is redundant at runtime and load-bearing in the spec: the
+                             *     generator cannot infer through the local, and published this —
+                             *     THE stop condition for polling — as `"type": "string"`.
+                             */
+                            terminal: boolean;
                             /** @enum {integer|null} */
                             poll_after_ms: 3000 | null;
                             revision: string;
@@ -7973,8 +9108,14 @@ export interface operations {
                             } | null;
                         };
                         error: null;
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     } | {
                         success: boolean;
                         data: {
@@ -7997,8 +9138,14 @@ export interface operations {
                             error: null;
                         };
                         error: null;
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -8022,8 +9169,14 @@ export interface operations {
                             message: "No such operation.";
                             retryable: boolean;
                         };
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -8520,8 +9673,14 @@ export interface operations {
                             entries: components["schemas"]["InstanceLogEntryResource"][];
                         };
                         error: null;
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -8545,8 +9704,14 @@ export interface operations {
                             message: "The log store did not respond. This says nothing about the workload itself — retry shortly.";
                             retryable: boolean;
                         };
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -8576,8 +9741,14 @@ export interface operations {
                             events: components["schemas"]["DiagnosticEventResource"][];
                         };
                         error: null;
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -8604,8 +9775,14 @@ export interface operations {
                              */
                             retryable: boolean;
                         };
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -8668,8 +9845,14 @@ export interface operations {
                             };
                         };
                         error: null;
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -8759,9 +9942,13 @@ export interface operations {
                         connection_info: string;
                         management_url: string;
                         monthly_cost: number;
-                        /** @description Poll operation.terminal, never the status string. */
-                        status_details: string;
-                        capabilities: string;
+                        /**
+                         * @description Poll operation.terminal, never the status string. Wrapped in the
+                         *     shared resources so the generated spec describes the shape —
+                         *     a bare array publishes as `"type": "string"`.
+                         */
+                        status_details: components["schemas"]["StatusDetailsResource"];
+                        capabilities: components["schemas"]["CapabilitiesResource"];
                     };
                 };
             };
@@ -9053,11 +10240,13 @@ export interface operations {
                         };
                         error: null;
                         /**
-                         * @description (object) so an empty meta serialises as {} rather than [].
-                         *     A client typing meta as an object breaks on a bare array, and
-                         *     PHP cannot tell an empty map from an empty list.
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
                          */
-                        meta: string;
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -9077,11 +10266,13 @@ export interface operations {
                             retryable: boolean;
                         };
                         /**
-                         * @description (object) so an empty meta serialises as {} rather than [].
-                         *     A client typing meta as an object breaks on a bare array, and
-                         *     PHP cannot tell an empty map from an empty list.
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
                          */
-                        meta: string;
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -9091,7 +10282,6 @@ export interface operations {
     "v1.registry.verify-push": {
         parameters: {
             query: {
-                /** @description Accept a bare repository path, with or without the host and tag. */
                 repository: string;
             };
             header?: never;
@@ -9116,11 +10306,13 @@ export interface operations {
                         };
                         error: null;
                         /**
-                         * @description (object) so an empty meta serialises as {} rather than [].
-                         *     A client typing meta as an object breaks on a bare array, and
-                         *     PHP cannot tell an empty map from an empty list.
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
                          */
-                        meta: string;
+                        meta: Record<string, never>;
                     } | {
                         success: boolean;
                         data: {
@@ -9143,11 +10335,13 @@ export interface operations {
                             hint: "Delete unused tags or repositories, or upgrade the plan, then retry.";
                         };
                         /**
-                         * @description (object) so an empty meta serialises as {} rather than [].
-                         *     A client typing meta as an object breaks on a bare array, and
-                         *     PHP cannot tell an empty map from an empty list.
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
                          */
-                        meta: string;
+                        meta: Record<string, never>;
                     } | {
                         success: boolean;
                         data: {
@@ -9165,11 +10359,13 @@ export interface operations {
                             hint: string;
                         };
                         /**
-                         * @description (object) so an empty meta serialises as {} rather than [].
-                         *     A client typing meta as an object breaks on a bare array, and
-                         *     PHP cannot tell an empty map from an empty list.
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
                          */
-                        meta: string;
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -9189,11 +10385,13 @@ export interface operations {
                             retryable: boolean;
                         };
                         /**
-                         * @description (object) so an empty meta serialises as {} rather than [].
-                         *     A client typing meta as an object breaks on a bare array, and
-                         *     PHP cannot tell an empty map from an empty list.
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
                          */
-                        meta: string;
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -9291,11 +10489,13 @@ export interface operations {
                         };
                         error: null;
                         /**
-                         * @description (object) so an empty meta serialises as {} rather than [].
-                         *     A client typing meta as an object breaks on a bare array, and
-                         *     PHP cannot tell an empty map from an empty list.
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
                          */
-                        meta: string;
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -9315,11 +10515,13 @@ export interface operations {
                             retryable: boolean;
                         };
                         /**
-                         * @description (object) so an empty meta serialises as {} rather than [].
-                         *     A client typing meta as an object breaks on a bare array, and
-                         *     PHP cannot tell an empty map from an empty list.
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
                          */
-                        meta: string;
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -9545,8 +10747,14 @@ export interface operations {
                             entries: components["schemas"]["ServerlessLogEntryResource"][];
                         };
                         error: null;
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -9572,8 +10780,14 @@ export interface operations {
                             message: "The log store did not respond. This says nothing about the container itself — retry shortly.";
                             retryable: boolean;
                         };
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -9605,8 +10819,14 @@ export interface operations {
                             route: components["schemas"]["ServerlessRouteStatusResource"] | null;
                         };
                         error: null;
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -9633,8 +10853,14 @@ export interface operations {
                             message: "The platform could not read this container's revisions. Retry shortly.";
                             retryable: boolean;
                         };
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -9664,8 +10890,14 @@ export interface operations {
                             events: components["schemas"]["ServerlessEventResource"][];
                         };
                         error: null;
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -9694,8 +10926,14 @@ export interface operations {
                              */
                             retryable: boolean;
                         };
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -10838,8 +12076,14 @@ export interface operations {
                             };
                         };
                         error: null;
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -11344,6 +12588,367 @@ export interface operations {
             404: components["responses"]["ModelNotFoundException"];
         };
     };
+    "v1.uptime-checks.index": {
+        parameters: {
+            query?: {
+                per_page?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["UptimeCheckResource"][];
+                        pagination: {
+                            current_page: number;
+                            last_page: number;
+                            per_page: number;
+                            total: number;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "v1.uptime-checks.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoreUptimeCheckApiRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "Uptime check created";
+                        check: components["schemas"]["UptimeCheckResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.uptime-checks.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The uptime check ID */
+                uptimeCheck: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        check: components["schemas"]["UptimeCheckResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.uptime-checks.update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The uptime check ID */
+                uptimeCheck: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateUptimeCheckRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "Uptime check updated";
+                        check: components["schemas"]["UptimeCheckResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.uptime-checks.destroy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The uptime check ID */
+                uptimeCheck: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "Uptime check deleted";
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.uptime-checks.toggle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The uptime check ID */
+                uptimeCheck: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        message: "Uptime check resumed" | "Uptime check paused";
+                        check: components["schemas"]["UptimeCheckResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.uptime-checks.results": {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The uptime check ID */
+                uptimeCheck: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            checked_at: string | null;
+                            ok: boolean;
+                            status_code: number | null;
+                            response_time_ms: number | null;
+                            error: string | null;
+                        }[];
+                        /**
+                         * @description Raw results are pruned; the caller should not read an empty
+                         *     page as "nothing ever failed".
+                         */
+                        meta: {
+                            limit: Record<string, never> | null;
+                            retention_days: number;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.uptime-checks.incidents": {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The uptime check ID */
+                uptimeCheck: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            id: string;
+                            started_at: string | null;
+                            ended_at: string | null;
+                            ongoing: boolean;
+                            first_error: string | null;
+                        }[];
+                        meta: {
+                            limit: Record<string, never> | null;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.uptime-checks.test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The uptime check ID */
+                uptimeCheck: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            ok: boolean;
+                            status_code: number | null;
+                            response_time_ms: number;
+                            /** @enum {string|null} */
+                            error: "too_many_redirects" | "keyword_missing" | "status_mismatch" | "http_error" | "timeout" | "tls" | "refused" | "dns" | "redirect_blocked" | "blocked_target" | null;
+                        };
+                        meta: {
+                            recorded: boolean;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.uptime-checks.diagnose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The uptime check ID */
+                uptimeCheck: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            verdict: string;
+                            status: {
+                                summary: string;
+                                health: string;
+                                observed_at: string;
+                                stale: boolean;
+                                operation: {
+                                    state: string;
+                                    terminal: boolean;
+                                };
+                                error: {
+                                    code: string;
+                                    source: string;
+                                    resource: {
+                                        kind: string | null;
+                                        name: string | null;
+                                    } | null;
+                                    reason: string | null;
+                                    message: string;
+                                    retryable: boolean;
+                                    observed_at: string;
+                                };
+                            };
+                            findings: unknown[];
+                            sections: {
+                                events: {
+                                    available: boolean;
+                                    count: number;
+                                    truncated: boolean;
+                                } | null;
+                                logs: {
+                                    available: boolean;
+                                    sampled_lines: number;
+                                } | null;
+                            };
+                        };
+                        error: null;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
     "v1.vps.events": {
         parameters: {
             query?: never;
@@ -11368,8 +12973,14 @@ export interface operations {
                             events: components["schemas"]["DiagnosticEventResource"][];
                         };
                         error: null;
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -11396,8 +13007,14 @@ export interface operations {
                              */
                             retryable: boolean;
                         };
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -11460,8 +13077,14 @@ export interface operations {
                             };
                         };
                         error: null;
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -12253,8 +13876,14 @@ export interface operations {
                             events: components["schemas"]["DiagnosticEventResource"][];
                         };
                         error: null;
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -12281,8 +13910,14 @@ export interface operations {
                              */
                             retryable: boolean;
                         };
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
@@ -12347,8 +13982,14 @@ export interface operations {
                             };
                         };
                         error: null;
-                        /** @description (object) so an empty meta serialises as {} rather than []. */
-                        meta: string;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
                     };
                 };
             };
