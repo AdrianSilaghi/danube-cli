@@ -1,6 +1,6 @@
 {
   "name": "@danubedata/cli",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "DanubeData CLI \u2014 manage infrastructure from the terminal",
   "type": "module",
   "bin": {
