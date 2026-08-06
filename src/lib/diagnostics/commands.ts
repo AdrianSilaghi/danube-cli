@@ -17,8 +17,10 @@ import { parseSince, sanitize } from '../log-text.js';
  * path, and how a name resolves to an id.
  *
  * These wrap the SERVER-side diagnose: `/diagnose` returns findings the
- * platform has already correlated. That is unlike `rapids diagnose`, which
- * predates the backend engine and still correlates client-side.
+ * platform has already correlated. `rapids diagnose` reads the same endpoint
+ * but is deliberately not built from this factory — it renders the revision,
+ * route and error lines alongside the findings, which is strictly more than
+ * the shared shape.
  */
 
 export type Severity = 'fatal' | 'action_required' | 'transient_recovered' | 'informational';
