@@ -1990,6 +1990,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/serverless/{serverlessContainer}/diagnose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Diagnose the container
+         * @description Correlates status, classified cluster events and log availability into
+         *     ranked findings. `degraded` is terminal but not an outage — a new
+         *     revision failed while an older one keeps serving traffic — so read
+         *     `findings[].severity` rather than assuming the site is down.
+         */
+        get: operations["v1.serverless.diagnose"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/serverless/{serverlessContainer}/logs": {
         parameters: {
             query?: never;
@@ -10709,6 +10732,78 @@ export interface operations {
             };
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.serverless.diagnose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The serverless container ID */
+                serverlessContainer: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            verdict: string;
+                            status: {
+                                summary: string;
+                                health: string;
+                                observed_at: string;
+                                stale: boolean;
+                                operation: {
+                                    state: string;
+                                    terminal: boolean;
+                                };
+                                error: {
+                                    code: string;
+                                    source: string;
+                                    resource: {
+                                        kind: string | null;
+                                        name: string | null;
+                                    } | null;
+                                    reason: string | null;
+                                    message: string;
+                                    retryable: boolean;
+                                    observed_at: string;
+                                };
+                            };
+                            findings: unknown[];
+                            sections: {
+                                events: {
+                                    available: boolean;
+                                    count: number;
+                                    truncated: boolean;
+                                } | null;
+                                logs: {
+                                    available: boolean;
+                                    sampled_lines: number;
+                                } | null;
+                            };
+                        };
+                        error: null;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
