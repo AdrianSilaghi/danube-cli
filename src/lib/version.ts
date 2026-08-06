@@ -19,6 +19,13 @@ export interface UpdateCheckResult {
   current: string;
   latest: string;
   updateAvailable: boolean;
+  /**
+   * A major bump is breaking by definition, so it is never installed for you
+   * and it is announced differently. Without this the CLI cheerfully nudged
+   * 0.18.0 → 1.0.1 in the same words it uses for a patch, while that upgrade
+   * renamed every finding code.
+   */
+  isMajor: boolean;
 }
 
 export function getCurrentVersion(): string {
@@ -36,6 +43,23 @@ function compareSemver(a: string, b: string): number {
     if (diff !== 0) return diff;
   }
   return 0;
+}
+
+/**
+ * Would moving to `latest` cross a major boundary?
+ *
+ * `0.x` is treated as if every minor were a major, which is the semver
+ * convention for pre-1.0: 0.17 → 0.18 may break, and nothing in a 0.x series
+ * promises otherwise. Being wrong in this direction only costs an extra
+ * prompt; being wrong the other way installs a breaking change unasked.
+ */
+export function isMajorUpgrade(current: string, latest: string): boolean {
+  const [cMajor = 0, cMinor = 0] = current.split('.').map(Number);
+  const [lMajor = 0, lMinor = 0] = latest.split('.').map(Number);
+
+  if (lMajor !== cMajor) return true;
+
+  return cMajor === 0 && lMinor !== cMinor;
 }
 
 async function readCache(): Promise<UpdateCache | null> {
@@ -70,6 +94,7 @@ export async function checkForUpdate(): Promise<UpdateCheckResult | null> {
         current,
         latest: cache.latest,
         updateAvailable: compareSemver(cache.latest, current) > 0,
+        isMajor: isMajorUpgrade(current, cache.latest),
       };
     }
 
@@ -85,15 +110,36 @@ export async function checkForUpdate(): Promise<UpdateCheckResult | null> {
       current,
       latest,
       updateAvailable: compareSemver(latest, current) > 0,
+      isMajor: isMajorUpgrade(current, latest),
     };
   } catch {
     return null;
   }
 }
 
-export function printUpdateNotification(current: string, latest: string): void {
+/**
+ * A major upgrade is announced as breaking and points at the changelog, not
+ * just at an install command. The previous wording described 0.18.0 → 1.0.1 —
+ * which renames every diagnostic finding code — exactly like a patch bump.
+ */
+export function printUpdateNotification(current: string, latest: string, isMajor = false): void {
   console.error();
-  console.error(chalk.yellow(`  Update available: ${chalk.dim(current)} → ${chalk.green(latest)}`));
-  console.error(chalk.yellow(`  Run ${chalk.cyan(`npm install -g ${PACKAGE_NAME}`)} to update`));
+
+  if (isMajor) {
+    console.error(chalk.yellow(`  Update available: ${chalk.dim(current)} → ${chalk.green(latest)}  ${chalk.red('(MAJOR — breaking)')}`));
+    console.error(chalk.dim('  Read what changed before upgrading: https://docs.danubedata.ro/failure-codes'));
+  } else {
+    console.error(chalk.yellow(`  Update available: ${chalk.dim(current)} → ${chalk.green(latest)}`));
+  }
+
+  console.error(chalk.yellow(`  Run ${chalk.cyan('danube upgrade')} to update`));
+  console.error();
+}
+
+/** Printed after the CLI has already installed the update for you. */
+export function printAutoUpdateNotice(from: string, to: string): void {
+  console.error();
+  console.error(chalk.green(`  Auto-updated ${chalk.dim(from)} → ${chalk.bold(to)}`));
+  console.error(chalk.dim('  Disable with: danube config set auto-update false'));
   console.error();
 }

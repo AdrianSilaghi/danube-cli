@@ -4,12 +4,20 @@ import type { Command } from 'commander';
  * An unrecognised command token, located in the command tree.
  */
 export interface UnknownCommandReport {
-  /** The token that matched no command. */
+  /** The token that matched no command. Empty when a group was invoked bare. */
   token: string;
   /** Command path it was found under — `[]` at the root, `['rapids']` under a group. */
   parentPath: string[];
   /** Sibling command names at that level, for the caller to suggest. */
   known: string[];
+  /**
+   * A known GROUP was invoked with no subcommand — `danube operations`.
+   *
+   * Commander answers that with plain-text help, which under `--json` lands
+   * in the middle of a caller's parse as prose. It is the same class of usage
+   * error as an unknown command, so it gets the same structured treatment.
+   */
+  missingSubcommand?: boolean;
 }
 
 interface OptionLookup {
@@ -111,7 +119,28 @@ export function findUnknownCommand(root: Command, argv: readonly string[]): Unkn
     path.push(next.name());
   }
 
+  // Every token consumed and we landed on a GROUP rather than a leaf, e.g.
+  // `danube operations`. Commander prints plain-text help, which is fine for a
+  // human and useless mid-parse under `--json`.
+  //
+  // Not reported for the bare root (`danube` alone is a legitimate request for
+  // the overview) and not when help or version was explicitly asked for —
+  // `danube rapids --help` must still print help rather than fail.
+  if (path.length > 0 && cmd.commands.length > 0 && !wantsHelpOrVersion(argv)) {
+    return { token: '', parentPath: [...path], known: subcommandNames(cmd), missingSubcommand: true };
+  }
+
   return null;
+}
+
+/** `--help`/`--version` mean the bare group invocation was deliberate. */
+function wantsHelpOrVersion(argv: readonly string[]): boolean {
+  for (const token of argv) {
+    if (token === '--') return false;
+    if (token === '--help' || token === '-h' || token === '--version' || token === '-V') return true;
+  }
+
+  return false;
 }
 
 /**
@@ -147,7 +176,11 @@ export interface UnknownCommandOutput {
  */
 export function formatUnknownCommand(report: UnknownCommandReport, json: boolean): UnknownCommandOutput {
   const parent = ['danube', ...report.parentPath].join(' ');
-  const message = `unknown command '${report.token}' for '${parent}'`;
+  const missing = report.missingSubcommand === true;
+
+  const message = missing
+    ? `'${parent}' needs a subcommand`
+    : `unknown command '${report.token}' for '${parent}'`;
 
   if (json) {
     return {
@@ -155,7 +188,7 @@ export function formatUnknownCommand(report: UnknownCommandReport, json: boolean
         success: false,
         data: null,
         error: {
-          code: 'unknown_command',
+          code: missing ? 'missing_subcommand' : 'unknown_command',
           message,
           command: report.token,
           parent: report.parentPath.join(' '),
@@ -170,7 +203,7 @@ export function formatUnknownCommand(report: UnknownCommandReport, json: boolean
 
   return {
     lines: [
-      `error: unknown command '${report.token}'`,
+      missing ? `error: ${message}` : `error: unknown command '${report.token}'`,
       `Available under '${parent}': ${report.known.join(', ')}`,
       `Run '${parent} --help' for details.`,
     ],

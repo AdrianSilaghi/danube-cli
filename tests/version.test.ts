@@ -11,7 +11,7 @@ vi.mock('node:os', async () => {
   return { ...actual, homedir: () => testDir };
 });
 
-const { getCurrentVersion, checkForUpdate, printUpdateNotification, PACKAGE_NAME } = await import('../src/lib/version.js');
+const { getCurrentVersion, checkForUpdate, printUpdateNotification, isMajorUpgrade, PACKAGE_NAME } = await import('../src/lib/version.js');
 
 describe('version', () => {
   beforeEach(async () => {
@@ -164,9 +164,61 @@ describe('version', () => {
       const output = errSpy.mock.calls.map(c => c[0]).join('\n');
       expect(output).toContain('0.1.0');
       expect(output).toContain('1.0.0');
-      expect(output).toContain('npm install -g @danubedata/cli');
+      // Points at the command that works under every install method. Plain
+      // `npm install -g` is wrong under volta/asdf and fails on a root-owned
+      // prefix, which is why `danube upgrade` exists.
+      expect(output).toContain('danube upgrade');
 
       errSpy.mockRestore();
+    });
+
+    /**
+     * The live defect this was written for: 0.18.0 → 1.0.1 renamed every
+     * diagnostic finding code, and the notice described it in exactly the
+     * words it uses for a patch bump.
+     */
+    it('marks a major upgrade as breaking and links what changed', () => {
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      printUpdateNotification('0.18.0', '1.0.1', true);
+
+      const output = errSpy.mock.calls.map(c => c[0]).join('\n');
+      expect(output).toContain('MAJOR');
+      expect(output).toContain('docs.danubedata.ro/failure-codes');
+
+      errSpy.mockRestore();
+    });
+
+    it('does not cry breaking-change on an ordinary patch', () => {
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      printUpdateNotification('1.0.1', '1.0.2', false);
+
+      expect(errSpy.mock.calls.map(c => c[0]).join('\n')).not.toContain('MAJOR');
+
+      errSpy.mockRestore();
+    });
+  });
+
+  describe('isMajorUpgrade', () => {
+    it('treats a major bump as breaking', () => {
+      expect(isMajorUpgrade('0.18.0', '1.0.1')).toBe(true);
+      expect(isMajorUpgrade('1.4.2', '2.0.0')).toBe(true);
+    });
+
+    it('treats same-major moves as safe', () => {
+      expect(isMajorUpgrade('1.0.1', '1.0.2')).toBe(false);
+      expect(isMajorUpgrade('1.0.1', '1.9.0')).toBe(false);
+    });
+
+    /**
+     * Semver gives 0.x no stability promise, so a minor bump there is treated
+     * as a major. Being wrong this way costs one extra prompt; being wrong the
+     * other way installs a breaking change nobody asked for.
+     */
+    it('treats a 0.x minor bump as breaking', () => {
+      expect(isMajorUpgrade('0.17.0', '0.18.0')).toBe(true);
+      expect(isMajorUpgrade('0.18.0', '0.18.1')).toBe(false);
     });
 
     it('prints the update notification to stderr', () => {

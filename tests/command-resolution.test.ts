@@ -163,6 +163,58 @@ describe('output format', () => {
   });
 });
 
+/**
+ * Reported from production: `danube operations --json` with no subcommand
+ * emitted Commander's plain-text help, which lands in the middle of a
+ * caller's parse as prose. A group needing a subcommand is the same class of
+ * usage error as an unknown command and gets the same structured answer.
+ */
+describe('a group invoked without a subcommand', () => {
+  it('is reported rather than left to Commander help', () => {
+    const report = resolve('operations');
+
+    expect(report?.missingSubcommand).toBe(true);
+    expect(report?.parentPath).toEqual(['operations']);
+    expect(report?.known.length).toBeGreaterThan(0);
+  });
+
+  it('emits a structured envelope under --json', () => {
+    const report = resolve('operations --json');
+    expect(report).not.toBeNull();
+
+    const out = formatUnknownCommand(report!, true);
+    const parsed = JSON.parse(out.lines.join('\n'));
+
+    expect(parsed.success).toBe(false);
+    expect(parsed.error.code).toBe('missing_subcommand');
+    expect(parsed.error.retryable).toBe(false);
+    expect(parsed.meta.known_commands.length).toBeGreaterThan(0);
+    // Usage error, not a retryable failure.
+    expect(out.exitCode).toBe(2);
+    expect(out.stream).toBe('stdout');
+  });
+
+  /**
+   * The regression this guard exists for: `--help` on a group is a deliberate
+   * request for help, not a mistake. Reporting it would break every
+   * `danube <group> --help` in the product.
+   */
+  it('stays silent when help or version was explicitly asked for', () => {
+    expect(resolve('operations --help')).toBeNull();
+    expect(resolve('rapids -h')).toBeNull();
+    expect(resolve('--version')).toBeNull();
+  });
+
+  /** `danube` alone is a legitimate request for the overview. */
+  it('stays silent for the bare root', () => {
+    expect(resolve('')).toBeNull();
+  });
+
+  it('stays silent for a leaf command, which owns its own arguments', () => {
+    expect(resolve('rapids ls')).toBeNull();
+  });
+});
+
 describe('json detection before parse', () => {
   it('detects --json anywhere in the arguments', () => {
     expect(wantsJsonOutput(['rapids', 'ls', '--json'])).toBe(true);
