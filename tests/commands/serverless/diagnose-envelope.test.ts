@@ -22,9 +22,36 @@ const { setJsonMode } = await import('../../../src/lib/json-mode.js');
 describe('rapids diagnose --json envelope', () => {
   let logSpy: ReturnType<typeof vi.spyOn>;
 
-  /** resolveContainer lists first; then show / revisions / events / logs. */
+  /** resolveContainer lists first; then show / diagnose / revisions / events / logs. */
   function stubApi(statusSummary: string, errorCode: string | null): void {
     mockGet.mockImplementation((path: string) => {
+      // Findings come from the platform now, not from correlating the other
+      // sections here. This stub stands in for what the server returns.
+      if (path.endsWith('/diagnose')) {
+        return Promise.resolve({
+          success: true,
+          data: {
+            verdict: errorCode ? 'fatal' : 'healthy',
+            findings: errorCode
+              ? [{
+                  code: errorCode,
+                  severity: 'fatal',
+                  summary: 'The registry rejected the credential.',
+                  remediation: 'Not retryable: retrying will fail identically. Fix the cause first.',
+                  retryable: false,
+                }]
+              : [{
+                  code: 'serverless.healthy',
+                  severity: 'informational',
+                  summary: 'No problems found.',
+                  remediation: null,
+                  retryable: false,
+                }],
+          },
+          error: null,
+          meta: {},
+        });
+      }
       if (path.endsWith('/revisions') || path.endsWith('/events') || path.includes('/logs')) {
         return Promise.resolve({ success: true, data: {}, error: null, meta: {} });
       }
@@ -107,5 +134,36 @@ describe('rapids diagnose --json envelope', () => {
     const out = emitted();
     expect(Array.isArray(out.data.findings)).toBe(true);
     expect(out.data.findings.some((f: { severity: string }) => f.severity === 'fatal')).toBe(true);
+  });
+
+  /**
+   * The correlation moved to the platform, so a failed `/diagnose` call now
+   * means NO findings at all. Reporting that as an empty list would read as
+   * "nothing wrong" — the precise conflation this whole surface exists to
+   * remove. It has to say it did not ask.
+   */
+  it('says the diagnosis was not fetched rather than returning a silently empty list', async () => {
+    stubApi('ready', null);
+    mockGet.mockImplementation((path: string) => {
+      if (path.endsWith('/diagnose')) return Promise.reject(new Error('Service Unavailable'));
+      if (path.endsWith('/revisions') || path.endsWith('/events') || path.includes('/logs')) {
+        return Promise.resolve({ success: true, data: {}, error: null, meta: {} });
+      }
+      if (/\/serverless\/[^/]+$/.test(path)) {
+        return Promise.resolve({ container: { id: 'c-1', name: 'my-api', status_details: null } });
+      }
+      return Promise.resolve({ data: [{ id: 'c-1', name: 'my-api' }] });
+    });
+
+    await diagnoseCommand.parseAsync(['my-api'], { from: 'user' });
+
+    const out = emitted();
+    // The command itself worked — it fetched what it could.
+    expect(out.success).toBe(true);
+    expect(out.data.findings.map((f: { code: string }) => f.code))
+      .toContain('serverless.diagnose_unavailable');
+    // Not "healthy". We did not look.
+    expect(out.meta.verdict).toBe('unknown');
+    expect(process.exitCode).toBeUndefined();
   });
 });
