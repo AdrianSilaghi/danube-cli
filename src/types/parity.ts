@@ -23,7 +23,7 @@
  * instead of the actual response shape. Per-check comments below explain
  * each; full root-cause detail is in the task-12 report.
  */
-import type { paths } from './generated.js';
+import type { components, paths } from './generated.js';
 import type {
   VpsInstance,
   CacheInstance,
@@ -308,3 +308,28 @@ type _guardRevisionActualReplicas = AssertTrue<Exact<RapidsRevision['actual_repl
  * hand-written ServerlessContainer type with the generated one — tracked with
  * the rest of the CLI type migration.
  */
+
+/**
+ * `findings[]` gained a real item schema when danubedata#309 typed it — before
+ * that the spec published `unknown[]`, which is why the CLI carries its own
+ * hand-written `Finding` at all.
+ *
+ * Now that both exist they can silently disagree, so this asserts the
+ * generated one is assignable to what the CLI reads. It fails the moment the
+ * backend adds a required field, renames one, or changes a type — which is the
+ * whole point: `code` and `severity` are the keys agents branch on, and a
+ * mismatch there is a wrong diagnosis rather than a compile error.
+ *
+ * The hand-written `Finding` in `lib/diagnostics/commands.ts` can be replaced
+ * by the generated type outright; that is part of the wider CLI type
+ * migration, and this guard holds the line until then.
+ */
+type GeneratedFinding = components['schemas']['FindingResource'];
+
+type _guardFindingShape = Satisfies<{
+  code: string;
+  severity: string;
+  summary: string;
+  remediation: string | null;
+  retryable: boolean;
+}, GeneratedFinding>;

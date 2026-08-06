@@ -1,5 +1,6 @@
 import { Command } from 'commander';
 import { loginCommand } from './commands/login.js';
+import { upgradeCommand, configCommand } from './commands/upgrade.js';
 import { logoutCommand } from './commands/logout.js';
 import { whoamiCommand } from './commands/whoami.js';
 import { linkCommand } from './commands/link.js';
@@ -101,6 +102,8 @@ export function buildProgram(): Command {
   program.addCommand(parameterGroupsCommand);
   program.addCommand(uptimeCommand);
   program.addCommand(projectCommand);
+  program.addCommand(upgradeCommand);
+  program.addCommand(configCommand);
 
   const pagesCommand = new Command('pages')
     .description('Manage static sites');

@@ -196,6 +196,28 @@ the exit code, or on `findings[].severity`, never on `success`.
 | `danube whoami` | Show authenticated user and teams |
 | `danube operations inspect <id>` | Show the state of a long-running operation |
 | `danube operations wait <id>` | Block until an operation is terminal (`--timeout 30m`) |
+| `danube upgrade` | Update the CLI (`--check` to see what would happen) |
+| `danube config get` | Show CLI settings |
+| `danube config set auto-update <true\|false>` | Toggle automatic same-major updates |
+
+#### Staying up to date
+
+After an interactive command the CLI checks npm at most once a day and prints a
+notice on **stderr**. It never runs during `--json`, when stderr is not a TTY,
+when `CI` is set, or when `DANUBE_NO_UPDATE_CHECK` is set — so scripts and
+agents are never nudged and never change version underneath a pipeline.
+
+`danube upgrade` installs the update. Prefer it over `npm install -g`: it
+detects how the CLI was installed, and under a version manager (volta/asdf/fnm)
+or against a directory it cannot write it refuses **before** running npm and
+names the command that will work — rather than failing partway through and
+leaving a half-written install.
+
+`danube config set auto-update true` opts in to having same-major updates
+installed for you. **A major upgrade is never installed automatically**,
+however this is set: it is announced as breaking and left for you to run,
+because a major renames codes and changes semantics. For pre-1.0 versions each
+minor counts as a major, per semver.
 
 ### VPS Instances (`danube vps`)
 

@@ -7,6 +7,12 @@ export interface DanubeConfig {
   apiBase?: string;
   teamId?: number;
   teamName?: string;
+  /**
+   * Opt-in. When true the CLI installs SAME-MAJOR updates for you after a
+   * command finishes. A major bump is never installed automatically however
+   * this is set — a breaking change stays a decision, not a side effect.
+   */
+  autoUpdate?: boolean;
 }
 
 const CONFIG_DIR = join(homedir(), '.danube');

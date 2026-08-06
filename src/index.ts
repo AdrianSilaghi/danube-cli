@@ -1,6 +1,8 @@
 import { buildProgram } from './program.js';
 import { handleError } from './lib/handle-error.js';
-import { checkForUpdate, printUpdateNotification } from './lib/version.js';
+import { checkForUpdate, printAutoUpdateNotice, printUpdateNotification } from './lib/version.js';
+import { readConfig } from './lib/config.js';
+import { performUpgrade } from './lib/upgrade.js';
 import { isJsonMode } from './lib/json-mode.js';
 import { findUnknownCommand, formatUnknownCommand, wantsJsonOutput } from './lib/command-resolution.js';
 
@@ -30,11 +32,35 @@ if (unknown) {
 
 program.parseAsync()
   .then(async () => {
-    if (!isJsonMode() && process.stderr.isTTY) {
-      const result = await checkForUpdate();
-      if (result?.updateAvailable) {
-        printUpdateNotification(result.current, result.latest);
+    // Runs AFTER the command, and only for an interactive human. The four
+    // gates (JSON mode, TTY, CI, opt-out) are why automation never inherits a
+    // version change it did not ask for — `checkForUpdate` enforces the last
+    // two itself.
+    if (isJsonMode() || !process.stderr.isTTY) return;
+
+    const result = await checkForUpdate();
+    if (!result?.updateAvailable) return;
+
+    // Auto-update is opt-in AND same-major only. A major bump renames codes
+    // and changes semantics — installing that underneath someone mid-session
+    // is the failure this CLI exists to help people avoid, so it is always
+    // announced and never applied.
+    if (!result.isMajor) {
+      const config = await readConfig().catch(() => null);
+
+      if (config?.autoUpdate === true) {
+        const outcome = await performUpgrade(result.current, result.latest);
+
+        // A refusal (version manager, unwritable prefix) falls through to the
+        // ordinary notice rather than nagging about plumbing every run.
+        if (outcome.ok) {
+          printAutoUpdateNotice(outcome.from, outcome.to);
+
+          return;
+        }
       }
     }
+
+    printUpdateNotification(result.current, result.latest, result.isMajor);
   })
   .catch((err) => handleError(err));

@@ -3521,6 +3521,19 @@ export interface components {
          * @enum {string}
          */
         DigestFrequency: "instant" | "daily" | "weekly" | "disabled";
+        /** FindingResource */
+        FindingResource: {
+            /** @description Stable automation key, namespaced by product, e.g. `serverless.no_pod_scheduled`. Branch on this, never on the prose. */
+            code: string;
+            /** @description One of: fatal, action_required, transient_recovered, informational. `transient_recovered` is NOT a current problem. */
+            severity: string;
+            /** @description Human-readable statement of the finding. Reworded freely; do not parse. */
+            summary: string;
+            /** @description What to actually do. Null when there is nothing to do. */
+            remediation: string | null;
+            /** @description Whether retrying the same operation can possibly help. */
+            retryable: boolean;
+        };
         /** Firewall */
         Firewall: Record<string, never>;
         /** FirewallResource */
@@ -5222,7 +5235,7 @@ export interface operations {
                                     observed_at: string;
                                 };
                             };
-                            findings: unknown[];
+                            findings: components["schemas"]["FindingResource"][];
                             sections: {
                                 events: {
                                     available: boolean;
@@ -6106,7 +6119,7 @@ export interface operations {
                                     observed_at: string;
                                 };
                             };
-                            findings: unknown[];
+                            findings: components["schemas"]["FindingResource"][];
                             sections: {
                                 events: {
                                     available: boolean;
@@ -7760,7 +7773,7 @@ export interface operations {
                                     observed_at: string;
                                 };
                             };
-                            findings: unknown[];
+                            findings: components["schemas"]["FindingResource"][];
                             sections: {
                                 events: {
                                     available: boolean;
@@ -8885,7 +8898,7 @@ export interface operations {
                                     observed_at: string;
                                 };
                             };
-                            findings: unknown[];
+                            findings: components["schemas"]["FindingResource"][];
                             sections: {
                                 events: {
                                     available: boolean;
@@ -9854,7 +9867,7 @@ export interface operations {
                                     observed_at: string;
                                 };
                             };
-                            findings: unknown[];
+                            findings: components["schemas"]["FindingResource"][];
                             sections: {
                                 events: {
                                     available: boolean;
@@ -10778,7 +10791,7 @@ export interface operations {
                                     observed_at: string;
                                 };
                             };
-                            findings: unknown[];
+                            findings: components["schemas"]["FindingResource"][];
                             sections: {
                                 events: {
                                     available: boolean;
@@ -12158,7 +12171,7 @@ export interface operations {
                                     observed_at: string;
                                 };
                             };
-                            findings: unknown[];
+                            findings: components["schemas"]["FindingResource"][];
                             sections: {
                                 events: {
                                     available: boolean;
@@ -13016,7 +13029,7 @@ export interface operations {
                                     observed_at: string;
                                 };
                             };
-                            findings: unknown[];
+                            findings: components["schemas"]["FindingResource"][];
                             sections: {
                                 events: {
                                     available: boolean;
@@ -13159,7 +13172,7 @@ export interface operations {
                                     observed_at: string;
                                 };
                             };
-                            findings: unknown[];
+                            findings: components["schemas"]["FindingResource"][];
                             sections: {
                                 events: {
                                     available: boolean;
@@ -14064,7 +14077,7 @@ export interface operations {
                                     observed_at: string;
                                 };
                             };
-                            findings: unknown[];
+                            findings: components["schemas"]["FindingResource"][];
                             sections: {
                                 events: {
                                     available: boolean;
