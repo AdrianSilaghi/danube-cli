@@ -1,0 +1,4 @@
+/.github/CODEOWNERS @AdrianSilaghi
+/ci/jenkins/ @AdrianSilaghi
+/scripts/jenkins/ @AdrianSilaghi
+/tests/jenkins/ @AdrianSilaghi
