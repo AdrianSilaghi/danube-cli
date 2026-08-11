@@ -1,0 +1,326 @@
+void publishGitHubCommitStatusForSha(String targetSha, String statusContext, String state) {
+    if (!(targetSha ==~ /[0-9a-fA-F]{40}/)) {
+        error("Cannot publish GitHub status for invalid SHA: ${targetSha ?: 'unset'}")
+    }
+    if (!(statusContext in ['ci/jenkins/pr', 'ci/jenkins/pr-head', 'ci/jenkins/main'])) {
+        error("Cannot publish unexpected GitHub status context: ${statusContext ?: 'unset'}")
+    }
+    if (!(state in ['PENDING', 'SUCCESS', 'FAILURE', 'ERROR'])) {
+        error("Cannot publish unexpected GitHub status state: ${state}")
+    }
+
+    Map<String, String> buildUrlPatterns = [
+        'danube-cli-pr/build': 'https://jenkins\\.ifasconsult\\.ro/job/danube-cli-pr/job/build/[1-9][0-9]*/',
+        'danube-cli-build/main': 'https://jenkins\\.ifasconsult\\.ro/job/danube-cli-build/job/main/[1-9][0-9]*/'
+    ]
+    String buildUrl = env.BUILD_URL?.trim()
+    String buildUrlPattern = buildUrlPatterns[env.JOB_NAME]
+    if (!buildUrlPattern || !(buildUrl ==~ buildUrlPattern)) {
+        error("Cannot publish GitHub status with unexpected BUILD_URL: ${buildUrl ?: 'unset'}")
+    }
+
+    Map<String, String> descriptions = [
+        PENDING: 'Jenkins build is running',
+        SUCCESS: 'Jenkins build succeeded',
+        FAILURE: 'Jenkins build failed',
+        ERROR: 'Jenkins build aborted'
+    ]
+    String apiUrl = "https://api.github.com/repos/AdrianSilaghi/danube-cli/statuses/${targetSha}"
+
+    withEnv([
+        "GITHUB_STATUS_API_URL=${apiUrl}",
+        "GITHUB_STATUS_CONTEXT_VALUE=${statusContext}",
+        "GITHUB_STATUS_DESCRIPTION=${descriptions[state]}",
+        "GITHUB_STATUS_STATE=${state.toLowerCase()}",
+        "GITHUB_STATUS_TARGET_URL=${buildUrl}"
+    ]) {
+        withCredentials([string(
+            credentialsId: 'danube-cli-github-status-token',
+            variable: 'GITHUB_STATUS_TOKEN'
+        )]) {
+            sh(
+                label: "Publish ${statusContext} on ${targetSha.take(12)}",
+                script: '''
+                    set +x
+                    set -eu
+                    printf 'header = "Authorization: Bearer %s"\n' "$GITHUB_STATUS_TOKEN" | \
+                    /usr/bin/curl --disable --config - \
+                        --fail-with-body \
+                        --silent \
+                        --show-error \
+                        --connect-timeout 10 \
+                        --max-time 30 \
+                        --request POST \
+                        --header "Accept: application/vnd.github+json" \
+                        --header "Content-Type: application/json" \
+                        --header "X-GitHub-Api-Version: 2022-11-28" \
+                        --data-binary "{\"state\":\"$GITHUB_STATUS_STATE\",\"target_url\":\"$GITHUB_STATUS_TARGET_URL\",\"description\":\"$GITHUB_STATUS_DESCRIPTION\",\"context\":\"$GITHUB_STATUS_CONTEXT_VALUE\"}" \
+                        --output /dev/null \
+                        "$GITHUB_STATUS_API_URL"
+                '''
+            )
+        }
+    }
+}
+
+void publishGitHubCommitStatus(String state) {
+    boolean mirrorHeadStatus = env.GITHUB_STATUS_HEAD_SHA?.trim() &&
+        !env.GITHUB_STATUS_HEAD_SHA.equalsIgnoreCase(env.GITHUB_STATUS_SHA)
+
+    // GitHub's PR rollup follows the head. Publish the visibility-only mirror
+    // first so a later publication failure cannot leave the authoritative
+    // merge status falsely green.
+    if (mirrorHeadStatus) {
+        publishGitHubCommitStatusForSha(
+            env.GITHUB_STATUS_HEAD_SHA,
+            'ci/jenkins/pr-head',
+            state
+        )
+    }
+
+    try {
+        publishGitHubCommitStatusForSha(
+            env.GITHUB_STATUS_SHA,
+            env.GITHUB_STATUS_CONTEXT,
+            state
+        )
+    } catch (Exception publicationFailure) {
+        if (state == 'SUCCESS' && mirrorHeadStatus) {
+            try {
+                publishGitHubCommitStatusForSha(
+                    env.GITHUB_STATUS_HEAD_SHA,
+                    'ci/jenkins/pr-head',
+                    'FAILURE'
+                )
+            } catch (Exception correctionFailure) {
+                echo 'Failed to correct the PR-head status after authoritative status publication failed'
+            }
+        }
+        throw publicationFailure
+    }
+}
+
+pipeline {
+    agent { label 'host-build' }
+
+    options {
+        skipDefaultCheckout(true)
+        timeout(time: 30, unit: 'MINUTES')
+        timestamps()
+        buildDiscarder(logRotator(numToKeepStr: '30', artifactNumToKeepStr: '10'))
+    }
+
+    parameters {
+        string(name: 'SOURCE_REF', defaultValue: '', description: 'PR merge ref or refs/heads/main.')
+        string(name: 'SOURCE_SHA', defaultValue: '', description: 'PR head SHA or exact main push SHA.')
+        string(name: 'CHANGE_ID', defaultValue: '', description: 'Pull request number; empty for main.')
+        string(name: 'CHANGE_TARGET', defaultValue: 'main', description: 'Pull request base branch.')
+        string(name: 'SOURCE_REPOSITORY', defaultValue: '', description: 'Base repository full name from the webhook.')
+        string(name: 'HEAD_REPOSITORY', defaultValue: '', description: 'PR head repository full name; empty for main.')
+        string(name: 'AUTHOR_ASSOCIATION', defaultValue: '', description: 'GitHub author association; empty for main.')
+    }
+
+    environment {
+        NODE_IMAGE = 'node:22-bookworm@sha256:0557ac14e0d45d02ed563067b82856ca5e7aa3437fa28d98d4350ea9c3d9494a'
+    }
+
+    stages {
+        stage('Validate trusted build context') {
+            steps {
+                script {
+                    String sourceRef = params.SOURCE_REF.trim()
+                    String sourceSha = params.SOURCE_SHA.trim()
+                    if (params.SOURCE_REPOSITORY.trim() != 'AdrianSilaghi/danube-cli') {
+                        error("Unexpected source repository ${params.SOURCE_REPOSITORY}")
+                    }
+
+                    if (env.JOB_NAME == 'danube-cli-pr/build') {
+                        String changeId = params.CHANGE_ID.trim()
+                        if (!(changeId ==~ /[1-9][0-9]*/)) {
+                            error("Invalid CHANGE_ID: ${changeId}")
+                        }
+                        if (!(sourceSha ==~ /[0-9a-fA-F]{40}/)) {
+                            error("Invalid SOURCE_SHA: ${sourceSha}")
+                        }
+                        if (!sourceRef) {
+                            sourceRef = "refs/pull/${changeId}/merge"
+                        }
+                        if (sourceRef != "refs/pull/${changeId}/merge") {
+                            error("PR source ref must be refs/pull/${changeId}/merge, got ${sourceRef}")
+                        }
+                        if (params.CHANGE_TARGET.trim() != 'main') {
+                            error("Pull request target must be main, got ${params.CHANGE_TARGET}")
+                        }
+                        if (params.HEAD_REPOSITORY.trim() != 'AdrianSilaghi/danube-cli') {
+                            error("Only same-repository pull requests are allowed; got ${params.HEAD_REPOSITORY}")
+                        }
+                        if (!(params.AUTHOR_ASSOCIATION.trim() in ['OWNER', 'MEMBER', 'COLLABORATOR'])) {
+                            error("PR author must be a repository collaborator; got ${params.AUTHOR_ASSOCIATION}")
+                        }
+
+                        env.IS_PULL_REQUEST = 'true'
+                        env.VERIFIED_REMOTE_REF = "refs/remotes/origin/pull/${changeId}/merge"
+                        env.VERIFIED_BASE_REF = 'refs/remotes/origin/main'
+                        env.EXPECTED_PR_HEAD_SHA = sourceSha
+                        env.EXPECTED_SOURCE_SHA = ''
+                        env.CHECKOUT_REF = env.VERIFIED_REMOTE_REF
+                        env.CHECKOUT_REFSPEC = "+${sourceRef}:${env.VERIFIED_REMOTE_REF} +refs/heads/main:refs/remotes/origin/main"
+                    } else if (env.JOB_NAME == 'danube-cli-build/main') {
+                        if (sourceRef != 'refs/heads/main') {
+                            error("Protected main builds require refs/heads/main, got ${sourceRef}")
+                        }
+                        if (!(sourceSha ==~ /[0-9a-fA-F]{40}/)) {
+                            error("Invalid SOURCE_SHA: ${sourceSha}")
+                        }
+                        if (params.CHANGE_ID.trim() || params.HEAD_REPOSITORY.trim() || params.AUTHOR_ASSOCIATION.trim()) {
+                            error('Protected main builds cannot carry pull request metadata')
+                        }
+
+                        env.IS_PULL_REQUEST = 'false'
+                        env.VERIFIED_REMOTE_REF = 'refs/remotes/origin/main'
+                        env.VERIFIED_BASE_REF = ''
+                        env.EXPECTED_PR_HEAD_SHA = ''
+                        env.EXPECTED_SOURCE_SHA = sourceSha
+                        env.CHECKOUT_REF = env.VERIFIED_REMOTE_REF
+                        env.CHECKOUT_REFSPEC = '+refs/heads/main:refs/remotes/origin/main'
+                    } else {
+                        error("This trusted pipeline cannot run as job ${env.JOB_NAME ?: 'unset'}")
+                    }
+                }
+            }
+        }
+
+        stage('Checkout and verify') {
+            steps {
+                deleteDir()
+                script {
+                    checkout([
+                        $class: 'GitSCM',
+                        branches: [[name: env.CHECKOUT_REF]],
+                        doGenerateSubmoduleConfigurations: false,
+                        extensions: [[$class: 'CloneOption', noTags: true, shallow: false]],
+                        userRemoteConfigs: [[
+                            url: 'https://github.com/AdrianSilaghi/danube-cli.git',
+                            refspec: env.CHECKOUT_REFSPEC
+                        ]]
+                    ])
+
+                    String checkedOutSha = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
+                    String fetchedRefSha = sh(
+                        script: "git rev-parse '${env.VERIFIED_REMOTE_REF}^{commit}'",
+                        returnStdout: true
+                    ).trim()
+                    if (!checkedOutSha.equalsIgnoreCase(fetchedRefSha)) {
+                        error("HEAD ${checkedOutSha} does not match fetched ref ${fetchedRefSha}")
+                    }
+
+                    if (env.IS_PULL_REQUEST == 'true') {
+                        List<String> mergeParents = sh(
+                            script: 'git show -s --format=%P HEAD',
+                            returnStdout: true
+                        ).trim().tokenize(' ')
+                        if (mergeParents.size() != 2) {
+                            error("PR merge ref must have exactly two parents, got ${mergeParents.size()}")
+                        }
+                        String baseParent = mergeParents[0]
+                        String headParent = mergeParents[1]
+                        if (!headParent.equalsIgnoreCase(env.EXPECTED_PR_HEAD_SHA)) {
+                            error("Merge head parent ${headParent} does not match SOURCE_SHA ${env.EXPECTED_PR_HEAD_SHA}")
+                        }
+                        int trustedBaseStatus = sh(
+                            script: "git merge-base --is-ancestor '${baseParent}' '${env.VERIFIED_BASE_REF}'",
+                            returnStatus: true
+                        )
+                        if (trustedBaseStatus != 0) {
+                            error("Merge base parent ${baseParent} is not trusted main history")
+                        }
+                    } else if (!fetchedRefSha.equalsIgnoreCase(env.EXPECTED_SOURCE_SHA)) {
+                        error("Fetched main tip ${fetchedRefSha} does not match SOURCE_SHA ${env.EXPECTED_SOURCE_SHA}")
+                    }
+
+                    env.GITHUB_STATUS_SHA = checkedOutSha
+                    env.GITHUB_STATUS_HEAD_SHA = env.IS_PULL_REQUEST == 'true' ? env.EXPECTED_PR_HEAD_SHA : ''
+                    env.GITHUB_STATUS_CONTEXT = env.IS_PULL_REQUEST == 'true' ? 'ci/jenkins/pr' : 'ci/jenkins/main'
+                    publishGitHubCommitStatus('PENDING')
+                }
+            }
+        }
+
+        stage('Build, test, and pack') {
+            steps {
+                sh '''
+                    docker run --rm \
+                        --read-only \
+                        --cap-drop ALL \
+                        --security-opt no-new-privileges \
+                        --user "$(id -u):$(id -g)" \
+                        --tmpfs /tmp:rw,exec,nosuid,size=1g \
+                        --env HOME=/tmp \
+                        --env CI=true \
+                        --volume "$WORKSPACE:/workspace" \
+                        --workdir /workspace \
+                        "$NODE_IMAGE" \
+                        bash scripts/jenkins/run-tests-and-pack.sh
+                '''
+            }
+        }
+
+        stage('Coverage target (shadow)') {
+            steps {
+                catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+                    sh '''
+                        docker run --rm \
+                            --read-only \
+                            --cap-drop ALL \
+                            --security-opt no-new-privileges \
+                            --user "$(id -u):$(id -g)" \
+                            --tmpfs /tmp:rw,exec,nosuid,size=1g \
+                            --env HOME=/tmp \
+                            --env CI=true \
+                            --volume "$WORKSPACE:/workspace" \
+                            --workdir /workspace \
+                            "$NODE_IMAGE" \
+                            bash scripts/jenkins/measure-coverage.sh
+                    '''
+                }
+            }
+        }
+
+        stage('OpenAPI type drift (shadow)') {
+            steps {
+                catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+                    sh '''
+                        docker run --rm \
+                            --read-only \
+                            --cap-drop ALL \
+                            --security-opt no-new-privileges \
+                            --user "$(id -u):$(id -g)" \
+                            --tmpfs /tmp:rw,exec,nosuid,size=1g \
+                            --env HOME=/tmp \
+                            --env CI=true \
+                            --volume "$WORKSPACE:/workspace" \
+                            --workdir /workspace \
+                            "$NODE_IMAGE" \
+                            bash scripts/jenkins/check-types-drift.sh
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            deleteDir()
+        }
+        cleanup {
+            script {
+                if (env.GITHUB_STATUS_SHA?.trim()) {
+                    String buildResult = currentBuild.currentResult
+                    String state = buildResult == 'SUCCESS' ? 'SUCCESS' :
+                        (buildResult == 'ABORTED' ? 'ERROR' : 'FAILURE')
+                    publishGitHubCommitStatus(state)
+                }
+            }
+        }
+    }
+}
