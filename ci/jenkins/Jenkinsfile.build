@@ -2,7 +2,7 @@ void publishGitHubCommitStatusForSha(String targetSha, String statusContext, Str
     if (!(targetSha ==~ /[0-9a-fA-F]{40}/)) {
         error("Cannot publish GitHub status for invalid SHA: ${targetSha ?: 'unset'}")
     }
-    if (!(statusContext in ['ci/jenkins/pr', 'ci/jenkins/pr-head', 'ci/jenkins/main'])) {
+    if (!(statusContext in ['ci/jenkins/pr', 'ci/jenkins/pr-merge', 'ci/jenkins/main'])) {
         error("Cannot publish unexpected GitHub status context: ${statusContext ?: 'unset'}")
     }
     if (!(state in ['PENDING', 'SUCCESS', 'FAILURE', 'ERROR'])) {
@@ -76,39 +76,50 @@ void publishGitHubCommitStatusForSha(String targetSha, String statusContext, Str
 }
 
 void publishGitHubCommitStatus(String state) {
-    boolean mirrorHeadStatus = env.GITHUB_STATUS_HEAD_SHA?.trim() &&
-        !env.GITHUB_STATUS_HEAD_SHA.equalsIgnoreCase(env.GITHUB_STATUS_SHA)
+    if (!(env.GITHUB_STATUS_CONTEXT in ['ci/jenkins/pr', 'ci/jenkins/main'])) {
+        error("Cannot publish unexpected GitHub status context: ${env.GITHUB_STATUS_CONTEXT ?: 'unset'}")
+    }
+    boolean pullRequestStatus = env.GITHUB_STATUS_CONTEXT == 'ci/jenkins/pr'
+    if (!pullRequestStatus) {
+        publishGitHubCommitStatusForSha(env.GITHUB_STATUS_SHA, 'ci/jenkins/main', state)
+        return
+    }
+    if (env.IS_PULL_REQUEST != 'true' ||
+        !(env.GITHUB_STATUS_MERGE_SHA ==~ /[0-9a-fA-F]{40}/) ||
+        env.GITHUB_STATUS_MERGE_SHA.equalsIgnoreCase(env.GITHUB_STATUS_SHA)) {
+        error('Cannot publish PR statuses without distinct verified head and merge SHAs')
+    }
 
-    // GitHub's PR rollup follows the head. Publish the visibility-only mirror
-    // first so a later publication failure cannot leave the authoritative
-    // merge status falsely green.
-    if (mirrorHeadStatus) {
-        publishGitHubCommitStatusForSha(
-            env.GITHUB_STATUS_HEAD_SHA,
-            'ci/jenkins/pr-head',
-            state
-        )
+    // The merge ref remains the code that Jenkins tests, but GitHub evaluates
+    // a required commit status on the PR head. Strict branch protection keeps
+    // that tested head up to date with the protected base.
+    try {
+        publishGitHubCommitStatusForSha(env.GITHUB_STATUS_MERGE_SHA, 'ci/jenkins/pr-merge', state)
+    } catch (Exception mergePublicationFailure) {
+        try {
+            publishGitHubCommitStatusForSha(env.GITHUB_STATUS_SHA, 'ci/jenkins/pr', 'FAILURE')
+        } catch (Exception ignoredCorrectionFailure) {
+            echo 'Failed to mark the required PR status after merge-status publication failed'
+        }
+        throw mergePublicationFailure
     }
 
     try {
-        publishGitHubCommitStatusForSha(
-            env.GITHUB_STATUS_SHA,
-            env.GITHUB_STATUS_CONTEXT,
-            state
-        )
-    } catch (Exception publicationFailure) {
-        if (state == 'SUCCESS' && mirrorHeadStatus) {
+        publishGitHubCommitStatusForSha(env.GITHUB_STATUS_SHA, 'ci/jenkins/pr', state)
+    } catch (Exception requiredPublicationFailure) {
+        if (state == 'SUCCESS') {
             try {
-                publishGitHubCommitStatusForSha(
-                    env.GITHUB_STATUS_HEAD_SHA,
-                    'ci/jenkins/pr-head',
-                    'FAILURE'
-                )
-            } catch (Exception correctionFailure) {
-                echo 'Failed to correct the PR-head status after authoritative status publication failed'
+                publishGitHubCommitStatusForSha(env.GITHUB_STATUS_SHA, 'ci/jenkins/pr', 'FAILURE')
+            } catch (Exception ignoredCorrectionFailure) {
+                echo 'Failed to correct the required PR status after publication failed'
             }
         }
-        throw publicationFailure
+        try {
+            publishGitHubCommitStatusForSha(env.GITHUB_STATUS_MERGE_SHA, 'ci/jenkins/pr-merge', 'FAILURE')
+        } catch (Exception ignoredMergeCorrectionFailure) {
+            echo 'Failed to correct the merge visibility status after required publication failed'
+        }
+        throw requiredPublicationFailure
     }
 }
 
@@ -250,8 +261,8 @@ pipeline {
                         error("Fetched main tip ${fetchedRefSha} does not match SOURCE_SHA ${env.EXPECTED_SOURCE_SHA}")
                     }
 
-                    env.GITHUB_STATUS_SHA = checkedOutSha
-                    env.GITHUB_STATUS_HEAD_SHA = env.IS_PULL_REQUEST == 'true' ? env.EXPECTED_PR_HEAD_SHA : ''
+                    env.GITHUB_STATUS_SHA = env.IS_PULL_REQUEST == 'true' ? env.EXPECTED_PR_HEAD_SHA : checkedOutSha
+                    env.GITHUB_STATUS_MERGE_SHA = env.IS_PULL_REQUEST == 'true' ? checkedOutSha : ''
                     env.GITHUB_STATUS_CONTEXT = env.IS_PULL_REQUEST == 'true' ? 'ci/jenkins/pr' : 'ci/jenkins/main'
                     publishGitHubCommitStatus('PENDING')
                 }

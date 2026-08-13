@@ -86,10 +86,11 @@ assert_contains "${CI}" 'fetchedRefSha.equalsIgnoreCase\(env.EXPECTED_SOURCE_SHA
 assert_contains "${CI}" 'https://github.com/AdrianSilaghi/danube-cli\.git'
 assert_contains "${CI}" "node:22[^[:space:]\"']*@sha256:[0-9a-f]{64}"
 assert_contains "${CI}" "'ci/jenkins/pr'"
-assert_contains "${CI}" "'ci/jenkins/pr-head'"
+assert_contains "${CI}" "'ci/jenkins/pr-merge'"
+assert_not_contains "${CI}" "'ci/jenkins/pr-head'"
 assert_contains "${CI}" "'ci/jenkins/main'"
-assert_contains "${CI}" 'GITHUB_STATUS_SHA = checkedOutSha'
-assert_contains "${CI}" 'GITHUB_STATUS_HEAD_SHA.*EXPECTED_PR_HEAD_SHA'
+assert_contains "${CI}" "GITHUB_STATUS_SHA = env.IS_PULL_REQUEST == 'true' \? env.EXPECTED_PR_HEAD_SHA : checkedOutSha"
+assert_contains "${CI}" "GITHUB_STATUS_MERGE_SHA = env.IS_PULL_REQUEST == 'true' \? checkedOutSha : ''"
 assert_not_contains "${CI}" 'GitHubCommitStatusSetter|ManuallyEnteredRepositorySource|ManuallyEnteredShaSource|ManuallyEnteredCommitContextSource|ManuallyEnteredBackrefSource'
 assert_contains "${CI}" 'credentialsId: .danube-cli-github-status-token.'
 assert_count 1 "${CI}" 'withCredentials\('
@@ -116,8 +117,12 @@ assert_before "${CI}" 'buildUrl ==~ buildUrlPattern' 'withCredentials\('
 assert_before "${CI}" 'set \+x' '/usr/bin/curl'
 assert_before "${CI}" 'set \+x' 'set -eu'
 assert_before "${CI}" 'set -eu' '/usr/bin/curl'
-assert_before "${CI}" '^[[:space:]]+env.GITHUB_STATUS_HEAD_SHA,$' \
-    '^[[:space:]]+env.GITHUB_STATUS_SHA,$'
+assert_contains "${CI}" "env.GITHUB_STATUS_MERGE_SHA,[[:space:]]*'ci/jenkins/pr-merge'"
+assert_contains "${CI}" "env.GITHUB_STATUS_SHA,[[:space:]]*'ci/jenkins/pr'"
+assert_before "${CI}" "env.GITHUB_STATUS_MERGE_SHA,[[:space:]]*'ci/jenkins/pr-merge'" \
+    "env.GITHUB_STATUS_SHA,[[:space:]]*'ci/jenkins/pr'"
+assert_contains "${CI}" 'GITHUB_STATUS_MERGE_SHA\.equalsIgnoreCase\(env.GITHUB_STATUS_SHA\)'
+assert_contains "${CI}" "env.GITHUB_STATUS_MERGE_SHA,[[:space:]]*'ci/jenkins/pr-merge',[[:space:]]*'FAILURE'"
 publisher_section="$(awk '
     /^void publishGitHubCommitStatusForSha/ { capture=1 }
     /^void publishGitHubCommitStatus\(/ { exit }
@@ -167,7 +172,9 @@ assert_contains ci/jenkins/README.md 'danube-cli-build/main'
 assert_contains ci/jenkins/README.md 'danube-cli-release/npm'
 assert_contains ci/jenkins/README.md 'protected.*main'
 assert_contains ci/jenkins/README.md 'same-repository'
-assert_contains ci/jenkins/README.md 'ci/jenkins/pr-head.*never.*required'
+assert_contains ci/jenkins/README.md 'ci/jenkins/pr-merge'
+assert_contains ci/jenkins/README.md 'Never require .*ci/jenkins/pr-merge'
+assert_contains ci/jenkins/README.md 'strict.*up.to.date|up.to.date.*strict'
 assert_contains ci/jenkins/README.md 'dry run'
 assert_contains ci/jenkins/README.md 'danube-cli-npm-publish-token'
 assert_contains .github/CODEOWNERS '^/ci/jenkins/[[:space:]]+@AdrianSilaghi$'
