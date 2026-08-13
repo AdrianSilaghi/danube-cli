@@ -5,10 +5,6 @@ import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { readProjectConfig, writeProjectConfig, readDanubeJson } from '../src/lib/project.js';
 
-it('reports an intentional Jenkins failure-path smoke test', () => {
-  expect(true).toBe(false);
-});
-
 describe('project', () => {
   let testDir: string;
 
