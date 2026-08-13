@@ -175,6 +175,14 @@ assert_contains .github/CODEOWNERS '^/scripts/jenkins/[[:space:]]+@AdrianSilaghi
 assert_contains .github/CODEOWNERS '^/tests/jenkins/[[:space:]]+@AdrianSilaghi$'
 assert_contains .github/CODEOWNERS '^/\.github/CODEOWNERS[[:space:]]+@AdrianSilaghi$'
 assert_contains ci/jenkins/README.md 'Do not enable.*Jenkins jobs.*until'
+
+# GitHub Actions retains tag publication only after Jenkins owns PR/main CI.
+[ -f .github/workflows/ci.yml ] || fail 'tag-release Actions workflow must remain until Jenkins npm publication is proven'
+assert_contains .github/workflows/ci.yml "tags:.*'v\*'"
+assert_contains .github/workflows/ci.yml "startsWith\(github.ref, 'refs/tags/v'\)"
+assert_contains .github/workflows/ci.yml 'npm publish --access public'
+assert_contains .github/workflows/ci.yml 'NPM_TOKEN'
+assert_not_contains .github/workflows/ci.yml 'pull_request|branches: \[main, master\]|types-drift:'
 assert_contains ci/jenkins/README.md 'main.*direct pushes'
 assert_contains ci/jenkins/README.md 'force pushes'
 assert_contains ci/jenkins/README.md 'bypass'

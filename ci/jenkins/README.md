@@ -32,6 +32,10 @@ validated change id) or the synthetic
 `ci/jenkins/main` only after the checkout matches both the fetched `main` tip
 and the webhook SHA.
 
+Jenkins now owns pull-request and `main` CI. The remaining GitHub Actions
+workflow is tag-release-only and continues to test and publish npm releases
+until Jenkins npm publication is separately enabled and proven.
+
 The release pipeline accepts `SOURCE_REF=refs/tags/v<semver>` only when the tag
 commit is reachable from protected `main` and `package.json` has the same
 version. It runs tests and a credential-free `npm pack` dry run. Publishing is
