@@ -10,6 +10,9 @@ npm install -g @danubedata/cli
 
 Requires Node.js 18 or later.
 
+Pull requests are validated by the repository's Jenkins CI pipeline before
+merge.
+
 ## Quick Start
 
 ```bash
