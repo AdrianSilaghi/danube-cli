@@ -30,10 +30,15 @@ jobs:
         with:
           persist-credentials: false
 
+      # Deliberately no `cache: npm`. On GitHub's hosted runners that cache is
+      # nearly free; here it is a local tar --use-compress-program zstdmt over
+      # the npm cache, and it dominated the job: the first run took 566s, of
+      # which ~274s was setup-node (cache restore + Node download) and ~263s
+      # was the post-step cache save -- to speed up an `npm ci` that takes 6
+      # seconds. pulumi-danubedata's equivalent job, with no cache, runs in 84s.
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
-          cache: npm
 
       - run: npm ci
       - run: npm run build
