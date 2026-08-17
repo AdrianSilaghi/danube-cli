@@ -1,0 +1,40 @@
+name: CI
+
+# Build and test only. Publishing stays on GitHub Actions.
+#
+# `.forgejo/workflows` completely shadows `.github/workflows` on this forge --
+# it is first-match-wins across .gitea -> .forgejo -> .github, not a merge. So
+# adding this file means Forgejo no longer runs .github/workflows/ci.yml at
+# all. That is deliberate: this repo is push-mirrored to github.com, where
+# .github/workflows/ci.yml still fires on `v*` tags and publishes to npm with
+# NPM_TOKEN. Do not add a publish job here -- it would double-publish, and
+# `secrets.GITHUB_TOKEN` on Forgejo is scoped to this forge, not github.com.
+#
+# This also restores a gate that was lost: the push/pull_request test job was
+# retired from .github/workflows/ci.yml when CI moved to Jenkins, and Jenkins
+# has since been deleted, leaving the repo with no per-change CI at all.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    # ubuntu-latest is the docker-executor runner (ifasconsult-docker). The two
+    # host-mode runners are reserved for danubedata's own build and deploy.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
