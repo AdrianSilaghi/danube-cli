@@ -1,0 +1,45 @@
+name: Release
+
+# Tag -> test -> publish to npm.
+#
+# Ported from the publish job of .github/workflows/ci.yml. Publishing now runs
+# here, on Forgejo, using the danubedata org's NPM_TOKEN secret.
+#
+# This is the only thing that publishes. .github/workflows/ci.yml has been
+# deleted: the repo is push-mirrored to github.com and the mirror carries tags,
+# so leaving it in place would have run its publish job on the same tag and
+# raced this one for the same npm version.
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+      - run: npm run build
+
+      # The tag is the source of truth for the version. --allow-same-version
+      # keeps a tag that already matches package.json from failing the run.
+      - name: Set version from tag
+        run: npm version "${GITHUB_REF#refs/tags/v}" --no-git-tag-version --allow-same-version
+
+      # Tests gate the publish. They are cheap here (about 6s) and a broken
+      # build reaching npm is not something a later fix can take back.
+      - run: npm test
+
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public

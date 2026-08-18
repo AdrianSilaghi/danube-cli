@@ -1,18 +1,15 @@
 name: CI
 
-# Build and test only. Publishing stays on GitHub Actions.
+# Build and test on every branch push and pull request.
 #
-# `.forgejo/workflows` completely shadows `.github/workflows` on this forge --
-# it is first-match-wins across .gitea -> .forgejo -> .github, not a merge. So
-# adding this file means Forgejo no longer runs .github/workflows/ci.yml at
-# all. That is deliberate: this repo is push-mirrored to github.com, where
-# .github/workflows/ci.yml still fires on `v*` tags and publishes to npm with
-# NPM_TOKEN. Do not add a publish job here -- it would double-publish, and
-# `secrets.GITHUB_TOKEN` on Forgejo is scoped to this forge, not github.com.
+# Publishing lives in .forgejo/workflows/release.yml, which fires on `v*` tags.
 #
-# This also restores a gate that was lost: the push/pull_request test job was
+# This restores a gate that was lost: the push/pull_request test job was
 # retired from .github/workflows/ci.yml when CI moved to Jenkins, and Jenkins
-# has since been deleted, leaving the repo with no per-change CI at all.
+# has since been deleted, leaving the repo with no per-change CI at all. That
+# GitHub workflow is now removed entirely -- Forgejo is the only CI here, and
+# `.forgejo/workflows` shadows `.github/workflows` anyway (first-match-wins
+# across .gitea -> .forgejo -> .github, not a merge).
 
 on:
   push:
