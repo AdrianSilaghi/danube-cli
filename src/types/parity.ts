@@ -44,6 +44,7 @@ type ServerlessShow = Json<paths['/serverless/{serverlessContainer}']['get']['re
 type RapidsLogs = Json<paths['/serverless/{serverlessContainer}/logs']['get']['responses'][200]>;
 type RapidsRevisions = Json<paths['/serverless/{serverlessContainer}/revisions']['get']['responses'][200]>;
 type RapidsEvents = Json<paths['/serverless/{serverlessContainer}/events']['get']['responses'][200]>;
+type RapidsMetrics = Json<paths['/serverless/{serverlessContainer}/metrics']['get']['responses'][200]>;
 
 /**
  * Each check asserts the spec's response type (`B`) is assignable to the shape
@@ -324,6 +325,46 @@ type _guardRevisionActualReplicas = AssertTrue<Exact<RapidsRevision['actual_repl
  * by the generated type outright; that is part of the wider CLI type
  * migration, and this guard holds the line until then.
  */
+/**
+ * `rapids metrics` (danubedata#409). The spec documents `container`,
+ * `resources` and `period_hours` properly, so those are real parity checks —
+ * they cover the allocation line and the header the command renders.
+ */
+type _rapidsMetrics = Satisfies<{
+  container: { id: string; name: string; status: string; resource_profile: string };
+  resources: { cpu_request: string; cpu_limit: string; memory_request: string; memory_limit: string };
+  period_hours: number;
+}, RapidsMetrics>;
+
+/**
+ * TRIPWIRE: the spec types `metrics` as `string` — the same array-shape
+ * inference gap catalogued throughout this file (the controller builds the
+ * series map in a plain PHP array). The real payload is
+ * `{requests?: {timestamps: string[], values: number[]}, ...}` with keys
+ * absent when Prometheus has no data, and `[]` when empty (PHP array
+ * serialization). The CLI types that by hand in api.ts and normalizes at the
+ * read site. When the backend annotates the real shape, this fires — replace
+ * it with a per-series parity check and reconcile ServerlessMetricsResponse.
+ * `current` has no schema at all (`{}` → `unknown`), so nothing is assertable
+ * there yet.
+ */
+type _tripwireMetricsSeriesUntyped = AssertTrue<Exact<RapidsMetrics['metrics'], string>>;
+
+/**
+ * The four resource columns `rapids ls` renders. The list endpoint's own
+ * `data` items are untyped in the spec (`items: {}` — Scramble cannot see
+ * through `Resource::collection(...)->resolve()`), but the component schema
+ * for the resource it serializes is documented, so the fields are asserted
+ * there. Required non-null strings since the original table migration —
+ * danubedata#409 made them *true*, not new.
+ */
+type _guardListResourceColumns = Satisfies<{
+  cpu_request: string;
+  cpu_limit: string;
+  memory_request: string;
+  memory_limit: string;
+}, Pick<components['schemas']['ServerlessContainerResource'], 'cpu_request' | 'cpu_limit' | 'memory_request' | 'memory_limit'>>;
+
 type GeneratedFinding = components['schemas']['FindingResource'];
 
 type _guardFindingShape = Satisfies<{

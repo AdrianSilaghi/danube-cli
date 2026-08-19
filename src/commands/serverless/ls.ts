@@ -22,15 +22,19 @@ export const lsCommand = new Command('ls')
       return;
     }
 
+    // request/limit straight from the API — the profile name alone hides what
+    // is actually enforced inside the pod, and profiles change server-side.
     const rows = items.map((c) => [
       c.name,
       statusColor(c.status),
       c.resource_profile,
+      `${c.cpu_request || '-'}/${c.cpu_limit || '-'}`,
+      `${c.memory_request || '-'}/${c.memory_limit || '-'}`,
       c.url || '-',
       formatDate(c.created_at),
     ]);
 
-    console.log(formatTable(['NAME', 'STATUS', 'PROFILE', 'URL', 'CREATED'], rows));
+    console.log(formatTable(['NAME', 'STATUS', 'PROFILE', 'CPU', 'MEMORY', 'URL', 'CREATED'], rows));
 
     if (truncated) {
       console.log(chalk.dim(`Showing ${items.length} of ${total}. Refine with the web console for the full list.`));
