@@ -1025,6 +1025,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/kubernetes/{cluster}/pools": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["v1.kubernetes.pools.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/kubernetes/{cluster}/pools/{poolName}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["v1.kubernetes.pools.destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/metric-alerts": {
         parameters: {
             query?: never;
@@ -2226,6 +2258,30 @@ export interface paths {
         put?: never;
         /** Cancel an in-progress build for a serverless container */
         post: operations["v1.serverless.builds.cancel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/serverless/{serverlessContainer}/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get metrics for a serverless container
+         * @description Returns the time series behind the console graphs (CPU, memory,
+         *     requests, latency, replicas, errors) for the requested window, the
+         *     container's allocated resources (the requests/limits actually applied
+         *     to its pods), and a current-usage snapshot. Series are shaped as
+         *     {timestamps: [...], values: [...]}, matching the console.
+         */
+        get: operations["v1.serverless.metrics"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3443,6 +3499,9 @@ export interface components {
             port: number;
             dns_hostname: string | null;
             dns_port: number | null;
+            proxy_dns_hostname: string | null;
+            proxy_dns_port: number | null;
+            proxy_any_dns_port: number | null;
             /** @description Private plane: the in-cluster Service, unaffected by public DNS. */
             internal_host: string;
             internal_port: number;
@@ -3591,6 +3650,9 @@ export interface components {
             /** @enum {string} */
             status_label: "Pending" | "Provisioning" | "Running" | "Error" | "Destroying";
             k8s_version: string;
+            ip_family: string;
+            /** @description Platform-assigned; surfaced read-only (AWS model — no CIDR input). */
+            service_cidr: string;
             endpoint: string;
             node_count: number;
             created_at: string;
@@ -3641,7 +3703,7 @@ export interface components {
          * NotificationCategory
          * @enum {string}
          */
-        NotificationCategory: "resource_provisioned" | "resource_failed" | "resource_destroyed" | "resource_status_changed" | "invoice_generated" | "payment_successful" | "payment_failed" | "credits_low" | "credits_expiring" | "pricing_contract_expiring_soon" | "pricing_contract_expired" | "budget_threshold_50" | "budget_threshold_80" | "budget_exceeded" | "api_key_created" | "api_key_revoked" | "firewall_changed" | "suspicious_activity" | "new_login" | "audit_finding_critical" | "audit_security_digest" | "snapshot_completed" | "snapshot_failed" | "restore_completed" | "restore_failed" | "team_member_added" | "team_member_removed" | "team_invitation_sent" | "team_invitation_accepted" | "maintenance_scheduled" | "maintenance_started" | "maintenance_completed" | "incident_reported" | "incident_resolved" | "cpu_threshold_exceeded" | "memory_threshold_exceeded" | "disk_threshold_exceeded" | "connections_threshold_exceeded" | "uptime_check_down" | "uptime_check_recovered" | "ssl_certificate_expiring" | "pod_health_issue";
+        NotificationCategory: "resource_provisioned" | "resource_failed" | "resource_destroyed" | "resource_status_changed" | "invoice_generated" | "payment_successful" | "payment_failed" | "credits_low" | "credits_expiring" | "pricing_contract_expiring_soon" | "pricing_contract_expired" | "budget_threshold_50" | "budget_threshold_80" | "budget_exceeded" | "api_key_created" | "api_key_revoked" | "firewall_changed" | "suspicious_activity" | "new_login" | "audit_finding_critical" | "audit_security_digest" | "snapshot_completed" | "snapshot_failed" | "restore_completed" | "restore_failed" | "team_member_added" | "team_member_removed" | "team_invitation_sent" | "team_invitation_accepted" | "maintenance_scheduled" | "maintenance_started" | "maintenance_completed" | "incident_reported" | "incident_resolved" | "cpu_threshold_exceeded" | "memory_threshold_exceeded" | "disk_threshold_exceeded" | "connections_threshold_exceeded" | "uptime_check_down" | "uptime_check_recovered" | "ssl_certificate_expiring" | "pod_health_issue" | "storage_quota_threshold";
         /**
          * NotificationChannel
          * @enum {string}
@@ -4404,8 +4466,28 @@ export interface components {
             name: string;
             /** @enum {string} */
             k8s_version: "1.35";
-            plan: string;
-            nodes: number;
+            /**
+             * @description AWS model (#216): the IP family is chosen at creation and
+             *     immutable. `ipv6` is offered only behind the feature flag; the
+             *     service range is platform-assigned either way — there is
+             *     deliberately no CIDR input.
+             */
+            ip_family?: string;
+            /**
+             * @description Legacy single-pool shape, kept for the API and older clients:
+             *     equivalent to pools = [{name: default, plan, count: nodes}].
+             */
+            plan?: string;
+            nodes?: number;
+            /**
+             * @description First-class node pools (#215). The first pool bootstraps the
+             *     cluster; the rest are brought up once the cluster is Running.
+             */
+            pools?: {
+                name?: string;
+                plan?: string;
+                count?: number;
+            }[];
         };
         /**
          * StoreMetricAlertApiRequest
@@ -5335,21 +5417,17 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /**
+             * @description `available` reflects current scheduling capacity per provider; false
+             *     means new instances of this plan are temporarily not schedulable.
+             */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        plans: string[] | {
-                            slug: string;
-                            display_name: string;
-                            provider: string;
-                            cpu_cores: string;
-                            memory_mb: string;
-                            storage_gb: string;
-                            monthly_cost: number;
-                        }[];
+                        plans: string;
                     };
                 };
             };
@@ -6217,20 +6295,17 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /**
+             * @description `available` reflects current scheduling capacity; false means new
+             *     instances of this plan are temporarily not schedulable.
+             */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        plans: {
-                            slug: string;
-                            display_name: string;
-                            cpu_cores: string;
-                            memory_mb: string;
-                            storage_gb: string;
-                            monthly_cost: number;
-                        }[];
+                        plans: string;
                     };
                 };
             };
@@ -7280,7 +7355,11 @@ export interface operations {
                                     default: boolean;
                                 };
                             };
-                            resource_profiles: unknown[];
+                            /**
+                             * @description `available` reflects current scheduling capacity; false means
+                             *     new instances of this profile are temporarily not schedulable.
+                             */
+                            resource_profiles: string;
                         }[];
                     };
                 };
@@ -7928,6 +8007,11 @@ export interface operations {
             content: {
                 "application/json": {
                     count: number;
+                    /**
+                     * @description Optional pool name; omitted → the cluster's first pool, which
+                     *     keeps pre-#215 single-pool API clients working unchanged.
+                     */
+                    pool?: string;
                 };
             };
         };
@@ -7940,7 +8024,69 @@ export interface operations {
                     "application/json": {
                         /** @constant */
                         message: "Cluster scale request submitted.";
+                        pool: string;
                         target_count: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            /**
+             * @description An error
+             *
+             *     An error
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Error overview.
+                         * @example The cluster must finish provisioning before it can be scaled.
+                         */
+                        message: string;
+                    } | {
+                        /**
+                         * @description Error overview.
+                         * @example This node pool is being removed and can no longer be scaled.
+                         */
+                        message: string;
+                    };
+                };
+            };
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.kubernetes.pools.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The cluster ID */
+                cluster: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    /** @enum {string} */
+                    plan: "nano" | "micro" | "small" | "medium" | "large" | "xlarge";
+                    count: number;
+                };
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["KubernetesClusterResource"];
                     };
                 };
             };
@@ -7955,13 +8101,80 @@ export interface operations {
                     "application/json": {
                         /**
                          * @description Error overview.
-                         * @example The cluster must finish provisioning before it can be scaled.
+                         * @example The cluster must finish provisioning before node pools can change.
                          */
                         message: string;
                     };
                 };
             };
             422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.kubernetes.pools.destroy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The cluster ID */
+                cluster: string;
+                poolName: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            /**
+             * @description An error
+             *
+             *     An error
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Error overview.
+                         * @example The cluster must finish provisioning before node pools can change.
+                         */
+                        message: string;
+                    } | {
+                        /**
+                         * @description Error overview.
+                         * @example This node pool is already being removed.
+                         */
+                        message: string;
+                    };
+                };
+            };
+            /** @description An error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Error overview.
+                         * @example A cluster needs at least one node pool — delete the cluster instead.
+                         */
+                        message: string;
+                    };
+                };
+            };
         };
     };
     "v1.metric-alerts.index": {
@@ -11514,6 +11727,50 @@ export interface operations {
             };
         };
     };
+    "v1.serverless.metrics": {
+        parameters: {
+            query?: {
+                hours?: number | null;
+            };
+            header?: never;
+            path: {
+                /** @description The serverless container ID */
+                serverlessContainer: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        container: {
+                            id: string;
+                            name: string;
+                            status: string;
+                            resource_profile: string;
+                        };
+                        resources: {
+                            cpu_request: string;
+                            cpu_limit: string;
+                            memory_request: string;
+                            memory_limit: string;
+                        };
+                        period_hours: number;
+                        metrics: string;
+                        current: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
     "v1.snapshots.vps.index": {
         parameters: {
             query?: {
@@ -13350,21 +13607,17 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /**
+             * @description `available` reflects current scheduling capacity; false means new
+             *     instances of this plan are temporarily not schedulable.
+             */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        plans: {
-                            slug: string;
-                            display_name: string;
-                            type: string;
-                            cpu_cores: string | number;
-                            memory_gb: number;
-                            storage_gb: string | number;
-                            monthly_cost: number;
-                        }[];
+                        plans: unknown[];
                     };
                 };
             };

@@ -559,6 +559,17 @@ export interface ServerlessContainer {
   image_tag: string;
   port: number;
   resource_profile: string;
+  /**
+   * The requests/limits actually applied to the pods, as Kubernetes
+   * quantities (`1000m`, `512Mi`). Columns since the original table; what
+   * changed in danubedata#409 is that they are now truly applied and worth
+   * showing. Render these, never a client-side profile catalog — profiles
+   * change server-side and these columns are the truth.
+   */
+  cpu_request: string;
+  cpu_limit: string;
+  memory_request: string;
+  memory_limit: string;
   min_scale: number;
   max_scale: number;
   scaling_metric: 'rps' | 'concurrency' | null;
@@ -696,6 +707,52 @@ export interface ServerlessUsageResponse {
     total_cost_cents: number;
     total_cost_dollars: number;
   };
+}
+
+/**
+ * One series behind a console graph.
+ *
+ * `timestamps` are PRE-FORMATTED display strings — the platform formats them
+ * by window (`H:i` up to 6h, `M d H:i` up to 72h, `M d` beyond). Never parse
+ * them as dates. `values` are rounded to 2 decimals server-side.
+ */
+export interface MetricSeries {
+  timestamps: string[];
+  values: number[];
+}
+
+/** Series the platform emits today. Units: cpu in CORES, memory in BYTES,
+ * latency in ms, requests in req/s, errors in percent. */
+export type MetricSeriesKey = 'requests' | 'latency' | 'replicas' | 'cpu' | 'memory' | 'errors';
+
+export interface ServerlessMetricsCurrent {
+  current_pods?: number;
+  /** Cores, not millicores. */
+  current_cpu?: number;
+  /** Bytes. */
+  current_memory?: number;
+  request_count_5m?: number;
+}
+
+/**
+ * `GET /serverless/{id}/metrics` — bare payload, no {success,data} envelope.
+ *
+ * A series key is ABSENT entirely when Prometheus has no data for it, and
+ * because the controller builds `metrics`/`current` as PHP arrays, both
+ * serialize as `[]` rather than `{}` when empty — hence the array unions.
+ * Normalize with Array.isArray before reading.
+ */
+export interface ServerlessMetricsResponse {
+  container: { id: string; name: string; status: string; resource_profile: string };
+  resources: {
+    cpu_request: string;
+    cpu_limit: string;
+    memory_request: string;
+    memory_limit: string;
+  };
+  period_hours: number;
+  metrics: Partial<Record<MetricSeriesKey, MetricSeries>> | unknown[];
+  current: ServerlessMetricsCurrent | unknown[];
 }
 
 /**

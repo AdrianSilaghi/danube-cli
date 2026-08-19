@@ -33,6 +33,7 @@ import {
   eventsCommand as rapidsEventsCommand,
 } from './commands/serverless/diagnostics.js';
 import { diagnoseCommand } from './commands/serverless/diagnose.js';
+import { metricsCommand as serverlessMetricsCommand } from './commands/serverless/metrics.js';
 import { applyCommand as serverlessApplyCommand } from './commands/serverless/apply.js';
 import { probeCommand } from './commands/serverless/probe.js';
 import { preflightCommand } from './commands/serverless/preflight.js';
@@ -128,6 +129,7 @@ export function buildProgram(): Command {
   serverlessCommand.addCommand(rapidsRevisionsCommand);
   serverlessCommand.addCommand(rapidsEventsCommand);
   serverlessCommand.addCommand(diagnoseCommand);
+  serverlessCommand.addCommand(serverlessMetricsCommand);
   serverlessCommand.addCommand(serverlessApplyCommand);
   serverlessCommand.addCommand(probeCommand);
   serverlessCommand.addCommand(preflightCommand);
