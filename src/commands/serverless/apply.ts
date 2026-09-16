@@ -3,8 +3,9 @@ import chalk from 'chalk';
 import { ApiClient } from '../../lib/api-client.js';
 import { isJsonMode, jsonEnvelope } from '../../lib/json-mode.js';
 import { waitForTerminal, captureBaseline, DEFAULT_WAIT_TIMEOUT_MS } from '../../lib/wait-for-terminal.js';
-import type { WaitBaseline, WaitResult } from '../../lib/wait-for-terminal.js';
-import type { ServerlessContainer, ServerlessStatusDetails } from '../../types/api.js';
+import type { WaitBaseline } from '../../lib/wait-for-terminal.js';
+import { waitEnvelope, printWaitOutcome } from '../../lib/report-wait.js';
+import type { ServerlessContainer } from '../../types/api.js';
 
 interface ListResponse { data: ServerlessContainer[] }
 interface MutateResponse { message?: string; container: ServerlessContainer }
@@ -32,6 +33,8 @@ export const applyCommand = new Command('apply')
   .option('--min-scale <n>', 'Minimum scale')
   .option('--max-scale <n>', 'Maximum scale')
   .option('--registry-credential <id>', 'Registry credential UUID (omit for your own namespace)')
+  .option('--env <pairs...>', 'Set environment variables (KEY=VALUE), merged with existing')
+  .option('--rm-env <keys...>', 'Remove environment variables by key')
   .option('--idempotency-key <key>', 'Makes a create safe to retry after a timeout')
   .option('--wait', 'Block until the container reaches a terminal state')
   .option('--wait-timeout <duration>', 'Ceiling for --wait: 30s, 10m, 1h (default 10m)')
@@ -58,6 +61,21 @@ export const applyCommand = new Command('apply')
     if (opts.maxScale !== undefined) desired.max_scale = int(opts.maxScale, 'max-scale');
     if (opts.registryCredential !== undefined) desired.registry_credential_id = opts.registryCredential;
 
+    // Parsed once, up front: validity does not depend on whether the
+    // container exists yet, and --rm-env alone must not require --env.
+    const envPairs: Record<string, string> = {};
+    if (opts.env) {
+      for (const pair of opts.env as string[]) {
+        const eqIndex = pair.indexOf('=');
+        if (eqIndex <= 0) {
+          console.error(chalk.red(`Invalid env format: '${pair}'. Use KEY=VALUE.`));
+          process.exit(1);
+        }
+        envPairs[pair.substring(0, eqIndex)] = pair.substring(eqIndex + 1);
+      }
+    }
+    const envRequested = Boolean(opts.env || opts.rmEnv);
+
     const existing = await findByName(api, opts.name);
 
     let container: ServerlessContainer;
@@ -65,6 +83,11 @@ export const applyCommand = new Command('apply')
     let baseline: WaitBaseline | null = null;
 
     if (existing) {
+      // Same semantics as `rapids update`: remove named keys first, then
+      // overlay --env on what is left of the container's current map.
+      const desiredEnv = envRequested ? mergeEnv(existing.environment_variables, envPairs, opts.rmEnv) : null;
+      const envChanged = desiredEnv !== null && !envEqual(existing.environment_variables, desiredEnv);
+
       // Writing a configuration that already matches produces a new revision
       // for no reason — churn an agent has no way to know it caused. Compare
       // first and report `unchanged` instead.
@@ -72,7 +95,7 @@ export const applyCommand = new Command('apply')
         ([k, v]) => String((existing as unknown as Record<string, unknown>)[k] ?? '') !== String(v ?? ''),
       );
 
-      if (drift.length === 0) {
+      if (drift.length === 0 && !envChanged) {
         container = existing;
         action = 'unchanged';
       } else {
@@ -82,17 +105,23 @@ export const applyCommand = new Command('apply')
         // Only the fields actually supplied are sent, so apply converges the
         // stated configuration without silently resetting anything the caller
         // did not mention.
-        const res = await api.put<MutateResponse>(`/api/v1/serverless/${existing.id}`, desired);
+        const body: Record<string, unknown> = { ...desired };
+        if (desiredEnv !== null) body.environment_variables = desiredEnv;
+        const res = await api.put<MutateResponse>(`/api/v1/serverless/${existing.id}`, body);
         container = res.container;
         action = 'updated';
       }
     } else {
-      const body = {
+      const body: Record<string, unknown> = {
         name: opts.name,
         slug: slugify(opts.name),
         deployment_type: 'docker_image',
         ...desired,
       };
+      // A brand new container has no environment to remove from, so --rm-env
+      // alone (no --env) is a true no-op here rather than an empty map sent
+      // to the API.
+      if (opts.env) body.environment_variables = envPairs;
       const res = await api.post<MutateResponse>(
         '/api/v1/serverless',
         body,
@@ -106,13 +135,14 @@ export const applyCommand = new Command('apply')
     // state we already read.
     if (!opts.wait || action === 'unchanged') {
       if (isJsonMode()) {
-        jsonEnvelope(result(action, container, {
+        jsonEnvelope(waitEnvelope(action, container, {
           settled: action === 'unchanged',
           status: container.status_details ?? null,
           url: container.url,
           targetRevision: container.current_revision ?? null,
           observedAt: container.status_details?.observed_at ?? null,
           sawFreshObservation: true,
+          observedGeneration: container.observed_generation ?? null,
           waitedMs: 0,
         }), { meta: { waited: false } });
         return;
@@ -129,16 +159,17 @@ export const applyCommand = new Command('apply')
     const wait = await waitForTerminal(api, container.id, {
       timeoutMs: parseDuration(opts.waitTimeout) ?? DEFAULT_WAIT_TIMEOUT_MS,
       baseline,
+      minGeneration: container.spec_generation ?? null,
     });
 
     if (isJsonMode()) {
       const err = wait.status?.error ?? null;
-      jsonEnvelope(result(action, container, wait), {
+      jsonEnvelope(waitEnvelope(action, container, wait), {
         error: wait.settled && err ? { code: err.code, message: err.message ?? undefined, retryable: err.retryable } : null,
         meta: { waited: true, fresh_observation: wait.sawFreshObservation },
       });
     } else {
-      report(wait, container.name);
+      printWaitOutcome(wait, container.name);
     }
 
     // Same rule as `create --wait`: only a settled failure is a failure. A
@@ -176,60 +207,24 @@ function parseDuration(value: string | undefined): number | null {
   return parseInt(m[1]!, 10) * ({ s: 1_000, m: 60_000, h: 3_600_000 }[m[2]!] ?? 1_000);
 }
 
-/**
- * Compact result. The full container resource is ~60 fields of git/build
- * defaults that have nothing to do with the outcome; an agent pays for every
- * one of them and has to find the four that matter.
- */
-function result(action: string, container: ServerlessContainer, wait: WaitResult) {
-  return {
-    action,
-    container_id: container.id,
-    name: container.name,
-    settled: wait.settled,
-    terminal: wait.status?.operation.terminal ?? null,
-    summary: wait.status?.summary ?? null,
-    health: wait.status?.health ?? null,
-    target_revision: wait.targetRevision,
-    // Server clock, so a caller can tell a fresh verdict from a cached one.
-    observed_at: wait.observedAt,
-    // False means we never saw the platform re-observe after the write, so the
-    // verdict above describes the PREVIOUS state.
-    fresh_observation: wait.sawFreshObservation,
-    url: wait.url,
-    error: wait.status?.error ?? null,
-    waited_ms: wait.waitedMs,
-  };
+/** Order-insensitive map equality — same keys, same values. */
+function envEqual(existing: Record<string, string> | null | undefined, desired: Record<string, string>): boolean {
+  const current = existing ?? {};
+  const currentKeys = Object.keys(current);
+  const desiredKeys = Object.keys(desired);
+  if (currentKeys.length !== desiredKeys.length) return false;
+  return currentKeys.every((k) => current[k] === desired[k]);
 }
 
-function report(wait: WaitResult, name: string): void {
-  const status = wait.status;
-  if (!wait.settled) {
-    if (!wait.sawFreshObservation) {
-      console.error(chalk.yellow(
-        'Timed out before the platform re-observed this container, so no verdict here would describe your change.',
-      ));
-    } else {
-      console.error(chalk.yellow(`Still deploying (${status?.summary ?? 'unknown'}). Not a failure — the rollout continues.`));
-    }
-    console.error(chalk.dim(`Watch: danube rapids diagnose ${name} --json`));
-    return;
+/** Same merge semantics as `rapids update`: remove named keys, then overlay --env. */
+function mergeEnv(
+  existing: Record<string, string> | null | undefined,
+  envPairs: Record<string, string>,
+  rmEnv: string[] | undefined,
+): Record<string, string> {
+  const merged: Record<string, string> = { ...(existing ?? {}) };
+  if (rmEnv) {
+    for (const key of rmEnv) delete merged[key];
   }
-  if (wait.targetRevision) console.log(chalk.dim(`Revision: ${wait.targetRevision}`));
-  if (status?.summary === 'ready') {
-    console.log(chalk.green('Ready'));
-    if (wait.url) console.log(`URL: ${wait.url}`);
-    return;
-  }
-  if (status?.summary === 'degraded') {
-    console.log(chalk.yellow('Degraded — the new revision failed, an older one is still serving.'));
-    if (wait.url) console.log(`URL: ${wait.url}`);
-  } else {
-    console.log(chalk.red(String(status?.summary ?? 'unknown')));
-  }
-  if (status?.error) {
-    console.log(`  ${chalk.bold(status.error.code)}${status.error.retryable ? chalk.dim(' (retryable)') : ''}`);
-    if (status.error.message) console.log(`  ${status.error.message}`);
-  }
-  console.log(chalk.dim(`  danube rapids diagnose ${name} --json`));
+  return { ...merged, ...envPairs };
 }

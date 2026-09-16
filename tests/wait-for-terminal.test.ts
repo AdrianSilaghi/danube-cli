@@ -220,4 +220,129 @@ describe('waitForTerminal', () => {
 
     expect(seen).toEqual(['in_progress', 'ready']);
   });
+
+  describe('minGeneration', () => {
+    it('does not settle while observed_generation is behind minGeneration, even though terminal is true', async () => {
+      const { api } = apiReturning({
+        container: {
+          status_details: status({ summary: 'ready', operation: { state: 'succeeded', terminal: true } }),
+          current_revision: 'todo-00002',
+          deployment_count: 2,
+          observed_generation: 3,
+        },
+        url: null,
+      });
+
+      const promise = waitForTerminal(api, 'abc', {
+        timeoutMs: 5_000,
+        baseline: { observedAt: '2026-08-04T10:00:00+00:00', currentRevision: 'todo-00001', deploymentCount: 1 },
+        minGeneration: 4,
+      });
+      await vi.advanceTimersByTimeAsync(10_000);
+      const result = await promise;
+
+      expect(result.settled).toBe(false);
+      expect(result.observedGeneration).toBe(3);
+    });
+
+    it('gates a create too: with no baseline, a terminal verdict for an older generation is not accepted', async () => {
+      // A create has no previous verdict to be confused with, so the baseline
+      // heuristic starts out trusting the first poll. The generation must
+      // still gate it — otherwise any settled state reported before the
+      // create's rollout started would end the wait.
+      const { api } = apiReturning({
+        container: {
+          status_details: status({ summary: 'ready', operation: { state: 'succeeded', terminal: true } }),
+          observed_generation: 0,
+        },
+        url: null,
+      });
+
+      const promise = waitForTerminal(api, 'abc', { timeoutMs: 5_000, minGeneration: 1 });
+      await vi.advanceTimersByTimeAsync(10_000);
+      const result = await promise;
+
+      expect(result.settled).toBe(false);
+      expect(result.sawFreshObservation).toBe(false);
+      expect(result.observedGeneration).toBe(0);
+    });
+
+    it('settles immediately once observed_generation already meets minGeneration', async () => {
+      const { api, get } = apiReturning({
+        container: {
+          status_details: status({ summary: 'ready', operation: { state: 'succeeded', terminal: true } }),
+          observed_generation: 9,
+        },
+        url: null,
+      });
+
+      const result = await waitForTerminal(api, 'abc', { minGeneration: 9 });
+
+      expect(result.settled).toBe(true);
+      expect(result.observedGeneration).toBe(9);
+      expect(get).toHaveBeenCalledTimes(1);
+    });
+
+    it('accepts a terminal verdict once observed_generation catches up, even when the baseline heuristic alone would reject it', async () => {
+      // observed_at, current_revision and deployment_count are ALL unchanged
+      // from baseline here — the old heuristic would call this stale forever.
+      // The generation is direct evidence and does not need that heuristic.
+      const { api } = apiReturning({
+        container: {
+          status_details: status({ summary: 'ready', operation: { state: 'succeeded', terminal: true } }),
+          current_revision: 'todo-00002',
+          deployment_count: 2,
+          observed_generation: 5,
+        },
+        url: null,
+      });
+
+      const result = await waitForTerminal(api, 'abc', {
+        baseline: { observedAt: '2026-08-04T10:00:00+00:00', currentRevision: 'todo-00002', deploymentCount: 2 },
+        minGeneration: 5,
+      });
+
+      expect(result.settled).toBe(true);
+      expect(result.observedGeneration).toBe(5);
+    });
+
+    it('falls back to the baseline heuristic when the server never reports observed_generation', async () => {
+      // Same fixture as the "does NOT settle on a terminal verdict that
+      // predates the write" baseline test above, but with minGeneration also
+      // supplied — it must be inert against a server that predates the field,
+      // not crash and not short-circuit the baseline check.
+      const stale = {
+        container: {
+          status_details: status({ summary: 'ready', operation: { state: 'succeeded', terminal: true } }),
+          current_revision: 'todo-00002',
+          deployment_count: 2,
+        },
+        url: null,
+      };
+      const fresh = {
+        container: {
+          status_details: status({
+            summary: 'ready',
+            observed_at: '2026-08-04T10:05:00+00:00',
+            operation: { state: 'succeeded', terminal: true },
+          }),
+          current_revision: 'todo-00003',
+          deployment_count: 3,
+        },
+        url: 'https://x.danubedata.run',
+      };
+      const { api } = apiReturning(stale, stale, fresh);
+
+      const promise = waitForTerminal(api, 'abc', {
+        baseline: { observedAt: '2026-08-04T10:00:00+00:00', currentRevision: 'todo-00002', deploymentCount: 2 },
+        minGeneration: 7,
+      });
+      await vi.advanceTimersByTimeAsync(15_000);
+      const result = await promise;
+
+      expect(result.settled).toBe(true);
+      expect(result.targetRevision).toBe('todo-00003');
+      expect(result.observedGeneration).toBeNull();
+    });
+  });
 });
