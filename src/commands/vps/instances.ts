@@ -48,7 +48,7 @@ export const lsCommand = new Command('ls')
       statusColor(v.status),
       v.public_ip || '-',
       v.resource_profile,
-      `${v.cpu_cores} ${v.cpu_allocation_type}`,
+      `${v.cpu_cores} ${v.cpu_allocation_type}${v.cpu_platform ? ` ${v.cpu_platform}` : ''}`,
       `${v.memory_size_gb}GB`,
       `${v.storage_size_gb}GB`,
       `\u20AC${v.monthly_cost_dollars}/mo`,
@@ -76,6 +76,8 @@ export const createCommand = new Command('create')
   .option('--plan <plan>', 'Alias for --resource-profile')
   .option('--cpu-allocation-type <type>', 'CPU allocation: shared or dedicated (canonical)')
   .option('--cpu-type <type>', 'Alias for --cpu-allocation-type')
+  .option('--cpu-platform <platform>', 'Processor platform: amd or intel (required; canonical)')
+  .option('--processor <platform>', 'Alias for --cpu-platform')
   .option('--network-stack <stack>', 'Network stack: dual_stack, ipv4_only, ipv6_only (canonical)')
   .option('--network <stack>', 'Alias for --network-stack')
   .option('--ssh-key-id <id>', 'SSH key ID for authentication')
@@ -83,7 +85,7 @@ export const createCommand = new Command('create')
   .option('--datacenter <dc>', 'Datacenter region', 'fsn1')
   .action(async (rawOpts: {
     name?: string; image?: string; plan?: string; resourceProfile?: string;
-    cpuType?: string; cpuAllocationType?: string; network?: string; networkStack?: string;
+    cpuType?: string; cpuAllocationType?: string; cpuPlatform?: string; processor?: string; network?: string; networkStack?: string;
     sshKeyId?: string; password?: string; datacenter: string;
   }) => {
     const opts = {
@@ -95,6 +97,10 @@ export const createCommand = new Command('create')
       cpuType: resolveAlias('cpu-allocation-type', [
         ['--cpu-allocation-type', rawOpts.cpuAllocationType],
         ['--cpu-type', rawOpts.cpuType],
+      ]),
+      cpuPlatform: resolveAlias('cpu-platform', [
+        ['--cpu-platform', rawOpts.cpuPlatform],
+        ['--processor', rawOpts.processor],
       ]),
       network: resolveAlias('network-stack', [
         ['--network-stack', rawOpts.networkStack],
@@ -138,6 +144,19 @@ export const createCommand = new Command('create')
     });
 
     const cpuType = opts.cpuType || (plan.endsWith('_shared') ? 'shared' : 'dedicated');
+
+    // The platform is a promise, not a preference: the API refuses a create
+    // without it (422), so the CLI asks rather than guessing.
+    const cpuPlatform = await promptOr('--cpu-platform', opts.cpuPlatform, () => select({
+      message: 'Processor:',
+      choices: [
+        { name: 'AMD EPYC / Ryzen (Zen 4)', value: 'amd' },
+        { name: 'Intel Xeon (Granite Rapids) \u2014 newest platform: Gen5 NVMe, 10G uplink', value: 'intel' },
+      ],
+    }));
+    if (cpuPlatform !== 'amd' && cpuPlatform !== 'intel') {
+      throw new Error(`--cpu-platform must be "amd" or "intel" (got "${cpuPlatform}")`);
+    }
 
     if (!sshKeyId && !pass) {
       if (!canPrompt()) throw new MissingFlagsError(['--ssh-key-id or --password']);
@@ -189,6 +208,7 @@ export const createCommand = new Command('create')
       image,
       resource_profile: plan,
       cpu_allocation_type: cpuType,
+      cpu_platform: cpuPlatform,
       network_stack: opts.network || 'dual_stack',
       datacenter: opts.datacenter,
       auth_method: authMethod!,
@@ -234,6 +254,7 @@ export const getCommand = new Command('get')
       ['Status', statusColor(v.status)],
       ['Plan', v.resource_profile],
       ['CPU', `${v.cpu_cores} cores (${v.cpu_allocation_type})`],
+      ['Processor', v.cpu_platform ?? '-'],
       ['Memory', `${v.memory_size_gb} GB`],
       ['Storage', `${v.storage_size_gb} GB`],
       ['Image', v.image],

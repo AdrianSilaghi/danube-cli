@@ -103,12 +103,12 @@ describe('vps instances', () => {
       await createCommand.parseAsync([
         'node', 'test',
         '--name', 'test-vps', '--image', 'ubuntu-24.04', '--plan', 'nano_shared',
-        '--ssh-key-id', 'key-1', '--datacenter', 'fsn1',
+        '--cpu-platform', 'intel', '--ssh-key-id', 'key-1', '--datacenter', 'fsn1',
       ]);
 
       expect(mockPost).toHaveBeenCalledWith('/api/v1/vps', expect.objectContaining({
         name: 'test-vps', image: 'ubuntu-24.04', resource_profile: 'nano_shared',
-        ssh_key_id: 'key-1', auth_method: 'ssh_key',
+        cpu_platform: 'intel', ssh_key_id: 'key-1', auth_method: 'ssh_key',
       }));
     });
 
@@ -118,7 +118,7 @@ describe('vps instances', () => {
       await createCommand.parseAsync([
         'node', 'test',
         '--name', 'pw-vps', '--image', 'ubuntu-24.04', '--plan', 'nano_shared',
-        '--password', 'MyStr0ngP@ssw0rd!',
+        '--processor', 'amd', '--password', 'MyStr0ngP@ssw0rd!',
       ]);
 
       expect(mockPost).toHaveBeenCalledWith('/api/v1/vps', expect.objectContaining({
@@ -135,6 +135,7 @@ describe('vps instances', () => {
       mockSelect
         .mockResolvedValueOnce('ubuntu-24.04')             // image
         .mockResolvedValueOnce('nano_shared')              // plan
+        .mockResolvedValueOnce('intel')                    // processor
         .mockResolvedValueOnce('ssh_key');                 // auth method
       mockInput.mockResolvedValueOnce('key-1');            // ssh key id
       mockPost.mockResolvedValue({ message: 'ok', instance: makeVps() });
@@ -145,6 +146,28 @@ describe('vps instances', () => {
       const planChoices = mockSelect.mock.calls.find(c => (c[0] as { message: string }).message === 'Plan:')![0] as { choices: Array<{ name: string; value: string }> };
       expect(planChoices.choices[0]!.name).toContain('€4.49/mo');
       expect(planChoices.choices[0]!.value).toBe('nano_shared');
+      const processorChoices = mockSelect.mock.calls.find(c => (c[0] as { message: string }).message === 'Processor:')![0] as { choices: Array<{ name: string; value: string }> };
+      expect(processorChoices.choices.map(c => c.value)).toEqual(['amd', 'intel']);
+      expect(mockPost).toHaveBeenCalledWith('/api/v1/vps', expect.objectContaining({ cpu_platform: 'intel' }));
+    });
+
+    it('requires --cpu-platform when it cannot prompt', async () => {
+      Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+
+      await expect(createCommand.parseAsync([
+        'node', 'test',
+        '--name', 'no-platform', '--image', 'ubuntu-24.04', '--plan', 'nano_shared', '--ssh-key-id', 'key-1',
+      ])).rejects.toThrow(/--cpu-platform/);
+      expect(mockPost).not.toHaveBeenCalled();
+    });
+
+    it('rejects an unknown processor platform before calling the API', async () => {
+      await expect(createCommand.parseAsync([
+        'node', 'test',
+        '--name', 'bad-platform', '--image', 'ubuntu-24.04', '--plan', 'nano_shared',
+        '--cpu-platform', 'arm', '--ssh-key-id', 'key-1',
+      ])).rejects.toThrow(/amd.*intel|intel.*amd/);
+      expect(mockPost).not.toHaveBeenCalled();
     });
 
     it('rejects with a clear error when the API returns no plans', async () => {

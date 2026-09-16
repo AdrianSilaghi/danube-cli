@@ -231,6 +231,7 @@ export interface VpsInstance {
   status_label: string;
   resource_profile: string;
   cpu_allocation_type: 'shared' | 'dedicated';
+  cpu_platform?: 'amd' | 'intel';
   cpu_cores: number;
   memory_size_gb: number;
   storage_size_gb: number;
