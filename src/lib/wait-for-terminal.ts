@@ -144,7 +144,9 @@ export async function waitForTerminal(
     opts.onTick?.(status);
 
     if (usingGeneration) {
-      if (generation! >= minGeneration!) sawFresh = true;
+      // Assigned, not just raised: the generation is the whole answer, so a
+      // create (no baseline, sawFresh starting true) is gated like an update.
+      sawFresh = generation! >= minGeneration!;
     } else if (baseline !== null && !sawFresh && isFreshObservation(status, res.container, baseline)) {
       sawFresh = true;
     }

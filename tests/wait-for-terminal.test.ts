@@ -223,9 +223,6 @@ describe('waitForTerminal', () => {
 
   describe('minGeneration', () => {
     it('does not settle while observed_generation is behind minGeneration, even though terminal is true', async () => {
-      // A baseline must be present for this to test anything: with no
-      // baseline (the create case) sawFresh starts true regardless of any
-      // gate, since there is no previous verdict to be confused with.
       const { api } = apiReturning({
         container: {
           status_details: status({ summary: 'ready', operation: { state: 'succeeded', terminal: true } }),
@@ -246,6 +243,28 @@ describe('waitForTerminal', () => {
 
       expect(result.settled).toBe(false);
       expect(result.observedGeneration).toBe(3);
+    });
+
+    it('gates a create too: with no baseline, a terminal verdict for an older generation is not accepted', async () => {
+      // A create has no previous verdict to be confused with, so the baseline
+      // heuristic starts out trusting the first poll. The generation must
+      // still gate it — otherwise any settled state reported before the
+      // create's rollout started would end the wait.
+      const { api } = apiReturning({
+        container: {
+          status_details: status({ summary: 'ready', operation: { state: 'succeeded', terminal: true } }),
+          observed_generation: 0,
+        },
+        url: null,
+      });
+
+      const promise = waitForTerminal(api, 'abc', { timeoutMs: 5_000, minGeneration: 1 });
+      await vi.advanceTimersByTimeAsync(10_000);
+      const result = await promise;
+
+      expect(result.settled).toBe(false);
+      expect(result.sawFreshObservation).toBe(false);
+      expect(result.observedGeneration).toBe(0);
     });
 
     it('settles immediately once observed_generation already meets minGeneration', async () => {
