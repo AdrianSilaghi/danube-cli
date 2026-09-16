@@ -728,6 +728,57 @@ export interface ServerlessUsageResponse {
 }
 
 /**
+ * The generic `{success, data, error, meta}` envelope, as used by the rapids
+ * diagnostics and operations endpoints. Declared once here so new endpoints
+ * built against it (rapids runs) do not each carry their own copy — see
+ * commands/serverless/diagnostics.ts and commands/operations.ts for the two
+ * that still do, predating this one.
+ */
+export interface Envelope<T> {
+  success: boolean;
+  data: T;
+  error?: { code: string; message?: string; retryable?: boolean } | null;
+  meta?: Record<string, unknown>;
+}
+
+/**
+ * A single on-demand execution of a rapids container's image as a Kubernetes
+ * Job — at most one active per container. Distinct from a `ServerlessDeploy`,
+ * which rolls the container's own long-running revision; a run starts,
+ * finishes, and never serves traffic.
+ *
+ * `terminal` is the stop condition for polling, exactly like
+ * `ServerlessStatusDetails.operation.terminal` — never inferred from `status`.
+ */
+export interface ServerlessRun {
+  id: string;
+  container_id: string;
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'timed_out';
+  terminal: boolean;
+  /** `null` when the run used the image's own CMD/entrypoint. */
+  command: string[] | null;
+  image: string;
+  /** Names only, never values — a run's env can carry secrets. */
+  env_keys: string[];
+  timeout_seconds: number;
+  /** `null` until the container process exits; not meaningful before `terminal`. */
+  exit_code: number | null;
+  message: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  duration_seconds: number | null;
+}
+
+export interface ServerlessRunLogs {
+  run_id: string;
+  /** `none` before anything has been captured — not an error. */
+  source: 'live' | 'stored' | 'none';
+  /** The full available text/tail on every call, not a delta since last time. */
+  logs: string;
+}
+
+/**
  * One series behind a console graph.
  *
  * `timestamps` are PRE-FORMATTED display strings — the platform formats them

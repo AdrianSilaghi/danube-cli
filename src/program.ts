@@ -37,6 +37,13 @@ import { metricsCommand as serverlessMetricsCommand } from './commands/serverles
 import { applyCommand as serverlessApplyCommand } from './commands/serverless/apply.js';
 import { probeCommand } from './commands/serverless/probe.js';
 import { preflightCommand } from './commands/serverless/preflight.js';
+import { runCommand } from './commands/serverless/run.js';
+import {
+  lsCommand as runsLsCommand,
+  showCommand as runsShowCommand,
+  logsCommand as runsLogsCommand,
+  cancelCommand as runsCancelCommand,
+} from './commands/serverless/runs.js';
 import { operationsCommand } from './commands/operations.js';
 import { registryCommand } from './commands/registry/index.js';
 import { getCurrentVersion } from './lib/version.js';
@@ -133,6 +140,16 @@ export function buildProgram(): Command {
   serverlessCommand.addCommand(serverlessApplyCommand);
   serverlessCommand.addCommand(probeCommand);
   serverlessCommand.addCommand(preflightCommand);
+  serverlessCommand.addCommand(runCommand);
+
+  const runsCommand = new Command('runs')
+    .description("Manage one-off runs of a rapids container's image (Kubernetes Jobs)");
+  runsCommand.addCommand(runsLsCommand);
+  runsCommand.addCommand(runsShowCommand);
+  runsCommand.addCommand(runsLogsCommand);
+  runsCommand.addCommand(runsCancelCommand);
+  serverlessCommand.addCommand(runsCommand);
+
   program.addCommand(serverlessCommand);
   program.addCommand(registryCommand);
   program.addCommand(operationsCommand);

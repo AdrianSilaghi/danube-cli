@@ -68,6 +68,13 @@ describe('unknown commands are reported at every depth', () => {
     expect(report?.known).toContain('diagnose');
   });
 
+  it('reports an unknown subcommand under the nested runs group', () => {
+    const report = resolve('rapids runs no-such-subcommand');
+    expect(report?.token).toBe('no-such-subcommand');
+    expect(report?.parentPath).toEqual(['rapids', 'runs']);
+    expect(report?.known).toContain('ls');
+  });
+
   it('reports it identically when --help is appended', () => {
     // The reported inconsistency: Commander consumes `--help` as a flag of the
     // command it has resolved so far, prints the PARENT's help and exits 0.
@@ -102,6 +109,13 @@ describe('valid invocations resolve', () => {
     'project select',
     'rapids probe my-api',
     'rapids preflight --image cr.danubedata.ro/ns/app:v1',
+    'rapids run my-api',
+    'rapids run my-api --tag v2 --wait -- npm run migrate --force',
+    'rapids runs ls my-api',
+    'rapids runs show my-api run-1',
+    'rapids runs logs my-api run-1',
+    'rapids runs logs my-api run-1 --follow',
+    'rapids runs cancel my-api run-1',
     'operations wait op-1 --timeout 30m',
     'operations inspect op-1',
   ];
