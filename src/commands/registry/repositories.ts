@@ -164,25 +164,51 @@ const tagsCommand = new Command('tags')
   });
 
 /**
- * Reports the 503 refusal for what it is. Removing the local record when the
- * registry did not confirm would claim the image is gone while the bytes
- * stayed, and the quota would never come back.
+ * Reports a refusal for what it is, then rethrows so the exit code stays non-zero.
+ *
+ * 503: the registry did not confirm the delete, so nothing was removed and a
+ * retry may help. 409: a serverless container was deployed from this image —
+ * Knative pinned its digest into that revision, so deleting the manifest would
+ * break the container's next cold start. The API names the container(s);
+ * `--delete-in-use` is the deliberate override, kept separate from `--force`
+ * so a CI pipeline that skips the prompt cannot delete a live image by accident.
  */
 function reportDeleteRefusal(error: unknown): never {
-  const status = (error as { status?: number })?.status;
+  const status = statusOf(error);
   if (status === 503) {
     console.error(
       chalk.yellow('The registry did not confirm the delete, so nothing was removed. This is retryable.'),
     );
   }
+  if (status === 409) {
+    console.error(
+      chalk.red(error instanceof Error ? error.message : 'The image is deployed by a serverless container.'),
+    );
+    console.error(
+      chalk.cyan('Redeploy or remove that container first, or re-run with --delete-in-use to delete the image anyway.'),
+    );
+  }
   throw error;
 }
+
+/** ApiError carries `statusCode`; older error shapes carried `status`. */
+function statusOf(error: unknown): number | undefined {
+  const candidate = error as { statusCode?: number; status?: number } | null | undefined;
+  return candidate?.statusCode ?? candidate?.status;
+}
+
+/** The API refuses to delete an image a container runs unless told `force`. */
+const forceQuery = (deleteInUse: boolean | undefined): string => (deleteInUse ? '?force=1' : '');
+
+const DELETE_IN_USE_HELP =
+  'Delete even if a serverless container was deployed from this image (the API refuses otherwise)';
 
 const rmTagCommand = new Command('rm-tag')
   .description('Delete a tag from a repository')
   .argument('<path-or-id>', 'Repository path or ID')
   .argument('<tag>', 'Tag to delete')
   .option('--force', 'Skip the confirmation prompt')
+  .option('--delete-in-use', DELETE_IN_USE_HELP)
   .action(async (pathOrId: string, tag: string, opts: Record<string, boolean>) => {
     const api = await ApiClient.create();
     const repo = await resolveRepository(api, pathOrId);
@@ -195,7 +221,9 @@ const rmTagCommand = new Command('rm-tag')
     if (!confirmed) return;
 
     try {
-      await api.delete(`${REPOS_PATH}/${repo.id}/tags/${encodeURIComponent(tag)}`);
+      await api.delete(
+        `${REPOS_PATH}/${repo.id}/tags/${encodeURIComponent(tag)}${forceQuery(opts.deleteInUse)}`,
+      );
     } catch (error) {
       reportDeleteRefusal(error);
     }
@@ -213,6 +241,7 @@ const rmCommand = new Command('rm')
   .description('Delete a repository and every tag in it')
   .argument('<path-or-id>', 'Repository path or ID')
   .option('--force', 'Skip the confirmation prompt')
+  .option('--delete-in-use', DELETE_IN_USE_HELP)
   .action(async (pathOrId: string, opts: Record<string, boolean>) => {
     const api = await ApiClient.create();
     const repo = await resolveRepository(api, pathOrId);
@@ -225,7 +254,7 @@ const rmCommand = new Command('rm')
     if (!confirmed) return;
 
     try {
-      await api.delete(`${REPOS_PATH}/${repo.id}`);
+      await api.delete(`${REPOS_PATH}/${repo.id}${forceQuery(opts.deleteInUse)}`);
     } catch (error) {
       reportDeleteRefusal(error);
     }
