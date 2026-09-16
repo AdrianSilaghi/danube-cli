@@ -36,8 +36,19 @@ export interface WaitResult {
    * Whether the platform was seen to re-observe the container after the write.
    * False alongside `settled: false` means we never got fresh evidence — the
    * verdict is about the PREVIOUS state and must not be trusted.
+   *
+   * When `minGeneration` gated the verdict instead (see below), this still
+   * reports true once `observed_generation` catches up — the generation is
+   * strictly better evidence of freshness than the baseline heuristic this
+   * flag was built for, not a different question.
    */
   sawFreshObservation: boolean;
+  /**
+   * The last numeric `observed_generation` seen, or null if the server never
+   * reported one. Present even when `minGeneration` was not supplied, so a
+   * caller can inspect it without asking for the gate.
+   */
+  observedGeneration: number | null;
 }
 
 /**
@@ -87,16 +98,38 @@ export async function waitForTerminal(
      * (a create), where there is no previous verdict to be confused with.
      */
     baseline?: WaitBaseline | null;
+    /**
+     * The `spec_generation` the mutation this wait follows produced (from the
+     * create/update response). A server that also reports
+     * `observed_generation` on every poll is naming exactly which change its
+     * `status_details` describes — direct evidence, and strictly better than
+     * `baseline`, which exists only to approximate this when the server
+     * cannot say it directly. When both are available a terminal verdict is
+     * accepted once `observed_generation >= minGeneration`, and `baseline` is
+     * not consulted at all. Pass `null` (or omit) when there is no generation
+     * to wait for, or when talking to a server that predates it — the
+     * baseline heuristic then applies exactly as before.
+     */
+    minGeneration?: number | null;
   } = {},
 ): Promise<WaitResult> {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS;
   const baseline = opts.baseline ?? null;
+  const minGeneration = opts.minGeneration ?? null;
   const startedAt = Date.now();
   let sawFresh = baseline === null;
+  let observedGeneration: number | null = null;
 
   for (;;) {
     const res = await api.get<ServerlessShowResponse>(`/api/v1/serverless/${containerId}`);
     const status = res.container.status_details ?? null;
+    const generation = res.container.observed_generation;
+    // Only trust generation-based freshness when THIS poll reports a number —
+    // a server that omits the field on some response (or every response)
+    // must fall through to the baseline heuristic for that poll, not crash.
+    const usingGeneration = minGeneration !== null && typeof generation === 'number';
+    if (typeof generation === 'number') observedGeneration = generation;
+
     const done = (settled: boolean): WaitResult => ({
       settled,
       status,
@@ -105,18 +138,22 @@ export async function waitForTerminal(
       targetRevision: res.container.current_revision ?? null,
       observedAt: status?.observed_at ?? null,
       sawFreshObservation: sawFresh,
+      observedGeneration,
     });
 
     opts.onTick?.(status);
 
-    if (baseline !== null && !sawFresh && isFreshObservation(status, res.container, baseline)) {
+    if (usingGeneration) {
+      if (generation! >= minGeneration!) sawFresh = true;
+    } else if (baseline !== null && !sawFresh && isFreshObservation(status, res.container, baseline)) {
       sawFresh = true;
     }
 
     // Terminal is necessary but NOT sufficient. Immediately after a write the
     // platform has not re-reconciled yet, so `terminal` is still the PREVIOUS
     // operation's verdict — that is how apply --wait returned success in 0.6s
-    // while naming the old revision. Require fresh evidence too.
+    // while naming the old revision. Require fresh evidence too (the
+    // generation check above, or the baseline heuristic).
     if (status?.operation?.terminal === true && sawFresh) {
       return done(true);
     }

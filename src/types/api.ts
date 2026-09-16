@@ -592,6 +592,23 @@ export interface ServerlessContainer {
   current_revision?: string | null;
   /** Monotonic count of deployments. Changes as soon as a new one is recorded. */
   deployment_count?: number;
+  /**
+   * Incremented every time the platform accepts a change that needs a
+   * rollout (create, update, redeploy, automatic rollback, build-triggered
+   * deploy). On a create/update response, this is the generation THAT
+   * request produced — the value a caller waits for.
+   *
+   * Optional because older deployments do not report it yet.
+   */
+  spec_generation?: number;
+  /**
+   * The spec generation the most recent rollout started from. While this is
+   * behind `spec_generation` a rollout is queued and `status_details` is not
+   * about the caller's change yet, however terminal it looks.
+   *
+   * Optional because older deployments do not report it yet.
+   */
+  observed_generation?: number;
   url: string | null;
   created_at: string;
   updated_at: string;

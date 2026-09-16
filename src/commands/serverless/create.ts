@@ -180,6 +180,7 @@ export const createCommand = new Command('create')
 
     const wait = await waitForTerminal(api, res.container.id, {
       timeoutMs: parseDuration(opts.waitTimeout, 'wait-timeout') ?? DEFAULT_WAIT_TIMEOUT_MS,
+      minGeneration: res.container.spec_generation ?? null,
     });
 
     if (isJsonMode()) {

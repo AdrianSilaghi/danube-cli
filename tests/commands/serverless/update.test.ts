@@ -39,6 +39,39 @@ const listResponse = (overrides = {}) => ({
   pagination: { current_page: 1, last_page: 1, per_page: 15, total: 1 },
 });
 
+const terminalStatus = (overrides: Record<string, unknown> = {}) => ({
+  summary: 'ready',
+  health: 'healthy',
+  observed_at: '2026-09-16T10:00:00+00:00',
+  stale: false,
+  operation: { state: 'succeeded', terminal: true },
+  error: null,
+  ...overrides,
+});
+
+/** `GET /api/v1/serverless/{id}` — what captureBaseline and each poll read. */
+const showResponse = (containerOverrides: Record<string, unknown> = {}, statusOverrides: Record<string, unknown> = {}) => ({
+  container: { status_details: terminalStatus(statusOverrides), ...containerOverrides },
+  url: null,
+});
+
+/**
+ * Routes the two shapes update.ts's `--wait` path reads through the SAME
+ * `mockGet`: `resolveContainer`'s paginated list call, and captureBaseline
+ * plus every poll's singular show call. `showResponses` is consumed in
+ * order and the last entry repeats for any further polls, matching
+ * `apiReturning` in wait-for-terminal.test.ts.
+ */
+function mockShowSequence(...showResponses: unknown[]): void {
+  let call = 0;
+  mockGet.mockImplementation((path: string) => {
+    if (path.startsWith('/api/v1/serverless?')) return Promise.resolve(listResponse());
+    const resp = showResponses[Math.min(call, showResponses.length - 1)];
+    call++;
+    return Promise.resolve(resp);
+  });
+}
+
 describe('serverless update command', () => {
   const originalExit = process.exit;
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
@@ -56,6 +89,7 @@ describe('serverless update command', () => {
 
   afterEach(() => {
     process.exit = originalExit;
+    process.exitCode = undefined;
     vi.restoreAllMocks();
   });
 
@@ -190,5 +224,66 @@ describe('serverless update command', () => {
     const printed = JSON.parse(consoleLogSpy.mock.calls.at(-1)![0] as string).data;
     expect(printed).toMatchObject({ image: 'node' });
     setJsonMode(false);
+  });
+
+  describe('--wait', () => {
+    it('settles once observed_generation reaches the generation the PUT response produced, and reports ready', async () => {
+      mockShowSequence(showResponse({ observed_generation: 7, current_revision: 'my-api-00003' }));
+      mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer({ spec_generation: 7 }) });
+
+      await updateCommand.parseAsync(['node', 'test', 'my-api', '--image', 'node', '--wait']);
+
+      expect(consoleLogSpy.mock.calls.flat().join('\n')).toContain('Ready');
+    });
+
+    it('does not accept a terminal verdict while observed_generation is behind the PUT response generation', async () => {
+      vi.useFakeTimers();
+      // Baseline capture sees revision r1; every poll after the write reports
+      // r2 — fresh evidence by the OLD baseline heuristic — AND terminal:true,
+      // but observed_generation stays behind spec_generation. If update.ts
+      // failed to wire minGeneration through, the baseline heuristic alone
+      // would accept this on the very first poll after the write.
+      mockShowSequence(
+        showResponse({ current_revision: 'my-api-r1', deployment_count: 1 }),
+        showResponse({ current_revision: 'my-api-r2', deployment_count: 2, observed_generation: 4 }),
+      );
+      mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer({ spec_generation: 7 }) });
+
+      const promise = updateCommand.parseAsync([
+        'node', 'test', 'my-api', '--image', 'node', '--wait', '--wait-timeout', '5s',
+      ]);
+      await vi.advanceTimersByTimeAsync(10_000);
+      await promise;
+      vi.useRealTimers();
+
+      // Not settled: sawFreshObservation never went true, since the gate in
+      // this mode is the generation, not the baseline signals that changed.
+      expect(consoleErrorSpy.mock.calls.flat().join('\n')).toContain(
+        'Timed out before the platform re-observed this container',
+      );
+    });
+
+    it('without --wait, makes no extra GETs beyond resolving the container', async () => {
+      mockGet.mockResolvedValue(listResponse());
+      mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer({ spec_generation: 3 }) });
+
+      await updateCommand.parseAsync(['node', 'test', 'my-api', '--image', 'node']);
+
+      // Today's behaviour is exactly one GET: resolveContainer's list call.
+      // captureBaseline must not run when --wait was not requested.
+      expect(mockGet).toHaveBeenCalledTimes(1);
+    });
+
+    it('exits 1 on a settled failure, same rule as apply/create --wait', async () => {
+      mockShowSequence(showResponse(
+        { observed_generation: 9 },
+        { summary: 'failed', health: 'unhealthy', operation: { state: 'failed', terminal: true } },
+      ));
+      mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer({ spec_generation: 9 }) });
+
+      await updateCommand.parseAsync(['node', 'test', 'my-api', '--image', 'node', '--wait']);
+
+      expect(process.exitCode).toBe(1);
+    });
   });
 });
