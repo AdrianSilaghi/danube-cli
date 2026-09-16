@@ -180,6 +180,52 @@ describe('serverless update command', () => {
     });
   });
 
+  it('updates initial scale and scale-down delay, including zero values', async () => {
+    mockGet.mockResolvedValue(listResponse());
+    mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer() });
+
+    await updateCommand.parseAsync([
+      'node', 'test', 'my-api',
+      '--min-scale', '0',
+      '--initial-scale', '0',
+      '--scale-down-delay', '0',
+    ]);
+
+    expect(mockPut).toHaveBeenCalledWith('/api/v1/serverless/abc-123', {
+      min_scale: 0,
+      initial_scale: 0,
+      scale_down_delay_seconds: 0,
+    });
+  });
+
+  it('accepts a duration suffix for --scale-down-delay', async () => {
+    mockGet.mockResolvedValue(listResponse());
+    mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer() });
+
+    await updateCommand.parseAsync(['node', 'test', 'my-api', '--scale-down-delay', '30s']);
+
+    expect(mockPut).toHaveBeenCalledWith('/api/v1/serverless/abc-123', { scale_down_delay_seconds: 30 });
+  });
+
+  it('rejects an invalid --scale-down-delay instead of guessing', async () => {
+    mockGet.mockResolvedValue(listResponse());
+
+    await expect(
+      updateCommand.parseAsync(['node', 'test', 'my-api', '--scale-down-delay', 'soon']),
+    ).rejects.toThrow('Invalid duration');
+  });
+
+  it('exits on non-integer --initial-scale value', async () => {
+    mockGet.mockResolvedValueOnce(listResponse());
+
+    await expect(
+      updateCommand.parseAsync(['node', 'test', 'my-api', '--initial-scale', 'abc']),
+    ).rejects.toThrow(ExitError);
+
+    expect(process.exit).toHaveBeenCalledWith(1);
+    expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid value for --initial-scale'));
+  });
+
   it('exits on invalid env format (no equals sign)', async () => {
     mockGet.mockResolvedValueOnce(listResponse({ environment_variables: {} }));
 

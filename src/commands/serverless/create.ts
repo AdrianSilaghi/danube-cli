@@ -10,6 +10,7 @@ import { waitForTerminal, DEFAULT_WAIT_TIMEOUT_MS } from '../../lib/wait-for-ter
 import type { WaitResult } from '../../lib/wait-for-terminal.js';
 import { teamsArray } from '../../types/api.js';
 import type { TeamsResponse, ServerlessCreateResponse } from '../../types/api.js';
+import { parseDurationSeconds } from '../../lib/duration.js';
 
 export const createCommand = new Command('create')
   .description('Create a new serverless container')
@@ -25,6 +26,8 @@ export const createCommand = new Command('create')
   .option('--port <port>', 'Container port', '8080')
   .option('--min-scale <n>', 'Minimum scale')
   .option('--max-scale <n>', 'Maximum scale')
+  .option('--initial-scale <n>', 'Instances a new revision starts with before it counts as ready (0..max-scale)')
+  .option('--scale-down-delay <duration>', 'How long the previous revision keeps its instances after losing traffic: 0, 30s, 5m, 1h')
   .option('--health-check-path <path>', 'Readiness probe path, e.g. /healthz')
   .option('--registry-credential <id>', 'Registry credential UUID (omit for images in your own team namespace)')
   .option('--wait', 'Block until the container reaches a terminal state, then report it')
@@ -93,6 +96,8 @@ export const createCommand = new Command('create')
 
     if (opts.minScale !== undefined) body.min_scale = parseIntOption(opts.minScale, 'min-scale');
     if (opts.maxScale !== undefined) body.max_scale = parseIntOption(opts.maxScale, 'max-scale');
+    if (opts.initialScale !== undefined) body.initial_scale = parseIntOption(opts.initialScale, 'initial-scale');
+    if (opts.scaleDownDelay !== undefined) body.scale_down_delay_seconds = parseDurationSeconds(opts.scaleDownDelay);
     const resourceProfile = resolveAlias('resource-profile', [
       ['--resource-profile', opts.resourceProfile],
       ['--profile', opts.profile],

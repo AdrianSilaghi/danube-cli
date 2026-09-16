@@ -6,6 +6,7 @@ import { waitForTerminal, captureBaseline, DEFAULT_WAIT_TIMEOUT_MS } from '../..
 import type { WaitBaseline } from '../../lib/wait-for-terminal.js';
 import { waitEnvelope, printWaitOutcome } from '../../lib/report-wait.js';
 import type { ServerlessContainer } from '../../types/api.js';
+import { parseDurationSeconds } from '../../lib/duration.js';
 
 interface ListResponse { data: ServerlessContainer[] }
 interface MutateResponse { message?: string; container: ServerlessContainer }
@@ -32,6 +33,8 @@ export const applyCommand = new Command('apply')
   .option('--profile <profile>', 'Resource profile')
   .option('--min-scale <n>', 'Minimum scale')
   .option('--max-scale <n>', 'Maximum scale')
+  .option('--initial-scale <n>', 'Instances a new revision starts with before it counts as ready (0..max-scale)')
+  .option('--scale-down-delay <duration>', 'How long the previous revision keeps its instances after losing traffic: 0, 30s, 5m, 1h')
   .option('--registry-credential <id>', 'Registry credential UUID (omit for your own namespace)')
   .option('--env <pairs...>', 'Set environment variables (KEY=VALUE), merged with existing')
   .option('--rm-env <keys...>', 'Remove environment variables by key')
@@ -59,6 +62,8 @@ export const applyCommand = new Command('apply')
     if (opts.profile !== undefined) desired.resource_profile = opts.profile;
     if (opts.minScale !== undefined) desired.min_scale = int(opts.minScale, 'min-scale');
     if (opts.maxScale !== undefined) desired.max_scale = int(opts.maxScale, 'max-scale');
+    if (opts.initialScale !== undefined) desired.initial_scale = int(opts.initialScale, 'initial-scale');
+    if (opts.scaleDownDelay !== undefined) desired.scale_down_delay_seconds = parseDurationSeconds(opts.scaleDownDelay);
     if (opts.registryCredential !== undefined) desired.registry_credential_id = opts.registryCredential;
 
     // Parsed once, up front: validity does not depend on whether the

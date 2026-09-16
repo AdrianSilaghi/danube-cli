@@ -57,6 +57,47 @@ describe('serverless show command', () => {
     expect(allOutput).toContain('Current');
   });
 
+  it('shows initial scale and scale-down delay when configured, including zero', async () => {
+    mockGet.mockResolvedValueOnce({
+      data: [makeContainer()],
+      pagination: { current_page: 1, last_page: 1, per_page: 15, total: 1 },
+    });
+    mockGet.mockResolvedValueOnce({
+      container: makeContainer({ initial_scale: 0, scale_down_delay_seconds: 0 }),
+      metrics: {},
+      url: 'https://my-api.serverless.danubedata.ro',
+      monthly_cost: 9.99,
+    });
+
+    await showCommand.parseAsync(['node', 'test', 'my-api']);
+
+    const allOutput = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
+    expect(allOutput).toContain('Initial Scale');
+    expect(allOutput).toContain('Scale-Down Delay');
+    // Not "0" swallowed by a truthy check — both lines must show the value.
+    expect(allOutput).toMatch(/Initial Scale\s*:?\s*0/);
+    expect(allOutput).toMatch(/Scale-Down Delay\s*:?\s*0s/);
+  });
+
+  it('omits initial scale and scale-down delay when not configured', async () => {
+    mockGet.mockResolvedValueOnce({
+      data: [makeContainer()],
+      pagination: { current_page: 1, last_page: 1, per_page: 15, total: 1 },
+    });
+    mockGet.mockResolvedValueOnce({
+      container: makeContainer({ initial_scale: null, scale_down_delay_seconds: null }),
+      metrics: {},
+      url: 'https://my-api.serverless.danubedata.ro',
+      monthly_cost: 9.99,
+    });
+
+    await showCommand.parseAsync(['node', 'test', 'my-api']);
+
+    const allOutput = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
+    expect(allOutput).not.toContain('Initial Scale');
+    expect(allOutput).not.toContain('Scale-Down Delay');
+  });
+
   it('shows environment variables', async () => {
     mockGet.mockResolvedValueOnce({
       data: [makeContainer({ environment_variables: { NODE_ENV: 'production', SECRET: 'supersecretvalue' } })],

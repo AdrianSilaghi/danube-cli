@@ -61,6 +61,14 @@ export const showCommand = new Command('get')
     if (c.timeout_seconds) {
       scalingLines.push(['Timeout', `${c.timeout_seconds}s`]);
     }
+    // 0 is a meaningful, commonly-used value for both — an `if (c.x)` truthy
+    // check would silently hide it, so check for configured (non-null) instead.
+    if (c.initial_scale !== null && c.initial_scale !== undefined) {
+      scalingLines.push(['Initial Scale', String(c.initial_scale)]);
+    }
+    if (c.scale_down_delay_seconds !== null && c.scale_down_delay_seconds !== undefined) {
+      scalingLines.push(['Scale-Down Delay', `${c.scale_down_delay_seconds}s`]);
+    }
 
     printDetails(scalingLines);
 

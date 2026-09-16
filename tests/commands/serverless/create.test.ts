@@ -86,6 +86,50 @@ describe('serverless create command', () => {
     expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Created'));
   });
 
+  it('creates a container with initial scale and scale-down delay, including zero values', async () => {
+    mockGet.mockResolvedValue(teamsResponse());
+    mockPost.mockResolvedValue(containerResponse());
+
+    await createCommand.parseAsync([
+      'node', 'test',
+      '--name', 'migrating-app',
+      '--type', 'docker_image',
+      '--image', 'nginx',
+      '--min-scale', '0',
+      '--initial-scale', '0',
+      '--scale-down-delay', '0',
+    ]);
+
+    expect(mockPost).toHaveBeenCalledWith('/api/v1/serverless', expect.objectContaining({
+      min_scale: 0,
+      initial_scale: 0,
+      scale_down_delay_seconds: 0,
+    }));
+  });
+
+  it('accepts a duration suffix for --scale-down-delay', async () => {
+    mockGet.mockResolvedValue(teamsResponse());
+    mockPost.mockResolvedValue(containerResponse());
+
+    await createCommand.parseAsync([
+      'node', 'test', '--name', 'my-api', '--type', 'docker_image', '--image', 'nginx',
+      '--scale-down-delay', '5m',
+    ]);
+
+    expect(mockPost).toHaveBeenCalledWith('/api/v1/serverless', expect.objectContaining({
+      scale_down_delay_seconds: 300,
+    }));
+  });
+
+  it('rejects an invalid --scale-down-delay instead of guessing', async () => {
+    mockGet.mockResolvedValue(teamsResponse());
+
+    await expect(createCommand.parseAsync([
+      'node', 'test', '--name', 'my-api', '--type', 'docker_image', '--image', 'nginx',
+      '--scale-down-delay', 'soon',
+    ])).rejects.toThrow('Invalid duration');
+  });
+
   it('creates git_repository container with --repo and --source-type', async () => {
     mockGet.mockResolvedValue(teamsResponse());
     mockPost.mockResolvedValue(containerResponse({ deployment_type: 'git_repository' }));

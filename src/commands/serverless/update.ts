@@ -9,6 +9,7 @@ import { waitForTerminal, captureBaseline, DEFAULT_WAIT_TIMEOUT_MS } from '../..
 import type { WaitBaseline } from '../../lib/wait-for-terminal.js';
 import { waitEnvelope, printWaitOutcome } from '../../lib/report-wait.js';
 import type { ServerlessContainer } from '../../types/api.js';
+import { parseDurationSeconds } from '../../lib/duration.js';
 
 export const updateCommand = new Command('update')
   .description('Update a serverless container')
@@ -20,6 +21,8 @@ export const updateCommand = new Command('update')
   .option('--port <port>', 'Container port')
   .option('--min-scale <n>', 'Minimum replicas (0 for scale-to-zero)')
   .option('--max-scale <n>', 'Maximum replicas')
+  .option('--initial-scale <n>', 'Instances a new revision starts with before it counts as ready (0..max-scale)')
+  .option('--scale-down-delay <duration>', 'How long the previous revision keeps its instances after losing traffic: 0, 30s, 5m, 1h')
   .option('--scaling-metric <metric>', 'Scaling metric (rps or concurrency)')
   .option('--scaling-target <n>', 'Target value per pod for scaling metric')
   .option('--concurrency-target <n>', 'Concurrency target per pod')
@@ -52,6 +55,8 @@ export const updateCommand = new Command('update')
     if (opts.port) body.port = parseIntOption(opts.port, '--port');
     if (opts.minScale !== undefined) body.min_scale = parseIntOption(opts.minScale, '--min-scale');
     if (opts.maxScale !== undefined) body.max_scale = parseIntOption(opts.maxScale, '--max-scale');
+    if (opts.initialScale !== undefined) body.initial_scale = parseIntOption(opts.initialScale, '--initial-scale');
+    if (opts.scaleDownDelay !== undefined) body.scale_down_delay_seconds = parseDurationSeconds(opts.scaleDownDelay);
     if (opts.scalingMetric) body.scaling_metric = opts.scalingMetric;
     if (opts.scalingTarget !== undefined) body.scaling_target = parseIntOption(opts.scalingTarget, '--scaling-target');
     if (opts.concurrencyTarget !== undefined) body.concurrency_target = parseIntOption(opts.concurrencyTarget, '--concurrency-target');

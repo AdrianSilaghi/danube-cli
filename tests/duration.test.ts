@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseDuration } from '../src/lib/duration.js';
+import { parseDuration, parseDurationSeconds } from '../src/lib/duration.js';
 import { UsageError } from '../src/lib/errors.js';
 
 describe('parseDuration', () => {
@@ -34,5 +34,36 @@ describe('parseDuration', () => {
 
   it('names the accepted forms in the error', () => {
     expect(() => parseDuration('30x')).toThrow(/90s, 30m, 2h/);
+  });
+
+  it('accepts zero with { allowZero: true }, for a field where zero is meaningful', () => {
+    expect(parseDuration('0', { allowZero: true })).toBe(0);
+  });
+
+  it('still rejects a negative value even with allowZero', () => {
+    // The regex only matches \d+, so a leading '-' fails to match at all
+    // rather than parsing as a negative number.
+    expect(() => parseDuration('-5m', { allowZero: true })).toThrow(UsageError);
+  });
+});
+
+describe('parseDurationSeconds', () => {
+  it('reads the suffixes a caller would actually type, in seconds', () => {
+    expect(parseDurationSeconds('30s')).toBe(30);
+    expect(parseDurationSeconds('5m')).toBe(300);
+    expect(parseDurationSeconds('1h')).toBe(3600);
+  });
+
+  it('accepts zero, unlike parseDuration()', () => {
+    expect(parseDurationSeconds('0')).toBe(0);
+  });
+
+  it('rejects a duration that is not a whole number of seconds instead of rounding it', () => {
+    expect(() => parseDurationSeconds('500ms')).toThrow(UsageError);
+    expect(() => parseDurationSeconds('500ms')).toThrow(/whole number of seconds/);
+  });
+
+  it('rejects an unrecognised unit', () => {
+    expect(() => parseDurationSeconds('30x')).toThrow(UsageError);
   });
 });
