@@ -192,13 +192,28 @@ describe('rapids runs', () => {
       expect(logSpy.mock.calls.flat().join('\n')).toContain('run-1');
     });
 
-    it('prints the not-enabled message and exits 1 on 404', async () => {
+    it('prints "run not found" (not the not-enabled message) on an uncoded 404', async () => {
       mockGet.mockImplementation((path: string) =>
         isListCall(path) ? Promise.resolve(listResponse()) : Promise.reject(new ApiError(404, 'Not Found')));
 
       await expect(showCommand.parseAsync(['node', 'test', 'my-api', 'run-1'])).rejects.toThrow(ExitError);
 
       expect(process.exit).toHaveBeenCalledWith(1);
+      const out = errSpy.mock.calls.flat().join('\n');
+      expect(out).toContain('Run run-1 was not found on my-api.');
+      expect(out).not.toContain('not enabled');
+    });
+
+    it('prints the not-enabled message on a 404 that carries the not-enabled code', async () => {
+      mockGet.mockImplementation((path: string) =>
+        isListCall(path)
+          ? Promise.resolve(listResponse())
+          : Promise.reject(new ApiError(404, 'Not Found', undefined, { code: 'serverless.runs_not_enabled' })));
+
+      await expect(showCommand.parseAsync(['node', 'test', 'my-api', 'run-1'])).rejects.toThrow(ExitError);
+
+      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(errSpy.mock.calls.flat().join('\n')).toContain('Rapids runs are not enabled for this account yet.');
     });
   });
 
@@ -242,13 +257,28 @@ describe('rapids runs', () => {
       expect(mockGet).toHaveBeenCalledTimes(2);
     });
 
-    it('prints the not-enabled message and exits 1 on 404', async () => {
+    it('prints "run not found" (not the not-enabled message) on an uncoded 404', async () => {
       mockGet.mockImplementation((path: string) =>
         isListCall(path) ? Promise.resolve(listResponse()) : Promise.reject(new ApiError(404, 'Not Found')));
 
       await expect(logsCommand.parseAsync(['node', 'test', 'my-api', 'run-1'])).rejects.toThrow(ExitError);
 
       expect(process.exit).toHaveBeenCalledWith(1);
+      const out = errSpy.mock.calls.flat().join('\n');
+      expect(out).toContain('Run run-1 was not found on my-api.');
+      expect(out).not.toContain('not enabled');
+    });
+
+    it('prints the not-enabled message on a 404 that carries the not-enabled code', async () => {
+      mockGet.mockImplementation((path: string) =>
+        isListCall(path)
+          ? Promise.resolve(listResponse())
+          : Promise.reject(new ApiError(404, 'Not Found', undefined, { code: 'serverless.runs_not_enabled' })));
+
+      await expect(logsCommand.parseAsync(['node', 'test', 'my-api', 'run-1'])).rejects.toThrow(ExitError);
+
+      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(errSpy.mock.calls.flat().join('\n')).toContain('Rapids runs are not enabled for this account yet.');
     });
   });
 
@@ -344,6 +374,61 @@ describe('rapids runs', () => {
       expect(payload.success).toBe(false);
       expect(payload.error.code).toBe('serverless.run_wait_timeout');
     });
+
+    it('reports the run as disappeared, not as not-enabled, on an uncoded 404 mid-follow', async () => {
+      mockGet.mockImplementation((path: string) => {
+        if (isListCall(path)) return Promise.resolve(listResponse());
+        return Promise.reject(new ApiError(404, 'Not Found'));
+      });
+
+      await expect(
+        logsCommand.parseAsync(['node', 'test', 'my-api', 'run-1', '--follow']),
+      ).rejects.toThrow(ExitError);
+
+      expect(process.exit).toHaveBeenCalledWith(1);
+      const out = errSpy.mock.calls.flat().join('\n');
+      expect(out).toContain('Run run-1 disappeared while waiting for it to finish.');
+      expect(out).not.toContain('not enabled');
+    });
+
+    it('reports the run as disappeared when the run settles but the final logs fetch 404s', async () => {
+      // Distinct from the wait's own poll 404ing: here the run itself is
+      // found and settles normally, and only the logs fetch AFTER the wait
+      // loop ends comes back 404 — its own onMissing callback, not the one
+      // wired into waitForRun's poll.
+      let logsCall = 0;
+      mockGet.mockImplementation((path: string) => {
+        if (isListCall(path)) return Promise.resolve(listResponse());
+        if (path.endsWith('/logs')) {
+          logsCall++;
+          return logsCall === 1
+            ? Promise.resolve({ data: { run_id: 'run-1', source: 'live', logs: '' } })
+            : Promise.reject(new ApiError(404, 'Not Found'));
+        }
+        return Promise.resolve({ data: makeRun({ status: 'succeeded', terminal: true, exit_code: 0 }) });
+      });
+
+      await expect(
+        logsCommand.parseAsync(['node', 'test', 'my-api', 'run-1', '--follow']),
+      ).rejects.toThrow(ExitError);
+
+      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(errSpy.mock.calls.flat().join('\n')).toContain('Run run-1 disappeared while waiting for it to finish.');
+    });
+
+    it('reports not-enabled on a coded 404 mid-follow', async () => {
+      mockGet.mockImplementation((path: string) => {
+        if (isListCall(path)) return Promise.resolve(listResponse());
+        return Promise.reject(new ApiError(404, 'Not Found', undefined, { code: 'serverless.runs_not_enabled' }));
+      });
+
+      await expect(
+        logsCommand.parseAsync(['node', 'test', 'my-api', 'run-1', '--follow']),
+      ).rejects.toThrow(ExitError);
+
+      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(errSpy.mock.calls.flat().join('\n')).toContain('Rapids runs are not enabled for this account yet.');
+    });
   });
 
   describe('cancel', () => {
@@ -395,9 +480,21 @@ describe('rapids runs', () => {
       expect(payload.error.code).toBe('serverless.run_not_active');
     });
 
-    it('prints the not-enabled message and exits 1 on 404', async () => {
+    it('prints "run not found" (not the not-enabled message) on an uncoded 404', async () => {
       mockGet.mockResolvedValue(listResponse());
       mockPost.mockRejectedValue(new ApiError(404, 'Not Found'));
+
+      await expect(cancelCommand.parseAsync(['node', 'test', 'my-api', 'run-1'])).rejects.toThrow(ExitError);
+
+      expect(process.exit).toHaveBeenCalledWith(1);
+      const out = errSpy.mock.calls.flat().join('\n');
+      expect(out).toContain('Run run-1 was not found on my-api.');
+      expect(out).not.toContain('not enabled');
+    });
+
+    it('prints the not-enabled message on a 404 that carries the not-enabled code', async () => {
+      mockGet.mockResolvedValue(listResponse());
+      mockPost.mockRejectedValue(new ApiError(404, 'Not Found', undefined, { code: 'serverless.runs_not_enabled' }));
 
       await expect(cancelCommand.parseAsync(['node', 'test', 'my-api', 'run-1'])).rejects.toThrow(ExitError);
 

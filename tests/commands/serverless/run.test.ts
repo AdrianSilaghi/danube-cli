@@ -352,7 +352,22 @@ describe('rapids run', () => {
       expect(payload.success).toBe(true);
     });
 
-    it('reports the not-enabled message if the flag is off mid-wait', async () => {
+    it('reports the not-enabled message if a mid-wait 404 carries the not-enabled code', async () => {
+      mockGet.mockImplementation((path: string) => {
+        if (path.startsWith('/api/v1/serverless?')) return Promise.resolve(listResponse());
+        return Promise.reject(new ApiError(404, 'Not Found', undefined, { code: 'serverless.runs_not_enabled' }));
+      });
+      mockPost.mockResolvedValue({ data: makeRun({ status: 'queued' }) });
+
+      await expect(runCommand.parseAsync(['node', 'test', 'my-api', '--wait'])).rejects.toThrow(ExitError);
+
+      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(errSpy.mock.calls.flat().join('\n')).toContain('Rapids runs are not enabled for this account yet.');
+    });
+
+    it('reports the run as disappeared, not as not-enabled, on an uncoded 404 mid-wait', async () => {
+      // The run already exists (createRun succeeded) — a bare 404 polling it
+      // means it went away, not that the account lost the feature flag.
       mockGet.mockImplementation((path: string) => {
         if (path.startsWith('/api/v1/serverless?')) return Promise.resolve(listResponse());
         return Promise.reject(new ApiError(404, 'Not Found'));
@@ -362,7 +377,9 @@ describe('rapids run', () => {
       await expect(runCommand.parseAsync(['node', 'test', 'my-api', '--wait'])).rejects.toThrow(ExitError);
 
       expect(process.exit).toHaveBeenCalledWith(1);
-      expect(errSpy.mock.calls.flat().join('\n')).toContain('Rapids runs are not enabled for this account yet.');
+      const out = errSpy.mock.calls.flat().join('\n');
+      expect(out).toContain('Run run-1 disappeared while waiting for it to finish.');
+      expect(out).not.toContain('not enabled');
     });
   });
 });

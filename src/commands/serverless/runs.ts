@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { ApiClient } from '../../lib/api-client.js';
 import { resolveContainer } from './resolve.js';
-import { runsApi } from '../../lib/rapids-runs.js';
+import { runsApi, runsApiForRun, reportRunNotFound, reportRunDisappeared } from '../../lib/rapids-runs.js';
 import { waitForRun, DEFAULT_WAIT_TIMEOUT_MS } from '../../lib/wait-for-run.js';
 import { streamNewLogs } from '../../lib/log-tail.js';
 import type { LogTailState } from '../../lib/log-tail.js';
@@ -75,7 +75,10 @@ export const showCommand = new Command('show')
     const api = await ApiClient.create();
     const container = await resolveContainer(api, nameOrId);
 
-    const res = await runsApi(() => api.get<Envelope<ServerlessRun>>(runPath(container.id, runId)));
+    const res = await runsApiForRun(
+      () => api.get<Envelope<ServerlessRun>>(runPath(container.id, runId)),
+      () => reportRunNotFound(runId, container.name),
+    );
 
     if (isJsonMode()) {
       jsonOutput(res.data);
@@ -108,7 +111,10 @@ export const logsCommand = new Command('logs')
     const container = await resolveContainer(api, nameOrId);
 
     if (!opts.follow) {
-      const res = await runsApi(() => api.get<Envelope<ServerlessRunLogs>>(logsPath(container.id, runId)));
+      const res = await runsApiForRun(
+        () => api.get<Envelope<ServerlessRunLogs>>(logsPath(container.id, runId)),
+        () => reportRunNotFound(runId, container.name),
+      );
       if (isJsonMode()) {
         jsonOutput(res.data);
         return;
@@ -118,14 +124,20 @@ export const logsCommand = new Command('logs')
     }
 
     const tailState: LogTailState = { printed: '' };
-    const wait = await runsApi(() => waitForRun(api, container.id, runId, {
-      timeoutMs: DEFAULT_WAIT_TIMEOUT_MS,
-      onTick: isJsonMode()
-        ? undefined
-        : (r) => streamNewLogs(api, logsPath(container.id, r.id), tailState, (text) => process.stdout.write(text)),
-    }));
+    const wait = await runsApiForRun(
+      () => waitForRun(api, container.id, runId, {
+        timeoutMs: DEFAULT_WAIT_TIMEOUT_MS,
+        onTick: isJsonMode()
+          ? undefined
+          : (r) => streamNewLogs(api, logsPath(container.id, r.id), tailState, (text) => process.stdout.write(text)),
+      }),
+      () => reportRunDisappeared(runId),
+    );
 
-    const finalLogs = await runsApi(() => api.get<Envelope<ServerlessRunLogs>>(logsPath(container.id, wait.run.id)));
+    const finalLogs = await runsApiForRun(
+      () => api.get<Envelope<ServerlessRunLogs>>(logsPath(container.id, wait.run.id)),
+      () => reportRunDisappeared(runId),
+    );
 
     if (isJsonMode()) {
       jsonEnvelope(finalLogs.data, {
@@ -151,7 +163,10 @@ export const cancelCommand = new Command('cancel')
     const container = await resolveContainer(api, nameOrId);
 
     try {
-      const res = await runsApi(() => api.post<Envelope<ServerlessRun>>(`${runPath(container.id, runId)}/cancel`));
+      const res = await runsApiForRun(
+        () => api.post<Envelope<ServerlessRun>>(`${runPath(container.id, runId)}/cancel`),
+        () => reportRunNotFound(runId, container.name),
+      );
 
       if (isJsonMode()) {
         jsonOutput(res.data);

@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { ApiClient } from '../../lib/api-client.js';
 import { resolveContainer } from './resolve.js';
-import { runsApi } from '../../lib/rapids-runs.js';
+import { runsApi, runsApiForRun, reportRunDisappeared } from '../../lib/rapids-runs.js';
 import { waitForRun, DEFAULT_WAIT_TIMEOUT_MS } from '../../lib/wait-for-run.js';
 import { streamNewLogs } from '../../lib/log-tail.js';
 import type { LogTailState } from '../../lib/log-tail.js';
@@ -80,17 +80,20 @@ export const runCommand = new Command('run')
     }
 
     const tailState: LogTailState = { printed: '' };
-    const wait = await runsApi(() => waitForRun(api, container.id, run.id, {
-      timeoutMs: parseWaitTimeout(opts.waitTimeout) ?? DEFAULT_WAIT_TIMEOUT_MS,
-      onTick: opts.logs
-        ? (r) => streamNewLogs(
-          api,
-          `/api/v1/serverless/${container.id}/runs/${r.id}/logs`,
-          tailState,
-          (text) => process.stderr.write(text),
-        )
-        : undefined,
-    }));
+    const wait = await runsApiForRun(
+      () => waitForRun(api, container.id, run.id, {
+        timeoutMs: parseWaitTimeout(opts.waitTimeout) ?? DEFAULT_WAIT_TIMEOUT_MS,
+        onTick: opts.logs
+          ? (r) => streamNewLogs(
+            api,
+            `/api/v1/serverless/${container.id}/runs/${r.id}/logs`,
+            tailState,
+            (text) => process.stderr.write(text),
+          )
+          : undefined,
+      }),
+      () => reportRunDisappeared(run.id),
+    );
 
     if (isJsonMode()) {
       runJsonEnvelope(wait);
