@@ -166,13 +166,16 @@ the command as missing rather than printing the parent's help and exiting 0.
 | Code | Meaning |
 |------|---------|
 | 0 | Success |
-| 1 | Generic or API error, **or a diagnose that found a fatal problem** |
+| 1 | Generic or API error, **or a diagnose that found a fatal problem**, or `rapids run --wait`: the run failed with no exit code (or one outside 1–255) |
+| 1–255 | `rapids run --wait` / `runs logs --follow`: the run failed — this is the run's own `exit_code`, passed straight through |
 | 2 | Missing required flag (non-interactive), or a usage error such as an unknown command, a conflicting selector, or a non-integer project id |
 | 3 | Not authenticated |
 | 4 | Resource not found |
 | 5 | Confirmation required (add `--force`) |
 | 8 | Bucket metrics stale or unavailable |
-| 130 | Cancelled (Ctrl+C) |
+| 75 | `rapids run --wait` / `runs logs --follow`: the CLIENT gave up waiting before the run reached a terminal state — the run itself has not failed |
+| 124 | `rapids run --wait` / `runs logs --follow`: the run itself timed out server-side (`status: "timed_out"`) |
+| 130 | Cancelled (Ctrl+C), or `rapids run --wait`: the run was cancelled |
 
 `diagnose` commands follow the platform contract: `success` in the `--json`
 envelope reports the **call**, not the verdict. A diagnosis that ran correctly
@@ -445,6 +448,11 @@ Knative-based serverless containers with scale-to-zero.
 | `danube rapids apply` | Create-or-update idempotently (`--wait`, `--idempotency-key`, `--env`, `--rm-env`, `--initial-scale`, `--scale-down-delay`) |
 | `danube rapids probe [name]` | Reach the public URL from outside: DNS, TLS, status, cold vs warm latency |
 | `danube rapids preflight --image <ref>` | Check namespace, credential, manifest, digest and architecture before deploying |
+| `danube rapids run <name-or-id> [-- <command...>]` | **Preview.** Run the container's image ONCE, on demand, as a Kubernetes Job (`--tag`, `--env`, `--timeout`, `--wait`, `--wait-timeout`, `--no-logs`) |
+| `danube rapids runs ls <name-or-id>` | **Preview.** List runs for a container |
+| `danube rapids runs show <name-or-id> <run-id>` | **Preview.** Show one run's status, exit code and timing |
+| `danube rapids runs logs <name-or-id> <run-id>` | **Preview.** Fetch a run's logs (`--follow` to poll until terminal) |
+| `danube rapids runs cancel <name-or-id> <run-id>` | **Preview.** Cancel an active run |
 
 `--initial-scale <n>` (on `create`, `update`, `apply`) sets how many instances a
 new revision starts with before it counts as ready; `--scale-down-delay
@@ -466,6 +474,33 @@ Diagnostics notes:
   progress, not that it failed.
 - Always pass `--since` to `logs`; without it the query covers only the last
   30 minutes.
+
+### Rapids runs (preview / early access)
+
+Customers otherwise run migrations by scaling a container up and down, which
+can run the command twice. `rapids run` runs the image once instead — at most
+one active run per container — as a Kubernetes Job, with a status, an exit
+code, and logs:
+
+```bash
+danube rapids run my-api --tag "$SHA" --wait -- npm run migrate --force
+```
+
+- **Requires the `rapids-runs` account flag.** Until it is enabled, every
+  `run`/`runs` endpoint 404s and the CLI prints "Rapids runs are not enabled
+  for this account yet." and exits 1.
+- `--wait` polls every 3s and streams new log text to **stderr** as it
+  arrives (unless `--no-logs`), so stdout stays a single clean document under
+  `--json`. Exit code mirrors the run's outcome — see the table below.
+- At most one active run per container: starting a second one while the first
+  is still going gets a `409` naming the active run's id; `--json` carries it
+  in `meta.active_run_id`.
+- `runs logs --follow` polls the same way as `run --wait` and exits with the
+  same code, so it also works as "attach to a run already started elsewhere
+  and block for its result."
+- `GET .../runs/{id}/logs` returns the full available text on every call, not
+  a delta — the CLI diffs it client-side to print only what is new, and marks
+  a `…` gap if the server's own tail window moved out from under it.
 
 ## Configuration
 

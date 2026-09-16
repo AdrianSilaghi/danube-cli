@@ -91,7 +91,7 @@ export class ApiClient {
           (typeof envelopeError === 'string' ? envelopeError : undefined) ||
           `Request failed with status ${res.status}`;
 
-        throw new ApiError(res.status, message, json?.errors, structured);
+        throw new ApiError(res.status, message, json?.errors, structured, json?.meta);
       }
 
       return json as T;

@@ -35,6 +35,12 @@ export class ApiError extends Error {
     message: string,
     public errors?: Record<string, string[]>,
     public cause?: ApiErrorCause,
+    /**
+     * The envelope's top-level `meta`, e.g. `{active_run_id}` on a 409 from
+     * `POST .../runs`. Additive, like `cause`: existing readers of `code` and
+     * `status` are unaffected by a field they never look at.
+     */
+    public meta?: Record<string, unknown>,
   ) {
     super(message);
     this.name = 'ApiError';
