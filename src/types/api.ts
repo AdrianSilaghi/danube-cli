@@ -231,7 +231,18 @@ export interface VpsInstance {
   status_label: string;
   resource_profile: string;
   cpu_allocation_type: 'shared' | 'dedicated';
-  cpu_platform?: 'amd' | 'intel';
+  /**
+   * The generated spec types this as a plain `string | null` (no backing
+   * enum on the Laravel side for Scramble to reflect), not the `'amd' |
+   * 'intel'` this file previously declared — parity.ts caught the mismatch
+   * once generated.d.ts was regenerated for TICK-2026-00227 (see that PR;
+   * unrelated to it otherwise). Widened to match reality rather than
+   * narrowed in the OpenAPI schema, since narrowing that is a call for
+   * whoever owns the VPS CPU-platform feature, not a drive-by here. Every
+   * reader already handles a missing value defensively (`v.cpu_platform ?
+   * ... : ''`, `v.cpu_platform ?? '-'`), so this is a type-only change.
+   */
+  cpu_platform?: string | null;
   cpu_cores: number;
   memory_size_gb: number;
   storage_size_gb: number;
@@ -573,6 +584,17 @@ export interface ServerlessContainer {
   memory_limit: string;
   min_scale: number;
   max_scale: number;
+  /**
+   * Instances a new revision starts with before it counts as ready. Knative
+   * uses max(initial_scale, min_scale). Null means the cluster default
+   * (effectively 1).
+   */
+  initial_scale: number | null;
+  /**
+   * How long the previous revision keeps its instances after losing traffic.
+   * Null means the platform template default (300s / 5 minutes).
+   */
+  scale_down_delay_seconds: number | null;
   scaling_metric: 'rps' | 'concurrency' | null;
   scaling_target: number | null;
   concurrency_target: number | null;

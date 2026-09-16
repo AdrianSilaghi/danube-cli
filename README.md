@@ -434,7 +434,7 @@ Knative-based serverless containers with scale-to-zero.
 | `danube rapids create` | Create a new serverless container |
 | `danube rapids deploy <name-or-id>` | Deploy a serverless container from local directory |
 | `danube rapids redeploy <name-or-id>` | Redeploy a container with its current image (rolls out a new zero-downtime revision) |
-| `danube rapids update <name-or-id>` | Update a serverless container (`--wait`, `--env`, `--rm-env`) |
+| `danube rapids update <name-or-id>` | Update a serverless container (`--wait`, `--env`, `--rm-env`, `--initial-scale`, `--scale-down-delay`) |
 | `danube rapids rm <name-or-id>` | Delete a serverless container |
 | `danube rapids deployments <name-or-id>` | List deployments for a serverless container |
 | `danube rapids usage <name-or-id>` | Show usage and billing for a serverless container |
@@ -442,9 +442,16 @@ Knative-based serverless containers with scale-to-zero.
 | `danube rapids revisions <name-or-id>` | List Knative revisions with their conditions, plus Service and Route readiness |
 | `danube rapids events <name-or-id>` | Curated platform events for the container's service, revisions and pods |
 | `danube rapids diagnose <name-or-id>` | Correlate status, revisions, events and logs into ranked findings with remediation |
-| `danube rapids apply` | Create-or-update idempotently (`--wait`, `--idempotency-key`, `--env`, `--rm-env`) |
+| `danube rapids apply` | Create-or-update idempotently (`--wait`, `--idempotency-key`, `--env`, `--rm-env`, `--initial-scale`, `--scale-down-delay`) |
 | `danube rapids probe [name]` | Reach the public URL from outside: DNS, TLS, status, cold vs warm latency |
 | `danube rapids preflight --image <ref>` | Check namespace, credential, manifest, digest and architecture before deploying |
+
+`--initial-scale <n>` (on `create`, `update`, `apply`) sets how many instances a
+new revision starts with before it counts as ready; `--scale-down-delay
+<duration>` (`0`, `30s`, `5m`, `1h`) sets how long the previous revision keeps
+its instances after losing traffic. Set both to `0`, alongside `--min-scale 0`,
+for a container that runs startup work (migrations, cache warmup) so it never
+runs on the old and new revision at once.
 
 Diagnostics notes:
 

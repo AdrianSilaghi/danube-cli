@@ -313,7 +313,11 @@ export interface paths {
         get: operations["v1.registry.repositories.show"];
         put?: never;
         post?: never;
-        /** Delete a repository and every tag in it */
+        /**
+         * Delete a repository and every tag in it
+         * @description Refused with 409 `image_in_use` while any of its images is deployed by a
+         *     serverless container, unless `force=true` is passed.
+         */
         delete: operations["v1.registry.repositories.destroy"];
         options?: never;
         head?: never;
@@ -352,6 +356,11 @@ export interface paths {
          * @description Removes the manifest from the registry and the local record. The
          *     repository row survives even if this was its last tag — removing it is
          *     a separate, explicit call.
+         *
+         *     Refused with 409 `image_in_use` while a serverless container is deployed
+         *     from this image (the tag, or any alias sharing its manifest): Knative
+         *     pinned the digest into that container's revision, so the delete would
+         *     break its next cold start. Pass `force=true` to delete it anyway.
          */
         delete: operations["v1.registry.repositories.tags.destroy"];
         options?: never;
@@ -557,10 +566,43 @@ export interface paths {
          *     on MySQL/MariaDB) where the platform can resolve them, so the credentials
          *     returned here can create roles, extensions and databases. Instances whose
          *     superuser is not resolvable fall back to the provisioned application user.
+         *
+         *     `application_user` is the provisioned application user — the one the
+         *     dashboard shows and a password rotation changes. Its password is null
+         *     while a rotation is pending or applying. `credential_rotation` describes
+         *     the most recent rotation, or is null when none has run.
          */
         get: operations["v1.database.credentials"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/database/{databaseInstance}/credentials/rotate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rotate the database master password
+         * @description Starts an asynchronous rotation of the application user's password
+         *     (managed PostgreSQL only). Poll `GET /database/{id}/credentials` until
+         *     `credential_rotation.status` is `succeeded` or `failed`; the new password
+         *     is returned there as `application_user.password`.
+         *
+         *     Once the rotation succeeds, clients using the previous password can no
+         *     longer open new connections. Existing sessions stay open unless
+         *     `disconnect_sessions` is true. If the new password cannot be confirmed,
+         *     the previous one is restored and the rotation is marked `failed`.
+         */
+        post: operations["v1.database.credentials.rotate"];
         delete?: never;
         options?: never;
         head?: never;
@@ -630,6 +672,59 @@ export interface paths {
             cookie?: never;
         };
         get: operations["v1.database.replicas.status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/database/{databaseInstance}/load": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Database load over time
+         * @description Average active sessions (AAS) sampled every 30 seconds and bucketed by
+         *     `step`, over the last `hours`, the last `minutes` (5 to 21600) or an
+         *     absolute `start`/`end` (ISO 8601, at most 15 days), stacked by one dimension: `waits`, `users`, `applications`,
+         *     `databases`, `hosts`, `session_types` or `sql` (the agent-sampled
+         *     statements, primary only). Every series is zero-filled
+         *     onto `timestamps`; `collecting` is false while a cluster is not yet
+         *     being sampled. CloudNativePG PostgreSQL instances only. Requires the
+         *     `database:read` ability and the `database_performance` feature.
+         */
+        get: operations["v1.database.load"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/database/{databaseInstance}/queries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Top SQL
+         * @description The statements the agent sampler saw most over the window, ranked by
+         *     the average active sessions they accounted for (`value`), with their
+         *     share of all load and a wait-event breakdown. `text` is the statement
+         *     as first captured (1 KiB cap) or null. `collecting` is false while the
+         *     instance has no samples yet. CloudNativePG PostgreSQL instances only.
+         *     Requires the `database:read` ability and the `database_performance`
+         *     feature.
+         */
+        get: operations["v1.database.queries"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1150,10 +1245,39 @@ export interface paths {
         };
         /**
          * List an alert's trigger and resolve history
-         * @description This is the alert's diagnosis: every threshold crossing, the value that
-         *     caused it, and the query that measured it.
+         * @description Every threshold crossing and the value that caused it. The PromQL that
+         *     measured it is no longer returned: it named the tenant namespace and an
+         *     internal recording rule, and a customer cannot run it against anything
+         *     they have access to.
          */
         get: operations["v1.metric-alerts.history"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/metric-alerts/{metricAlert}/delivery-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Preview who would be notified
+         * @description Answers "if this fired right now, who hears about it and where" — the
+         *     question behind most "why did nobody get paged" tickets, asked BEFORE
+         *     the incident instead of after.
+         *
+         *     Resolved through the delivery planner's own routing, not a second
+         *     implementation of it. A preview that recomputed the rules would be a
+         *     separate definition, and the first time the two disagreed a customer
+         *     would be told they were covered when they were not.
+         */
+        get: operations["v1.metric-alerts.delivery-preview"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1881,6 +2005,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/recovery/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List recovery capabilities per product */
+        get: operations["v1.recovery.capabilities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/registry/context": {
         parameters: {
             query?: never;
@@ -1962,6 +2103,187 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/resource-alerts/incidents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List resource alert incidents
+         * @description Defaults to open incidents, because "what is broken now" is the common
+         *     question and a team with a year of history would otherwise page through
+         *     resolved rows to find it. Pass `state=all` or `state=resolved` for the
+         *     rest. Filter by `severity`, `source` (`configured`, `automatic`, or a
+         *     source key such as `uptime`), `resource_type`, `resource_id`,
+         *     `signal_key`, and an `opened_at` window with `since` / `until`.
+         *
+         *     Pages by cursor in a stable newest-first order: pass `pagination.next_cursor`
+         *     back as `cursor`.
+         */
+        get: operations["v1.resource-alerts.incidents.index"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/resource-alerts/incidents/{incident}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show a resource alert incident
+         * @description Includes the incident's transition events, each with the status of its
+         *     deliveries: channel, recipient kind, attempts, and a safe error code.
+         */
+        get: operations["v1.resource-alerts.incidents.show"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/resource-alerts/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List automatic timeline sources
+         * @description Each source names what it covers, what it does not, whether it already
+         *     notifies the team itself, and when it last completed a run.
+         */
+        get: operations["v1.resource-alerts.sources.index"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/resource-alerts/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show the rule catalog
+         * @description What a rule can be made of, for this team: each resource family with the
+         *     team's resources (and how many rules each still allows), the signals
+         *     with their unit, bounds, step, operators, recommended threshold and
+         *     duration, evaluation interval, recovery delay and aggregation, and the
+         *     notification channels this deployment offers. A family is `creatable`
+         *     only while something evaluates its rules; the others are listed with an
+         *     `availability` note. Validate against this before creating a rule: the
+         *     service re-validates against the same catalog on save.
+         */
+        get: operations["v1.resource-alerts.catalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/resource-alerts/rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List resource alert rules
+         * @description Every rule of the current team, newest first, with its derived `state`:
+         *     `healthy`, `pending` (breaching, not yet for the sustained duration),
+         *     `firing`, `disabled`, or `problem` (the signal could not be read). Filter
+         *     by `state`, `severity`, `resource_type`, `resource_id` and `signal_key`.
+         *     Pages by cursor: pass `pagination.next_cursor` back as `cursor`.
+         *     `limits` reports the team's usage against the per-resource and per-team
+         *     caps.
+         */
+        get: operations["v1.resource-alerts.rules.index"];
+        put?: never;
+        /**
+         * Create a resource alert rule
+         * @description `resource_type`, `resource_id` and `signal_key` name a catalog entry the
+         *     team owns; `comparison_operator`, `threshold_value` and
+         *     `duration_minutes` must satisfy that signal's bounds; `severity` is
+         *     `warning` (default) or `critical`; `notification_channels` defaults to
+         *     every available channel. The rule is evaluated on the next tick.
+         */
+        post: operations["v1.resource-alerts.rules.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/resource-alerts/rules/{rule}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Show a resource alert rule */
+        get: operations["v1.resource-alerts.rules.show"];
+        /**
+         * Update a resource alert rule
+         * @description The resource and signal are immutable: changing either makes it a
+         *     different rule whose history would no longer describe it. Redefining
+         *     the condition (operator, threshold or duration) closes any open incident
+         *     as `rule_redefined` and restarts the rule.
+         */
+        put: operations["v1.resource-alerts.rules.update"];
+        post?: never;
+        /**
+         * Delete a resource alert rule
+         * @description Closes any open incident as `rule_deleted`; incidents and their events
+         *     stay in History.
+         */
+        delete: operations["v1.resource-alerts.rules.destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/resource-alerts/rules/{rule}/enabled": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Enable or disable a resource alert rule
+         * @description Disabling closes any open incident as `rule_disabled`, which is not a
+         *     recovery; re-enabling makes the rule due immediately.
+         */
+        patch: operations["v1.resource-alerts.rules.enabled"];
         trace?: never;
     };
     "/resources/search": {
@@ -3403,7 +3725,10 @@ export interface components {
             name: string;
             description: string | null;
             status: string;
-            size_mb: string;
+            size_bytes: number | null;
+            /** @description stored | uploaded | captured */
+            size_basis: string | null;
+            size_mb: string | null;
             cache_instance_id: string;
             cache_instance?: {
                 id: string;
@@ -3444,6 +3769,12 @@ export interface components {
          * @enum {string}
          */
         ComparisonOperator: "gt" | "gte" | "lt" | "lte";
+        /**
+         * CpuPlatform
+         * @description CPU platform of a VPS host. A customer-facing promise (the create form and API require it), so placement never guesses: a pool without a platform is excluded, and an unknown server model is an error, not a default.
+         * @enum {string}
+         */
+        CpuPlatform: "amd" | "intel";
         /** CreatePartnerSubTeamRequest */
         CreatePartnerSubTeamRequest: {
             name: string;
@@ -3451,6 +3782,12 @@ export interface components {
             owner_email: string;
             owner_name: string;
         };
+        /**
+         * DatabaseCredentialRole
+         * @description Which password of a managed PostgreSQL database a rotation changes: the application user's or the superuser's.
+         * @enum {string}
+         */
+        DatabaseCredentialRole: "application" | "superuser";
         /** DatabaseInstanceResource */
         DatabaseInstanceResource: {
             id: string;
@@ -3531,6 +3868,21 @@ export interface components {
             can_be_stopped: boolean;
             can_be_destroyed: boolean;
         };
+        /**
+         * DatabaseLoadDimension
+         * @description The dimensions the Performance tab's "Database load" chart slices average active sessions by. Each maps to one recording rule over the app-rendered `pg_load` monitoring query (gitops `database.pg.load.rules`) and the labels that rule keeps.
+         *     | |
+         *     |---|
+         *     | `waits` <br/>  |
+         *     | `users` <br/>  |
+         *     | `applications` <br/>  |
+         *     | `databases` <br/>  |
+         *     | `hosts` <br/>  |
+         *     | `session_types` <br/>  |
+         *     | `sql` <br/> Agent-sampled (slice 2): served from database_load_minutes, not Prometheus. |
+         * @enum {string}
+         */
+        DatabaseLoadDimension: "waits" | "users" | "applications" | "databases" | "hosts" | "session_types" | "sql";
         /** DatabaseNotification */
         DatabaseNotification: {
             id: string;
@@ -3556,7 +3908,10 @@ export interface components {
             name: string;
             description: string | null;
             status: string;
-            size_gb: string;
+            size_bytes: number | null;
+            /** @description stored | uploaded | captured */
+            size_basis: string | null;
+            size_gb: string | null;
             database_instance_id: string;
             database_instance?: {
                 id: string;
@@ -3669,7 +4024,7 @@ export interface components {
             resource_type: string;
             resource_id: string;
             resource_name: string;
-            metric_type: string | components["schemas"]["MetricType"];
+            metric_type: string | components["schemas"]["MetricType"] | null;
             /** @enum {string|null} */
             metric_label: "CPU Usage" | "Memory Usage" | "Disk Usage" | "Network Receive Rate" | "Network Transmit Rate" | "CPU Steal" | "Load Ratio" | "Cache Connections" | "Cache Hit Ratio" | "Cache Ops/sec" | "DB Connections" | "DB Connection Usage" | "DB Replication Lag" | "DB Queries/sec" | "Request Rate" | "Request Latency (p99)" | "Error Rate" | null;
             /** @enum {string|null} */
@@ -3686,7 +4041,7 @@ export interface components {
             duration_minutes: number;
             consecutive_breaches: number;
             trigger_count: number;
-            notification_channels: unknown[] | null;
+            notification_channels: string[] | null;
             last_evaluated_at: string | null;
             triggered_at: string | null;
             resolved_at: string | null;
@@ -3703,7 +4058,7 @@ export interface components {
          * NotificationCategory
          * @enum {string}
          */
-        NotificationCategory: "resource_provisioned" | "resource_failed" | "resource_destroyed" | "resource_status_changed" | "invoice_generated" | "payment_successful" | "payment_failed" | "credits_low" | "credits_expiring" | "pricing_contract_expiring_soon" | "pricing_contract_expired" | "budget_threshold_50" | "budget_threshold_80" | "budget_exceeded" | "api_key_created" | "api_key_revoked" | "firewall_changed" | "suspicious_activity" | "new_login" | "audit_finding_critical" | "audit_security_digest" | "snapshot_completed" | "snapshot_failed" | "restore_completed" | "restore_failed" | "team_member_added" | "team_member_removed" | "team_invitation_sent" | "team_invitation_accepted" | "maintenance_scheduled" | "maintenance_started" | "maintenance_completed" | "incident_reported" | "incident_resolved" | "cpu_threshold_exceeded" | "memory_threshold_exceeded" | "disk_threshold_exceeded" | "connections_threshold_exceeded" | "uptime_check_down" | "uptime_check_recovered" | "ssl_certificate_expiring" | "pod_health_issue" | "storage_quota_threshold";
+        NotificationCategory: "resource_provisioned" | "resource_failed" | "resource_destroyed" | "resource_status_changed" | "invoice_generated" | "payment_successful" | "payment_failed" | "credits_low" | "credits_expiring" | "pricing_contract_expiring_soon" | "pricing_contract_expired" | "budget_threshold_50" | "budget_threshold_80" | "budget_exceeded" | "api_key_created" | "api_key_revoked" | "firewall_changed" | "suspicious_activity" | "new_login" | "audit_finding_critical" | "audit_security_digest" | "database_credentials_rotated" | "snapshot_completed" | "snapshot_failed" | "restore_completed" | "restore_failed" | "backup_policy_breached" | "backup_policy_recovered" | "team_member_added" | "team_member_removed" | "team_invitation_sent" | "team_invitation_accepted" | "maintenance_scheduled" | "maintenance_started" | "maintenance_completed" | "incident_reported" | "incident_resolved" | "resource_alert_triggered" | "resource_alert_resolved" | "cpu_threshold_exceeded" | "memory_threshold_exceeded" | "disk_threshold_exceeded" | "connections_threshold_exceeded" | "uptime_check_down" | "uptime_check_recovered" | "ssl_certificate_expiring" | "pod_health_issue" | "storage_quota_threshold" | "registry_quota_threshold";
         /**
          * NotificationChannel
          * @enum {string}
@@ -3789,6 +4144,12 @@ export interface components {
             path: string;
             bytes_used: number;
             tag_count: number;
+            /**
+             * @description Retention: the per-repo override (null = inherit the account
+             *     default) and the number actually in force (0 = unlimited).
+             */
+            keep_last_tags: number | null;
+            effective_keep_last_tags: number;
             last_push_at: string | null;
             tags?: components["schemas"]["RegistryRepositoryTagResource"][];
             team_id: number;
@@ -3801,6 +4162,130 @@ export interface components {
             media_type: string;
             bytes_size: number;
             pushed_at: string | null;
+        };
+        /** ResourceAlertEventResource */
+        ResourceAlertEventResource: {
+            id: string;
+            type: string;
+            occurred_at: string | null;
+            severity: string | null;
+            value: string | null;
+            threshold: string | null;
+            evaluation_health: string | null;
+            error_code: string | null;
+            details: {
+                [key: string]: unknown;
+            };
+            deliveries?: string[];
+        };
+        /** ResourceAlertIncidentResource */
+        ResourceAlertIncidentResource: {
+            id: string;
+            /**
+             * @description The rule may since have been deleted; the incident survives it,
+             *     so this is nullable on purpose rather than an error.
+             */
+            rule_id: string | null;
+            /** @enum {string} */
+            state: "open" | "resolved";
+            severity: string | null;
+            source_type: string;
+            /**
+             * @description Automatic events are labelled "Platform managed" and expose no
+             *     edit, disable or delete controls (§5.2).
+             */
+            platform_managed: boolean;
+            /**
+             * @description Which subsystem told the customer, so the page can say why no
+             *     notification came from here: `resource_alerts`, the source's
+             *     key, or `none`.
+             */
+            notification_origin: string;
+            title: string;
+            summary: string | null;
+            resource_type: string;
+            resource_label: string;
+            resource_id: string;
+            /** @description Snapshot, not a live lookup — see the class docblock. */
+            resource_name: string;
+            resource_url: string | null;
+            signal_key: string;
+            trigger_value: string | null;
+            trigger_threshold: string | null;
+            trigger_comparison_operator: string | null;
+            recovery_value: string | null;
+            /**
+             * @description Only ever set on a resolved incident: a database check enforces
+             *     that, so History cannot show an open incident claiming to have
+             *     been closed.
+             */
+            closure_reason: string | null;
+            opened_at: string | null;
+            resolved_at: string | null;
+            last_observed_at: string | null;
+            /**
+             * @description The projector's scalar, customer-facing facts about an automatic
+             *     incident: consecutive failures, the pod, the quota phase.
+             */
+            details: string;
+            events?: components["schemas"]["ResourceAlertEventResource"][];
+        };
+        /** ResourceAlertRuleResource */
+        ResourceAlertRuleResource: {
+            id: string;
+            name: string | null;
+            /** @description What the row is called when the customer named nothing. */
+            title: string;
+            description: string | null;
+            resource_type: string;
+            resource_label: string;
+            resource_id: string;
+            resource_name: string;
+            resource_url: string | null;
+            signal_key: string;
+            signal_label: string;
+            unit: string;
+            comparison_operator: string | null;
+            /** @enum {string} */
+            comparison_symbol: ">" | ">=" | "<" | "<=";
+            threshold_value: string | null;
+            duration_minutes: number;
+            condition: string;
+            severity: string | null;
+            enabled: boolean;
+            /** @enum {string} */
+            state: "healthy" | "problem" | "pending" | "firing" | "disabled";
+            /** @enum {string} */
+            state_label: "Healthy" | "Pending" | "Firing" | "Disabled" | "Data unavailable" | "All";
+            condition_state: string | null;
+            evaluation_health: string | null;
+            /** @enum {string} */
+            evaluation_health_label: "OK" | "No data" | "Stale data" | "Source unavailable";
+            notification_channels: unknown[] | null;
+            last_metric_value: string | null;
+            last_evaluated_at: string | null;
+            last_observed_at: string | null;
+            next_evaluation_at: string | null;
+            triggered_at: string | null;
+            evaluation_interval_seconds: number;
+            recovery_duration_seconds: number;
+            open_incident_id?: string | null;
+            created_by: number | null;
+            created_at: string | null;
+            updated_at: string | null;
+        };
+        /**
+         * RotateDatabaseCredentialsRequest
+         * @description Options for rotating a database password.
+         */
+        RotateDatabaseCredentialsRequest: {
+            /**
+             * @description Also terminate the rotated user's open sessions once the new
+             *     password is confirmed.
+             */
+            disconnect_sessions?: boolean;
+            /** @description Which password to rotate; the application owner's by default. */
+            role?: components["schemas"]["DatabaseCredentialRole"];
         };
         /** ServerlessContainerResource */
         ServerlessContainerResource: {
@@ -3839,6 +4324,8 @@ export interface components {
             scaling_target: number;
             timeout_seconds: number;
             progress_deadline_seconds: number | null;
+            initial_scale: number | null;
+            scale_down_delay_seconds: number | null;
             resource_profile: string;
             cpu_request: string;
             cpu_limit: string;
@@ -3863,6 +4350,10 @@ export interface components {
             url: string | null;
             current_revision: string | null;
             deployment_count: number;
+            /** @description Bumped every time a change is accepted that needs a rollout. A create, update or redeploy response carries the generation that request was given. */
+            spec_generation: number;
+            /** @description The spec generation the latest rollout started from. While it is below `spec_generation` a change is still queued, and `status_details.operation.terminal` is false. Wait for it to reach your generation, then for `terminal`. */
+            observed_generation: number;
             deployed_at: string | null;
             last_deployed_at: string | null;
             last_stopped_at: string | null;
@@ -4433,6 +4924,8 @@ export interface components {
         StoreFirewallRequest: {
             name: string;
             description?: string | null;
+            /** @description Queue a deployment right after saving ("Save and deploy"). */
+            deploy?: boolean;
             attached_instances?: {
                 /** Format: uuid */
                 id?: string;
@@ -4453,7 +4946,7 @@ export interface components {
                     /** Format: uuid */
                     id?: string;
                     /** @enum {string} */
-                    type?: "database" | "cache" | "vps" | "queue" | "serverless";
+                    type?: "database" | "cache" | "vps" | "queue" | "serverless" | "private_network";
                 }[] | null;
                 description?: string | null;
                 /** @enum {string|null} */
@@ -4506,7 +4999,7 @@ export interface components {
              *     stored and then never evaluated.
              * @enum {string}
              */
-            resource_type: "vps";
+            resource_type: "vps" | "kubernetes";
             resource_id: string;
             /** @enum {string} */
             metric_type: "";
@@ -4517,6 +5010,27 @@ export interface components {
             name?: string | null;
             description?: string | null;
             notification_channels?: ("database" | "mail" | "webhook")[] | null;
+        };
+        /**
+         * StoreRuleRequest
+         * @description Shape only (§14: "validated at the boundary"). Ownership, catalog bounds,
+         *     operators, limits and channels are the rule service's, re-checked against
+         *     the latest catalog at submission time (§15) so a change between page load
+         *     and save fails with a clear message rather than a 500.
+         */
+        StoreRuleRequest: {
+            resource_type: string;
+            resource_id: string;
+            signal_key: string;
+            /** @enum {string} */
+            comparison_operator: "gt" | "gte" | "lt" | "lte";
+            threshold_value: number;
+            duration_minutes?: number | null;
+            /** @enum {string|null} */
+            severity?: "warning" | "critical" | null;
+            notification_channels?: ("database" | "mail" | "webhook" | "slack" | "sms")[] | null;
+            name?: string | null;
+            description?: string | null;
         };
         /** StoreServerlessContainerRequest */
         StoreServerlessContainerRequest: Record<string, never>;
@@ -4619,6 +5133,8 @@ export interface components {
             resource_profile: "";
             /** @enum {string|null} */
             cpu_allocation_type?: "shared" | "dedicated" | null;
+            /** @description A customer promise honored by placement: no default, no fallback. */
+            cpu_platform: components["schemas"]["CpuPlatform"];
             /** @enum {string} */
             image: "";
             /** @enum {string|null} */
@@ -4693,6 +5209,8 @@ export interface components {
         UpdateFirewallRequest: {
             name?: string;
             description?: string | null;
+            /** @description Queue a deployment right after saving ("Save and deploy"). */
+            deploy?: boolean;
             /** @enum {string} */
             status?: "draft" | "active" | "applying" | "error";
             attached_instances?: {
@@ -4715,13 +5233,31 @@ export interface components {
                     /** Format: uuid */
                     id?: string;
                     /** @enum {string} */
-                    type?: "database" | "cache" | "vps" | "queue" | "serverless";
+                    type?: "database" | "cache" | "vps" | "queue" | "serverless" | "private_network";
                 }[] | null;
                 description?: string | null;
                 /** @enum {string|null} */
                 action?: "allow" | "deny" | null;
                 order?: number | null;
             }[] | null;
+        };
+        /**
+         * UpdateRuleRequest
+         * @description Every field optional: a rename must work on a rule whose signal has since
+         *     been retired, so only what is sent is validated and only what is sent is
+         *     changed (the service closes the open incident when the condition itself is
+         *     redefined).
+         */
+        UpdateRuleRequest: {
+            /** @enum {string} */
+            comparison_operator?: "gt" | "gte" | "lt" | "lte";
+            threshold_value?: number;
+            duration_minutes?: number;
+            /** @enum {string} */
+            severity?: "warning" | "critical";
+            notification_channels?: ("database" | "mail" | "webhook" | "slack" | "sms")[];
+            name?: string | null;
+            description?: string | null;
         };
         /** UpdateServerlessContainerRequest */
         UpdateServerlessContainerRequest: {
@@ -4759,6 +5295,15 @@ export interface components {
              */
             health_check_path?: string | null;
             progress_deadline_seconds?: number | null;
+            /**
+             * @description Instances a new revision starts with before it counts Ready.
+             *     The upper bound is the EFFECTIVE max_scale (payload value when
+             *     present, else the stored one) — checked in withValidator()
+             *     below, since max_scale is `sometimes` here and may be absent
+             *     from this request entirely.
+             */
+            initial_scale?: number | null;
+            scale_down_delay_seconds?: number | null;
             /** Format: uuid */
             registry_credential_id?: string | null;
             /**
@@ -4928,6 +5473,7 @@ export interface components {
             capabilities: components["schemas"]["CapabilitiesResource"];
             resource_profile: string;
             cpu_allocation_type: string;
+            cpu_platform: string | null;
             cpu_cores: number;
             memory_size_gb: number;
             storage_size_gb: number;
@@ -4960,7 +5506,10 @@ export interface components {
             name: string;
             description: string | null;
             status: string;
-            size_gb: string;
+            size_bytes: number | null;
+            /** @description stored | uploaded | captured */
+            size_basis: string | null;
+            size_gb: string | null;
             vps_instance_id: string;
             vps_instance?: {
                 id: string;
@@ -5791,6 +6340,14 @@ export interface operations {
                             keyspace_hits: string;
                             keyspace_misses: string;
                             hit_ratio_percentage: number;
+                            uptime_seconds: string;
+                            total_keys: string;
+                            fragmentation_ratio: number | null;
+                            last_save_age_seconds: Record<string, never> | null;
+                            last_bgsave_ok: boolean | null;
+                            aof_rewrite_in_progress: boolean | null;
+                            slowlog_length: number | null;
+                            connected_replicas: number | null;
                             retrieved_at: string | null;
                         };
                         health: {
@@ -5923,6 +6480,20 @@ export interface operations {
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: string;
+                        /** @constant */
+                        code: "image_in_use";
+                        force_required: boolean;
+                        in_use_by: unknown[];
+                    };
+                };
+            };
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -5990,6 +6561,20 @@ export interface operations {
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: string;
+                        /** @constant */
+                        code: "image_in_use";
+                        force_required: boolean;
+                        in_use_by: unknown[];
+                    };
+                };
+            };
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -6565,8 +7150,32 @@ export interface operations {
                         port: number;
                         username: string;
                         database: string | null;
-                        password: string | null;
-                        connection_info: string;
+                        password: null | string;
+                        connection_info: string | null;
+                        application_user: {
+                            username: string;
+                            password: string | null;
+                        };
+                        credential_rotation: {
+                            id: string;
+                            role: string;
+                            status: string;
+                            disconnect_sessions: boolean;
+                            requested_at: string | null;
+                            started_at: string | null;
+                            completed_at: string | null;
+                            error: string | null;
+                        } | null;
+                        superuser_credential_rotation: {
+                            id: string;
+                            role: string;
+                            status: string;
+                            disconnect_sessions: boolean;
+                            requested_at: string | null;
+                            started_at: string | null;
+                            completed_at: string | null;
+                            error: string | null;
+                        } | null;
                     };
                 };
             };
@@ -6587,6 +7196,57 @@ export interface operations {
                     };
                 };
             };
+        };
+    };
+    "v1.database.credentials.rotate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The database instance ID */
+                databaseInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RotateDatabaseCredentialsRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string;
+                };
+            };
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "Password rotation started";
+                        credential_rotation: {
+                            id: string;
+                            role: string;
+                            status: string;
+                            disconnect_sessions: boolean;
+                            requested_at: string | null;
+                            started_at: string | null;
+                            completed_at: string | null;
+                            error: string | null;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
         };
     };
     "v1.database.metrics": {
@@ -6613,6 +7273,9 @@ export interface operations {
                             connected_clients: string | 0;
                             total_queries: string;
                             slow_queries: string;
+                            uptime_seconds: string;
+                            database_size_bytes: string | null;
+                            blocked_queries: number | null;
                             retrieved_at: string | null;
                         };
                         health: {
@@ -6817,6 +7480,90 @@ export interface operations {
                     };
                 };
             };
+        };
+    };
+    "v1.database.load": {
+        parameters: {
+            query?: {
+                hours?: number;
+                minutes?: number;
+                /** @description Not `sometimes`: a lone start or end must fail, not fall back to the default range. */
+                start?: string | null;
+                end?: string | null;
+                step?: "auto" | "1m" | "5m" | "1h";
+                dimension?: components["schemas"]["DatabaseLoadDimension"];
+                node?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The database instance ID */
+                databaseInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string;
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        error: "Database load is temporarily unavailable. Please try again in a moment.";
+                        error_code: string;
+                    };
+                };
+            };
+        };
+    };
+    "v1.database.queries": {
+        parameters: {
+            query?: {
+                hours?: number;
+                minutes?: number;
+                /** @description Not `sometimes`: a lone start or end must fail, not fall back to the default range. */
+                start?: string | null;
+                end?: string | null;
+                step?: "auto" | "1m" | "5m" | "1h";
+                dimension?: components["schemas"]["DatabaseLoadDimension"];
+                node?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The database instance ID */
+                databaseInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string;
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
         };
     };
     "v1.cache.dns.enable": {
@@ -7063,6 +7810,21 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            /** @description An error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Error overview.
+                         * @example
+                         */
+                        message: string;
+                    };
+                };
+            };
         };
     };
     "v1.firewalls.store": {
@@ -7209,6 +7971,7 @@ export interface operations {
                 "application/json": components["schemas"]["Firewall"] & {
                     /** @enum {string} */
                     instance_type: "vps" | "cache" | "database" | "queue" | "serverless";
+                    /** Format: uuid */
                     instance_id: string;
                 };
             };
@@ -7246,6 +8009,7 @@ export interface operations {
                 "application/json": components["schemas"]["Firewall"] & {
                     /** @enum {string} */
                     instance_type: "vps" | "cache" | "database" | "queue" | "serverless";
+                    /** Format: uuid */
                     instance_id: string;
                 };
             };
@@ -7572,8 +8336,8 @@ export interface operations {
     "v1.apps.metrics": {
         parameters: {
             query?: {
-                hours?: number;
-                step?: string;
+                hours?: number | null;
+                step?: string | null;
             };
             header?: never;
             path: {
@@ -7591,26 +8355,7 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: {
-                            metrics: {
-                                cpu_usage: string[];
-                                memory_usage: string[];
-                                network: string[];
-                            } | {
-                                cpu_usage: {
-                                    cpu_total_percentage: unknown;
-                                    cpu_app_percentage: unknown;
-                                    cpu_db_percentage: unknown;
-                                };
-                                memory_usage: {
-                                    memory_total: unknown;
-                                    memory_app: unknown;
-                                    memory_db: unknown;
-                                };
-                                network: {
-                                    bytes_received_per_sec: unknown;
-                                    bytes_sent_per_sec: unknown;
-                                };
-                            };
+                            metrics: string;
                             summary: {
                                 cpu_percentage: number;
                                 memory_bytes: string;
@@ -7627,6 +8372,7 @@ export interface operations {
             };
             401: components["responses"]["AuthenticationException"];
             404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
         };
     };
     "v1.apps.credentials": {
@@ -8334,6 +9080,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             422: components["responses"]["ValidationException"];
         };
@@ -8362,6 +9109,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -8390,6 +9138,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -8417,11 +9166,46 @@ export interface operations {
                             event_type: string;
                             metric_value: number | null;
                             threshold_value: number | null;
-                            prometheus_query: string | null;
                             occurred_at: string | null;
                         }[];
                         meta: {
                             limit: Record<string, never> | null;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.metric-alerts.delivery-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The metric alert ID */
+                metricAlert: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            rule_id: string;
+                            category: string;
+                            recipients: unknown[];
+                            /**
+                             * @description An empty list is a real answer, not an error: every route can
+                             *     be closed by personal preferences changed after the rule was
+                             *     saved, and that is precisely what a customer needs to see.
+                             */
+                            delivers: boolean;
                         };
                     };
                 };
@@ -10448,6 +11232,52 @@ export interface operations {
             404: components["responses"]["ModelNotFoundException"];
         };
     };
+    "v1.recovery.capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            product: string;
+                            provider: string;
+                            deployment_kind: string;
+                            create: string;
+                            restore_to_new: string;
+                            replace_existing: string;
+                            point_in_time: string;
+                            notes: string;
+                        }[];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            /** @description An error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Error overview.
+                         * @example Insufficient permissions to read recovery capabilities
+                         */
+                        message: string;
+                    };
+                };
+            };
+        };
+    };
     "v1.registry.context": {
         parameters: {
             query?: never;
@@ -10820,6 +11650,362 @@ export interface operations {
                     };
                 };
             };
+        };
+    };
+    "v1.resource-alerts.incidents.index": {
+        parameters: {
+            query?: {
+                state?: "open" | "resolved" | "all" | null;
+                severity?: "warning" | "critical" | null;
+                source?: string | null;
+                resource_type?: string | null;
+                resource_id?: string | null;
+                signal_key?: string | null;
+                since?: string | null;
+                until?: string | null;
+                cursor?: string | null;
+                per_page?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ResourceAlertIncidentResource"][];
+                        filters: {
+                            state: string;
+                            severity: string | null;
+                            source: string | null;
+                            resource_type: string | null;
+                            resource_id: string | null;
+                            signal_key: string | null;
+                            since: string;
+                            until: string;
+                        };
+                        pagination: {
+                            per_page: number;
+                            next_cursor: string | null;
+                            prev_cursor: string | null;
+                            has_more: boolean;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.resource-alerts.incidents.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                incident: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ResourceAlertIncidentResource"] & Record<string, never>;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.resource-alerts.sources.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            key: string;
+                            label: string;
+                            coverage_note: string;
+                            notifies_customers: string;
+                            /** @enum {string} */
+                            state: "never_ran" | "failing" | "stale" | "healthy";
+                            last_succeeded_at: string | null;
+                            last_error_code: string | null;
+                            open_conditions: number;
+                        }[];
+                        degraded: boolean;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "v1.resource-alerts.catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            families: {
+                                key: string;
+                                label: string;
+                                creatable: string;
+                                /** @enum {string|null} */
+                                availability: "Alerts for this family become available once its evaluation is switched on." | null;
+                                resources: {
+                                    [key: string]: unknown;
+                                }[];
+                                signals: unknown[];
+                            }[];
+                            /**
+                             * @description The ways this deployment can notify, so the drawer offers exactly
+                             *     what the service will accept — a new rule defaults to all of them.
+                             */
+                            channels: unknown[];
+                            limits: {
+                                per_resource: number;
+                                per_team: number;
+                                team_used: number;
+                            };
+                            dispatch_enabled: boolean;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "v1.resource-alerts.rules.index": {
+        parameters: {
+            query?: {
+                state?: "all" | "healthy" | "pending" | "firing" | "disabled" | "problem" | null;
+                severity?: "warning" | "critical" | null;
+                resource_type?: string | null;
+                resource_id?: string | null;
+                signal_key?: string | null;
+                cursor?: string | null;
+                per_page?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: unknown[];
+                        filters: {
+                            state: string;
+                            severity: string | null;
+                            resource_type: string | null;
+                            resource_id: string | null;
+                            signal_key: string | null;
+                        };
+                        limits: {
+                            per_resource: number;
+                            per_team: number;
+                            team_used: number;
+                        };
+                        pagination: {
+                            per_page: number;
+                            next_cursor: string | null;
+                            prev_cursor: string | null;
+                            has_more: boolean;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.resource-alerts.rules.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoreRuleRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "Resource alert rule created";
+                        data: components["schemas"]["ResourceAlertRuleResource"] & Record<string, never>;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.resource-alerts.rules.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The rule ID */
+                rule: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ResourceAlertRuleResource"] & Record<string, never>;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.resource-alerts.rules.update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The rule ID */
+                rule: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["UpdateRuleRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "Resource alert rule updated";
+                        data: components["schemas"]["ResourceAlertRuleResource"] & Record<string, never>;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.resource-alerts.rules.destroy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The rule ID */
+                rule: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "Resource alert rule deleted";
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.resource-alerts.rules.enabled": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The rule ID */
+                rule: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    enabled: boolean;
+                };
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        message: "Resource alert rule enabled" | "Resource alert rule disabled";
+                        data: components["schemas"]["ResourceAlertRuleResource"] & Record<string, never>;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
         };
     };
     "v1.resources.search": {
@@ -11351,6 +12537,10 @@ export interface operations {
                     timeout_seconds?: number;
                     /** @description How long a rollout may take before it is failed, 30-1800. */
                     progress_deadline_seconds?: number;
+                    /** @description Instances a new revision starts with before it counts Ready, 0 to `max_scale`. Knative uses max(initial_scale, min_scale), so 0 only takes effect alongside `min_scale` 0 — the revision then goes Ready having never started a pod, deferring the first instance (and a broken image's first failure) to the first request. Unset uses the cluster default (effectively 1). */
+                    initial_scale?: number;
+                    /** @description How long a revision keeps its instances after losing traffic, 0-3600. Unset uses the template default (300s / 5 minutes). 0 releases the previous revision's instances as soon as a new one takes traffic — pair with `initial_scale: 0` for a container that runs startup work (e.g. migrations) so old and new revisions never both run it at once. */
+                    scale_down_delay_seconds?: number;
                     /** @description Absolute path probed for readiness, e.g. `/healthz`. */
                     health_check_path?: string;
                     /** @description CPU request override, e.g. `250m`. */
@@ -11637,6 +12827,11 @@ export interface operations {
                         container_id: string;
                         /** @constant */
                         status: "provisioning";
+                        /**
+                         * @description The rollout is done once the container's observed_generation
+                         *     reaches this and status_details.operation.terminal is true.
+                         */
+                        spec_generation: number;
                     };
                 };
             };
@@ -11846,21 +13041,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
-            /** @description An error */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /**
-                         * @description Error overview.
-                         * @example Insufficient permissions to create snapshots
-                         */
-                        message: string;
-                    };
-                };
-            };
+            403: components["responses"]["AuthorizationException"];
             422: components["responses"]["ValidationException"];
         };
     };
@@ -11887,6 +13068,29 @@ export interface operations {
                     };
                 };
             };
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "VPS snapshot restore accepted";
+                        operation_id: string;
+                        redirect: string;
+                    };
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
             401: components["responses"]["AuthenticationException"];
             /** @description An error */
             403: {
@@ -11904,6 +13108,27 @@ export interface operations {
                 };
             };
             404: components["responses"]["ModelNotFoundException"];
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
         };
     };
     "v1.snapshots.vps.destroy": {
@@ -11929,6 +13154,16 @@ export interface operations {
                     };
                 };
             };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
             401: components["responses"]["AuthenticationException"];
             /** @description An error */
             403: {
@@ -11946,6 +13181,17 @@ export interface operations {
                 };
             };
             404: components["responses"]["ModelNotFoundException"];
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
         };
     };
     "v1.snapshots.cache.index": {
@@ -12023,21 +13269,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
-            /** @description An error */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /**
-                         * @description Error overview.
-                         * @example Insufficient permissions to create snapshots
-                         */
-                        message: string;
-                    };
-                };
-            };
+            403: components["responses"]["AuthorizationException"];
             422: components["responses"]["ValidationException"];
         };
     };
@@ -12064,6 +13296,29 @@ export interface operations {
                     };
                 };
             };
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "Cache snapshot restore accepted";
+                        operation_id: string;
+                        redirect: string;
+                    };
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
             401: components["responses"]["AuthenticationException"];
             /** @description An error */
             403: {
@@ -12081,6 +13336,27 @@ export interface operations {
                 };
             };
             404: components["responses"]["ModelNotFoundException"];
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
         };
     };
     "v1.snapshots.cache.clone": {
@@ -12129,7 +13405,21 @@ export interface operations {
                     };
                 };
             };
-            422: components["responses"]["ValidationException"];
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                        errors: {
+                            [key: string]: string[];
+                        };
+                    } | {
+                        message: string;
+                    };
+                };
+            };
         };
     };
     "v1.snapshots.cache.destroy": {
@@ -12155,6 +13445,16 @@ export interface operations {
                     };
                 };
             };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
             401: components["responses"]["AuthenticationException"];
             /** @description An error */
             403: {
@@ -12172,6 +13472,17 @@ export interface operations {
                 };
             };
             404: components["responses"]["ModelNotFoundException"];
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
         };
     };
     "v1.snapshots.database.index": {
@@ -12249,22 +13560,22 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
-            /** @description An error */
-            403: {
+            403: components["responses"]["AuthorizationException"];
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        /**
-                         * @description Error overview.
-                         * @example Insufficient permissions to create snapshots
-                         */
+                        message: string;
+                        errors: {
+                            [key: string]: string[];
+                        };
+                    } | {
                         message: string;
                     };
                 };
             };
-            422: components["responses"]["ValidationException"];
         };
     };
     "v1.snapshots.database.restore": {
@@ -12290,6 +13601,30 @@ export interface operations {
                     };
                 };
             };
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "Database snapshot restore accepted";
+                        operation_id: string;
+                        redirect: string;
+                    };
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                        recommended_action: string | null;
+                    };
+                };
+            };
             401: components["responses"]["AuthenticationException"];
             /** @description An error */
             403: {
@@ -12307,6 +13642,28 @@ export interface operations {
                 };
             };
             404: components["responses"]["ModelNotFoundException"];
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                        recommended_action: string | null;
+                    };
+                };
+            };
         };
     };
     "v1.snapshots.database.clone": {
@@ -12340,7 +13697,22 @@ export interface operations {
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
-            422: components["responses"]["ValidationException"];
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                        errors: {
+                            [key: string]: string[];
+                        };
+                    } | {
+                        message: string;
+                        recommended_action: string | null;
+                    };
+                };
+            };
         };
     };
     "v1.snapshots.database.destroy": {
@@ -12366,6 +13738,16 @@ export interface operations {
                     };
                 };
             };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
             401: components["responses"]["AuthenticationException"];
             /** @description An error */
             403: {
@@ -12383,6 +13765,27 @@ export interface operations {
                 };
             };
             404: components["responses"]["ModelNotFoundException"];
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
         };
     };
     "v1.static-sites.diagnose": {

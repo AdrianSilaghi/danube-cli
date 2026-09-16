@@ -159,3 +159,70 @@ describe('apply --env/--rm-env', () => {
     expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid env format'));
   });
 });
+
+describe('apply --initial-scale/--scale-down-delay', () => {
+  const originalExit = process.exit;
+  let consoleLogSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    process.exit = vi.fn().mockImplementation((code: number) => {
+      throw new ExitError(code);
+    }) as never;
+    mockGet.mockReset();
+    mockPut.mockReset();
+    mockPost.mockReset();
+  });
+
+  afterEach(() => {
+    process.exit = originalExit;
+    vi.restoreAllMocks();
+  });
+
+  it('drift comparison includes initial_scale and scale_down_delay_seconds', async () => {
+    mockExisting(makeContainer({ initial_scale: null, scale_down_delay_seconds: null }));
+    mockPut.mockResolvedValue({
+      message: 'Updated',
+      container: makeContainer({ initial_scale: 0, scale_down_delay_seconds: 0 }),
+    });
+
+    await applyCommand.parseAsync([
+      'node', 'test', '--name', 'my-api', '--min-scale', '0', '--initial-scale', '0', '--scale-down-delay', '0',
+    ]);
+
+    expect(mockPut).toHaveBeenCalledWith('/api/v1/serverless/abc-123', expect.objectContaining({
+      initial_scale: 0,
+      scale_down_delay_seconds: 0,
+    }));
+  });
+
+  it('resubmitting the same initial_scale/scale_down_delay_seconds is unchanged (no PUT)', async () => {
+    mockExisting(makeContainer({ initial_scale: 0, scale_down_delay_seconds: 0 }));
+
+    await applyCommand.parseAsync([
+      'node', 'test', '--name', 'my-api', '--initial-scale', '0', '--scale-down-delay', '0',
+    ]);
+
+    expect(mockPut).not.toHaveBeenCalled();
+    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('unchanged'));
+  });
+
+  it('on create, sends both fields when supplied', async () => {
+    mockGet.mockResolvedValue({ data: [] });
+    mockPost.mockResolvedValue({
+      message: 'Created',
+      container: makeContainer({ initial_scale: 1, scale_down_delay_seconds: 60 }),
+    });
+
+    await applyCommand.parseAsync([
+      'node', 'test', '--name', 'my-api', '--initial-scale', '1', '--scale-down-delay', '1m',
+    ]);
+
+    expect(mockPost).toHaveBeenCalledWith(
+      '/api/v1/serverless',
+      expect.objectContaining({ initial_scale: 1, scale_down_delay_seconds: 60 }),
+      undefined,
+    );
+  });
+});
