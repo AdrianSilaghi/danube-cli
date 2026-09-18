@@ -44,6 +44,14 @@ import {
   logsCommand as runsLogsCommand,
   cancelCommand as runsCancelCommand,
 } from './commands/serverless/runs.js';
+import {
+  lsCommand as schedulesLsCommand,
+  showCommand as schedulesShowCommand,
+  createCommand as schedulesCreateCommand,
+  rmCommand as schedulesRmCommand,
+  pauseCommand as schedulesPauseCommand,
+  resumeCommand as schedulesResumeCommand,
+} from './commands/serverless/schedules.js';
 import { operationsCommand } from './commands/operations.js';
 import { registryCommand } from './commands/registry/index.js';
 import { getCurrentVersion } from './lib/version.js';
@@ -148,7 +156,17 @@ export function buildProgram(): Command {
   runsCommand.addCommand(runsShowCommand);
   runsCommand.addCommand(runsLogsCommand);
   runsCommand.addCommand(runsCancelCommand);
+
+  const schedulesCommand = new Command('schedules')
+    .description('Manage recurring runs of a rapids container\'s image');
+  schedulesCommand.addCommand(schedulesLsCommand);
+  schedulesCommand.addCommand(schedulesShowCommand);
+  schedulesCommand.addCommand(schedulesCreateCommand);
+  schedulesCommand.addCommand(schedulesRmCommand);
+  schedulesCommand.addCommand(schedulesPauseCommand);
+  schedulesCommand.addCommand(schedulesResumeCommand);
   serverlessCommand.addCommand(runsCommand);
+  serverlessCommand.addCommand(schedulesCommand);
 
   program.addCommand(serverlessCommand);
   program.addCommand(registryCommand);

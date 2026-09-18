@@ -792,6 +792,29 @@ export interface ServerlessRun {
   duration_seconds: number | null;
 }
 
+export interface ServerlessRunSchedule {
+  id: string;
+  name: string;
+  /** Standard five-field cron, read in `timezone`. */
+  cron_expression: string;
+  timezone: string;
+  /** `null` when the schedule uses the image's own CMD/entrypoint. */
+  command: string[] | null;
+  image_tag: string | null;
+  timeout_seconds: number;
+  enabled: boolean;
+  next_run_at: string | null;
+  last_run_at: string | null;
+  /**
+   * The most recent occurrence that did NOT start, and why — an occurrence
+   * due while the previous run is still going is skipped rather than queued.
+   */
+  last_skipped_at: string | null;
+  last_skip_reason: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
 export interface ServerlessRunLogs {
   run_id: string;
   /** `none` before anything has been captured — not an error. */

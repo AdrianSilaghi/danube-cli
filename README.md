@@ -453,6 +453,11 @@ Knative-based serverless containers with scale-to-zero.
 | `danube rapids runs show <name-or-id> <run-id>` | **Preview.** Show one run's status, exit code and timing |
 | `danube rapids runs logs <name-or-id> <run-id>` | **Preview.** Fetch a run's logs (`--follow` to poll until terminal) |
 | `danube rapids runs cancel <name-or-id> <run-id>` | **Preview.** Cancel an active run |
+| `danube rapids schedules ls <name-or-id>` | **Preview.** List a container's recurring runs |
+| `danube rapids schedules show <container> <schedule>` | **Preview.** Show one schedule, including why an occurrence was last skipped |
+| `danube rapids schedules create <container> [command...]` | **Preview.** Create a schedule (`--name`, `--cron`, `--timezone`, `--tag`, `--timeout`) |
+| `danube rapids schedules pause\|resume <container> <schedule>` | **Preview.** Pause a schedule without deleting it, or resume it |
+| `danube rapids schedules rm <container> <schedule>` | **Preview.** Delete a schedule (runs it produced are kept) |
 
 `--initial-scale <n>` (on `create`, `update`, `apply`) sets how many instances a
 new revision starts with before it counts as ready; `--scale-down-delay
