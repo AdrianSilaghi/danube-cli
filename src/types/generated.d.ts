@@ -664,6 +664,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/database/{databaseInstance}/high-availability": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Turn high availability on or off
+         * @description MySQL instances only. `enabled: true` grows the instance to a three-member
+         *     Group Replication group: two standby servers on separate hosts, billed
+         *     like the primary. `false` shrinks it back to one server. Read replicas
+         *     are untouched, and the instance must be running.
+         */
+        post: operations["v1.database.high-availability.update"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/database/{databaseInstance}/replicas/status": {
         parameters: {
             query?: never;
@@ -1693,6 +1716,13 @@ export interface paths {
             cookie?: never;
         };
         get: operations["v1.parameter-groups.show"];
+        /**
+         * Update a team parameter group
+         * @description For a PostgreSQL group, settings PostgreSQL applies on reload reach the
+         *     running databases using the group straight away. `propagation` reports
+         *     how many databases were updated and which changed settings wait for each
+         *     database's next update because they need a restart.
+         */
         put: operations["v1.parameter-groups.update"];
         post?: never;
         delete: operations["v1.parameter-groups.destroy"];
@@ -2602,6 +2632,124 @@ export interface paths {
          *     {timestamps: [...], values: [...]}, matching the console.
          */
         get: operations["v1.serverless.metrics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/serverless/{serverlessContainer}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Rapids runs for a container, newest first */
+        get: operations["v1.serverless.runs.index"];
+        put?: never;
+        /**
+         * Start a run
+         * @description At most one queued or running run per container. A run whose `env` is
+         *     given overrides the container's own environment for that run only —
+         *     override VALUES are never returned or persisted, only their key names.
+         */
+        post: operations["v1.serverless.runs.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/serverless/{serverlessContainer}/runs/{run}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Show one run */
+        get: operations["v1.serverless.runs.show"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/serverless/{serverlessContainer}/runs/{run}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel a queued or running run */
+        post: operations["v1.serverless.runs.cancel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/serverless/{serverlessContainer}/schedules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List a container's schedules */
+        get: operations["v1.serverless.schedules.index"];
+        put?: never;
+        /**
+         * Create a schedule
+         * @description A schedule takes no `env`: override values are never persisted, so a
+         *     scheduled run uses the container's own environment.
+         */
+        post: operations["v1.serverless.schedules.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/serverless/{serverlessContainer}/schedules/{schedule}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Show one schedule */
+        get: operations["v1.serverless.schedules.show"];
+        /** Update a schedule. Changing when it runs re-arms it immediately */
+        put: operations["v1.serverless.schedules.update"];
+        post?: never;
+        /** Delete a schedule. Runs it already produced are history and stay */
+        delete: operations["v1.serverless.schedules.destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/serverless/{serverlessContainer}/runs/{run}/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read this run's logs — live from its pod while the run is active, the
+         *     stored tail once it has finished
+         */
+        get: operations["v1.serverless.runs.logs"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3681,6 +3829,11 @@ export interface components {
              */
             capabilities: components["schemas"]["CapabilitiesResource"];
             resource_profile: string | null;
+            /**
+             * @description Persisted requested network tier. Actual throughput depends on the network path and available capacity.
+             * @enum {string}
+             */
+            network_tier: "standard" | "10g";
             cpu_cores: number;
             memory_size_mb: number;
             version: string | null;
@@ -3802,6 +3955,11 @@ export interface components {
              */
             capabilities: components["schemas"]["CapabilitiesResource"];
             resource_profile: string;
+            /**
+             * @description Persisted requested network tier. Actual throughput depends on the network path and available capacity.
+             * @enum {string}
+             */
+            network_tier: "standard" | "10g";
             cpu_cores: number;
             memory_size_mb: number;
             storage_size_gb: number;
@@ -4055,6 +4213,11 @@ export interface components {
          */
         MetricType: "cpu_usage" | "memory_usage" | "disk_usage" | "network_receive_rate" | "network_transmit_rate" | "cpu_steal" | "load_ratio" | "cache_connections" | "cache_hit_ratio" | "cache_ops_per_second" | "db_connections" | "db_connection_usage" | "db_replication_lag" | "db_queries_per_second" | "request_rate" | "request_latency_p99" | "error_rate";
         /**
+         * NetworkTier
+         * @enum {string}
+         */
+        NetworkTier: "standard" | "10g";
+        /**
          * NotificationCategory
          * @enum {string}
          */
@@ -4306,6 +4469,7 @@ export interface components {
             buildpack_builder: string | null;
             detected_runtime: string | null;
             auto_build_on_push: boolean;
+            build_cache_enabled: boolean;
             auto_deploy: boolean;
             /** @description --- image ------------------------------------------------- */
             image: string | null;
@@ -4847,6 +5011,7 @@ export interface components {
             parameter_group_id?: number | null;
             /** @enum {string} */
             datacenter: "ash" | "fsn1" | "nbg1" | "hel1";
+            network_tier?: components["schemas"]["NetworkTier"] | null;
             resource_profile: string;
         };
         /**
@@ -4868,6 +5033,7 @@ export interface components {
             /** @enum {string} */
             datacenter: "fsn1" | "nbg1" | "hel1";
             resource_profile: string;
+            network_tier?: components["schemas"]["NetworkTier"] | null;
             storage_autoscaling_enabled?: boolean | null;
             storage_autoscale_threshold_percent?: number | null;
             storage_autoscale_increment_gib?: number | null;
@@ -5034,6 +5200,55 @@ export interface components {
         };
         /** StoreServerlessContainerRequest */
         StoreServerlessContainerRequest: Record<string, never>;
+        /**
+         * StoreServerlessRunRequest
+         * @description Validation for `POST /api/v1/serverless/{id}/runs`.
+         *
+         *     Authorization is intentionally NOT done here — the controller runs the
+         *     token ability check and the `update` policy before touching the service,
+         *     matching every other serverless write endpoint.
+         */
+        StoreServerlessRunRequest: {
+            command?: string[] | null;
+            /**
+             * @description Runs `<the container's own image repository>:<image_tag>` — the
+             *     repository itself can never be changed by a run.
+             */
+            image_tag?: string | null;
+            /**
+             * @description Values are read from $this->input('env') for the service to
+             *     pass to Kubernetes; only the KEYS are ever persisted.
+             */
+            env?: string[];
+            timeout_seconds?: number;
+        };
+        /**
+         * StoreServerlessRunScheduleRequest
+         * @description Validation for `POST /api/v1/serverless/{id}/schedules`.
+         *
+         *     Authorization is intentionally NOT done here — the controller runs the token
+         *     ability check and the policy before touching the model, matching every other
+         *     serverless write endpoint.
+         *
+         *     Note what is absent: `env`. A schedule carries no environment override
+         *     values. A run may take them for the length of one dispatch, but a schedule
+         *     is by definition at rest, and storing them would turn "we never hold your
+         *      * secrets" into "we hold them indefinitely". A scheduled run gets the
+         *     container's own environment.
+         */
+        StoreServerlessRunScheduleRequest: {
+            name: string;
+            cron_expression: string;
+            /**
+             * @description Anything DateTimeZone knows. Stored so "0 3* *" keeps meaning
+             *     3am to the customer across a DST change.
+             */
+            timezone?: string;
+            command?: string[] | null;
+            image_tag?: string | null;
+            timeout_seconds?: number;
+            enabled?: boolean;
+        };
         /** StoreSshKeyRequest */
         StoreSshKeyRequest: {
             name: string;
@@ -5139,6 +5354,7 @@ export interface components {
             image: "";
             /** @enum {string|null} */
             network_stack?: "ipv4_only" | "ipv6_only" | "dual_stack" | null;
+            network_tier?: components["schemas"]["NetworkTier"] | null;
             /** @enum {string} */
             datacenter: "fsn1";
             /** @enum {string} */
@@ -5169,6 +5385,11 @@ export interface components {
             resource_profile?: string;
             parameter_group_id?: number | null;
             automated_snapshots_enabled?: boolean;
+        };
+        /** UpdateApiDatabaseHighAvailabilityRequest */
+        UpdateApiDatabaseHighAvailabilityRequest: {
+            /** @description true: a three-member Group Replication group; false: one server. */
+            enabled: boolean;
         };
         /**
          * UpdateApiDatabaseInstanceRequest
@@ -5276,7 +5497,7 @@ export interface components {
              */
             port?: number;
             /** @enum {string} */
-            resource_profile?: "free" | "small" | "medium" | "large";
+            resource_profile?: "free" | "micro" | "small" | "medium" | "large";
             min_scale?: number;
             max_scale?: number;
             cpu_request?: string | null;
@@ -5319,6 +5540,12 @@ export interface components {
             git_credentials?: string | null;
             auto_build_on_push?: boolean;
             /**
+             * @description Keep the build cache between Dockerfile builds so later builds
+             *     finish faster. Takes effect from the next build; changing it does
+             *     not start one.
+             */
+            build_cache_enabled?: boolean;
+            /**
              * @description Redeploy automatically when this image:tag is re-pushed to the
              *     DanubeData registry — docker_image analog of auto_build_on_push.
              */
@@ -5332,6 +5559,26 @@ export interface components {
             build_context_path?: string | null;
             /** @enum {string|null} */
             buildpack_builder?: "paketobuildpacks/builder-jammy-base" | "paketobuildpacks/builder-jammy-full" | "paketobuildpacks/builder-jammy-tiny" | "gcr.io/buildpacks/builder:v1" | "heroku/builder:22" | null;
+        };
+        /**
+         * UpdateServerlessRunScheduleRequest
+         * @description Validation for `PUT/PATCH /api/v1/serverless/{id}/schedules/{schedule}`.
+         *
+         *     Every field optional; the rules and the cron check are the store request's,
+         *     which keeps "what a valid schedule looks like" in one place.
+         */
+        UpdateServerlessRunScheduleRequest: {
+            name?: string;
+            cron_expression?: string;
+            /**
+             * @description Anything DateTimeZone knows. Stored so "0 3* *" keeps meaning
+             *     3am to the customer across a DST change.
+             */
+            timezone?: string;
+            command?: string[] | null;
+            image_tag?: string | null;
+            timeout_seconds?: number;
+            enabled?: boolean;
         };
         /** UpdateStorageBucketRequest */
         UpdateStorageBucketRequest: {
@@ -5472,6 +5719,11 @@ export interface components {
              */
             capabilities: components["schemas"]["CapabilitiesResource"];
             resource_profile: string;
+            /**
+             * @description Persisted requested network tier. Actual throughput depends on the network path and available capacity.
+             * @enum {string}
+             */
+            network_tier: "standard" | "10g";
             cpu_allocation_type: string;
             cpu_platform: string | null;
             cpu_cores: number;
@@ -6044,6 +6296,21 @@ export interface operations {
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
+            /** @description An error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Error overview.
+                         * @example Resolve the pending parameter change before editing this instance. Contact support if recovery is required.
+                         */
+                        message: string;
+                    };
+                };
+            };
             422: components["responses"]["ValidationException"];
         };
     };
@@ -6957,6 +7224,21 @@ export interface operations {
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
+            /** @description An error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Error overview.
+                         * @example Resolve the pending parameter change before editing this instance. Contact support if recovery is required.
+                         */
+                        message: string;
+                    };
+                };
+            };
             422: components["responses"]["ValidationException"];
         };
     };
@@ -7317,12 +7599,12 @@ export interface operations {
                         master: {
                             name: string;
                             node_id: string;
+                            replication_role: string | null;
                             endpoint: string;
                             status: string;
                             ready: boolean;
                         };
                         billing: {
-                            /** @description Priority 3: Calculate from resources using fallback rates */
                             hourly_cost_cents: number;
                             monthly_cost_cents: number;
                         };
@@ -7377,6 +7659,13 @@ export interface operations {
                             /** @constant */
                             message: "Replica StatefulSet, Service, and ConfigMap created via GitOps. ArgoCD will sync changes in ~3 minutes.";
                         }[];
+                    } | {
+                        message: string | "Replica added successfully";
+                        replicas: {
+                            operation_id: string;
+                            from_count: number;
+                            to_count: string;
+                        };
                     };
                 };
             };
@@ -7427,6 +7716,18 @@ export interface operations {
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        error: "Replica index cannot be honoured";
+                        message: string | "This instance has no replicas to remove.";
+                    };
+                };
+            };
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -7435,6 +7736,52 @@ export interface operations {
                     "application/json": {
                         /** @constant */
                         error: "Failed to remove replica";
+                        message: string | "An unexpected error occurred.";
+                    };
+                };
+            };
+        };
+    };
+    "v1.database.high-availability.update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The database instance ID */
+                databaseInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateApiDatabaseHighAvailabilityRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        message: "High availability is being enabled: two standby servers are joining the group." | "High availability is being disabled: the two standby servers are leaving the group.";
+                        ha_enabled: boolean;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        error: "Failed to change high availability";
                         message: string | "An unexpected error occurred.";
                     };
                 };
@@ -7727,7 +8074,7 @@ export interface operations {
                 content: {
                     "application/json": {
                         /** @enum {string} */
-                        message: "CNPG primary pod is not ready — wait for the cluster to come up before enabling DNS" | "Database instance must be deployed to a node before DNS can be enabled";
+                        message: "The database is not ready yet — wait for it to come up before enabling DNS" | "Database instance must be deployed to a node before DNS can be enabled";
                     };
                 };
             };
@@ -8248,6 +8595,21 @@ export interface operations {
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
+            /** @description An error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Error overview.
+                         * @example Resolve the pending parameter change before editing this instance. Contact support if recovery is required.
+                         */
+                        message: string;
+                    };
+                };
+            };
             422: components["responses"]["ValidationException"];
         };
     };
@@ -10342,6 +10704,10 @@ export interface operations {
                         /** @constant */
                         message: "Parameter group updated";
                         parameter_group: components["schemas"]["ParameterGroupResource"];
+                        propagation: {
+                            applied_to: number;
+                            deferred_parameters: string[];
+                        };
                     };
                 };
             };
@@ -11021,6 +11387,21 @@ export interface operations {
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
+            /** @description An error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Error overview.
+                         * @example Resolve the pending parameter change before editing this instance. Contact support if recovery is required.
+                         */
+                        message: string;
+                    };
+                };
+            };
             422: components["responses"]["ValidationException"];
         };
     };
@@ -12523,6 +12904,8 @@ export interface operations {
                     git_credentials?: string;
                     /** @description Rebuild automatically on push to the tracked branch. */
                     auto_build_on_push?: boolean;
+                    /** @description Keep the build cache between Dockerfile builds so later builds finish faster. Dockerfile builds (`source_type` `dockerfile`) only. Defaults to false. */
+                    build_cache_enabled?: boolean;
                     /** @description Deploy automatically once a build succeeds. */
                     auto_deploy?: boolean;
                     /** @description Object of string key/value pairs injected into the container. */
@@ -12964,6 +13347,283 @@ export interface operations {
             403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.serverless.runs.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The serverless container ID */
+                serverlessContainer: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.serverless.runs.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The serverless container ID */
+                serverlessContainer: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["StoreServerlessRunRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.serverless.runs.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The serverless container ID */
+                serverlessContainer: string;
+                /** @description The run ID */
+                run: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.serverless.runs.cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The serverless container ID */
+                serverlessContainer: string;
+                /** @description The run ID */
+                run: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.serverless.schedules.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The serverless container ID */
+                serverlessContainer: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.serverless.schedules.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The serverless container ID */
+                serverlessContainer: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoreServerlessRunScheduleRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.serverless.schedules.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The serverless container ID */
+                serverlessContainer: string;
+                /** @description The schedule ID */
+                schedule: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.serverless.schedules.update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The serverless container ID */
+                serverlessContainer: string;
+                /** @description The schedule ID */
+                schedule: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["UpdateServerlessRunScheduleRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.serverless.schedules.destroy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The serverless container ID */
+                serverlessContainer: string;
+                /** @description The schedule ID */
+                schedule: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.serverless.runs.logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The serverless container ID */
+                serverlessContainer: string;
+                /** @description The run ID */
+                run: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
         };
     };
     "v1.snapshots.vps.index": {
