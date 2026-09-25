@@ -19,7 +19,10 @@ export const upgradeCommand = new Command('upgrade')
   .option('--check', 'Report what would happen without installing anything')
   .action(async (opts: { check?: boolean }) => {
     const current = getCurrentVersion();
-    const result = await checkForUpdate();
+    // Always the registry's answer, never the notice's cache: a cached answer
+    // said "already on the latest version" for up to a day after a release,
+    // and CI=1 made this report the registry as unreachable.
+    const result = await checkForUpdate({ force: true });
 
     if (result === null) {
       const message = 'Could not reach the npm registry to check for updates.';

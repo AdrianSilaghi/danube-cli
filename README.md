@@ -51,8 +51,12 @@ danube login --token <token>    # Pass token directly
 
 ```bash
 export DANUBE_TOKEN=your-token
-danube pages deploy
+export DANUBE_SITE_ID=01a0d8fa-35fa-709d-b9d1-319c28ba28fa   # "siteId" in .danube/project.json
+export DANUBE_TEAM_ID=4                                       # "teamId" in .danube/project.json
+danube pages deploy --dir dist
 ```
+
+`danube pages link` prints both values after linking.
 
 ## Scripting & JSON mode
 
@@ -208,12 +212,16 @@ the exit code, or on `findings[].severity`, never on `success`.
 
 #### Staying up to date
 
-After an interactive command the CLI checks npm at most once a day and prints a
-notice on **stderr**. It never runs during `--json`, when stderr is not a TTY,
-when `CI` is set, or when `DANUBE_NO_UPDATE_CHECK` is set — so scripts and
-agents are never nudged and never change version underneath a pipeline.
+Whenever a newer version is out, every interactive run says so on **stderr** —
+a bare `danube`, `--help`, a successful command and a failed one alike. npm is
+asked at most every six hours, with a one-second deadline, and an unreachable
+registry is not retried until the next window. The notice never appears during
+`--json`, when stderr is not a TTY, when `CI` is set, or when
+`DANUBE_NO_UPDATE_CHECK` is set — so scripts and agents are never nudged and
+never change version underneath a pipeline.
 
-`danube upgrade` installs the update. Prefer it over `npm install -g`: it
+`danube upgrade` installs the update. It always asks npm directly, whatever the
+notice last saw and whatever `CI` says. Prefer it over `npm install -g`: it
 detects how the CLI was installed, and under a version manager (volta/asdf/fnm)
 or against a directory it cannot write it refuses **before** running npm and
 names the command that will work — rather than failing partway through and
@@ -412,11 +420,14 @@ danube pg create \
 | `danube pages link` | Link directory to a static site |
 | `danube pages deploy` | Deploy the linked site |
 | `danube pages deployments ls` | List deployments |
-| `danube pages deployments rollback <rev>` | Roll back to a revision |
-| `danube pages domains ls` | List custom domains |
-| `danube pages domains add <domain>` | Add a custom domain |
+| `danube pages deployments rollback <rev>` | Roll back to a revision (`--no-wait` to return once accepted) |
+| `danube pages domains ls` | List the default and custom domains |
+| `danube pages domains add <domain>` | Add a custom domain and print the DNS records to create |
 | `danube pages domains remove <domain>` | Remove a custom domain |
-| `danube pages domains verify <domain>` | Verify DNS for a domain |
+| `danube pages domains verify <domain>` | Verify DNS for a domain and report the result (`--no-wait` to only start it) |
+
+Every `pages` command acts on the linked site in the project it was linked in,
+whichever project `danube project use` has selected since.
 
 #### Deploy
 
@@ -425,6 +436,12 @@ danube pages deploy              # Deploy current directory
 danube pages deploy --dir dist   # Deploy a specific directory
 danube pages deploy --no-wait    # Don't wait for build
 ```
+
+A deploy waits for the build it started, then for the platform to publish the
+new revision, then until the site's URL actually serves it — and only then
+prints `Live at`. Under `--json` the result carries `revision`, `url` and
+`live`; a failed deploy is a `success: false` envelope with a
+`static_site.*` error code.
 
 ### Rapids Containers (`danube rapids`)
 
@@ -526,6 +543,8 @@ Optional project config for static site deployments:
 |---|---|
 | `DANUBE_TOKEN` | API token (alternative to `danube auth`) |
 | `DANUBE_API_BASE` | Override the API base URL |
+| `DANUBE_TEAM_ID` | Project (team) ID to run against |
+| `DANUBE_SITE_ID` | Static site ID (a UUID) for `danube pages` in CI, instead of `.danube/project.json` |
 | `CI` | Suppresses update notifications |
 | `DANUBE_NO_UPDATE_CHECK` | Suppresses update notifications |
 

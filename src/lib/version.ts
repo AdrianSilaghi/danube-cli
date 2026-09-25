@@ -8,7 +8,19 @@ import chalk from 'chalk';
 export const PACKAGE_NAME = '@danubedata/cli';
 
 const CACHE_FILE = join(homedir(), '.danube', 'update-check.json');
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+/**
+ * How long a registry answer is trusted. It was 24 hours, so a fix published
+ * in the morning reached nobody who had run the CLI the evening before — and
+ * `danube upgrade` read the same cache, answering "already on the latest
+ * version" for a day after a release.
+ */
+export const UPDATE_CHECK_TTL_MS = 6 * 60 * 60 * 1000;
+
+/** `danube upgrade` is waiting on this answer, so it may take a moment. */
+const FORCED_CHECK_TIMEOUT_MS = 10_000;
+
+const RELEASE_VERSION = /^\d+\.\d+\.\d+$/;
 
 interface UpdateCache {
   latest: string;
@@ -26,6 +38,18 @@ export interface UpdateCheckResult {
    * renamed every finding code.
    */
   isMajor: boolean;
+}
+
+export interface UpdateCheckOptions {
+  /**
+   * Ask the registry even when a cached answer exists, and even under CI or
+   * DANUBE_NO_UPDATE_CHECK. For `danube upgrade`: those opt-outs silence the
+   * passive notice; they are no reason to refuse an upgrade asked for by name,
+   * which is what reporting "could not reach the npm registry" did.
+   */
+  force?: boolean;
+  /** How long to wait for the registry before giving up. */
+  timeoutMs?: number;
 }
 
 export function getCurrentVersion(): string {
@@ -62,6 +86,15 @@ export function isMajorUpgrade(current: string, latest: string): boolean {
   return cMajor === 0 && lMinor !== cMinor;
 }
 
+function toResult(current: string, latest: string): UpdateCheckResult {
+  return {
+    current,
+    latest,
+    updateAvailable: compareSemver(latest, current) > 0,
+    isMajor: isMajorUpgrade(current, latest),
+  };
+}
+
 async function readCache(): Promise<UpdateCache | null> {
   try {
     const raw = await readFile(CACHE_FILE, 'utf-8');
@@ -80,41 +113,82 @@ async function writeCache(cache: UpdateCache): Promise<void> {
   }
 }
 
-export async function checkForUpdate(): Promise<UpdateCheckResult | null> {
+/** The version npm calls `latest`, or null when the registry cannot say. */
+async function fetchLatestVersion(timeoutMs: number): Promise<string | null> {
   try {
-    if (process.env.CI || process.env.DANUBE_NO_UPDATE_CHECK) {
+    const response = await fetch(`https://registry.npmjs.org/${PACKAGE_NAME}/latest`, {
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!response.ok) return null;
+
+    const data = await response.json() as { version?: unknown };
+
+    return typeof data.version === 'string' && RELEASE_VERSION.test(data.version) ? data.version : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function checkForUpdate(options: UpdateCheckOptions = {}): Promise<UpdateCheckResult | null> {
+  const { force = false, timeoutMs = FORCED_CHECK_TIMEOUT_MS } = options;
+
+  try {
+    if (!force && (process.env.CI || process.env.DANUBE_NO_UPDATE_CHECK)) {
       return null;
     }
 
     const current = getCurrentVersion();
-
     const cache = await readCache();
-    if (cache && (Date.now() - cache.checkedAt) < CACHE_TTL_MS) {
-      return {
-        current,
-        latest: cache.latest,
-        updateAvailable: compareSemver(cache.latest, current) > 0,
-        isMajor: isMajorUpgrade(current, cache.latest),
-      };
+
+    if (!force && cache && (Date.now() - cache.checkedAt) < UPDATE_CHECK_TTL_MS) {
+      return toResult(current, cache.latest);
     }
 
-    const response = await fetch(`https://registry.npmjs.org/${PACKAGE_NAME}/latest`);
-    if (!response.ok) return null;
+    const latest = await fetchLatestVersion(timeoutMs);
 
-    const data = await response.json() as { version: string };
-    const latest = data.version;
+    if (latest === null) {
+      // Remember the attempt, keeping the last answer: an unreachable registry
+      // then costs one timeout per TTL instead of one on every command.
+      if (!force) await writeCache({ latest: cache?.latest ?? current, checkedAt: Date.now() });
+      return null;
+    }
 
     await writeCache({ latest, checkedAt: Date.now() });
 
-    return {
-      current,
-      latest,
-      updateAvailable: compareSemver(latest, current) > 0,
-      isMajor: isMajorUpgrade(current, latest),
-    };
+    return toResult(current, latest);
   } catch {
     return null;
   }
+}
+
+// eslint-disable-next-line no-control-regex
+const ANSI_ESCAPE = /\x1b\[[0-9;]*m/g;
+
+function visibleLength(text: string): number {
+  return text.replace(ANSI_ESCAPE, '').length;
+}
+
+/**
+ * Lines framed so the notice reads as a message from the CLI rather than the
+ * tail of the command's own output. A frame wider than the terminal would wrap
+ * into noise, so a narrow terminal gets the plain lines.
+ */
+function frame(lines: string[], columns: number | undefined): string[] {
+  const width = Math.max(...lines.map(visibleLength));
+
+  if (columns !== undefined && width + 6 > columns) {
+    return ['', ...lines.map((line) => `  ${line}`), ''];
+  }
+
+  const edge = '─'.repeat(width + 2);
+
+  return [
+    '',
+    chalk.yellow(`  ╭${edge}╮`),
+    ...lines.map((line) => `${chalk.yellow('  │')} ${line}${' '.repeat(width - visibleLength(line))} ${chalk.yellow('│')}`),
+    chalk.yellow(`  ╰${edge}╯`),
+    '',
+  ];
 }
 
 /**
@@ -122,18 +196,33 @@ export async function checkForUpdate(): Promise<UpdateCheckResult | null> {
  * just at an install command. The previous wording described 0.18.0 → 1.0.1 —
  * which renames every diagnostic finding code — exactly like a patch bump.
  */
+export function formatUpdateNotice(
+  current: string,
+  latest: string,
+  isMajor = false,
+  columns: number | undefined = process.stderr.columns,
+): string[] {
+  const versions = `${chalk.dim(current)} → ${chalk.green.bold(latest)}`;
+
+  const lines = isMajor
+    ? [
+      `A ${chalk.red.bold('MAJOR')} DanubeData CLI release is out: ${versions}`,
+      'It may break existing scripts — read what changed first:',
+      'https://docs.danubedata.ro/failure-codes',
+      `Then run ${chalk.cyan('danube upgrade')}.`,
+    ]
+    : [
+      `A new version of the DanubeData CLI is available: ${versions}`,
+      `Run ${chalk.cyan('danube upgrade')} to get the latest features and fixes.`,
+    ];
+
+  return frame(lines, columns);
+}
+
 export function printUpdateNotification(current: string, latest: string, isMajor = false): void {
-  console.error();
-
-  if (isMajor) {
-    console.error(chalk.yellow(`  Update available: ${chalk.dim(current)} → ${chalk.green(latest)}  ${chalk.red('(MAJOR — breaking)')}`));
-    console.error(chalk.dim('  Read what changed before upgrading: https://docs.danubedata.ro/failure-codes'));
-  } else {
-    console.error(chalk.yellow(`  Update available: ${chalk.dim(current)} → ${chalk.green(latest)}`));
+  for (const line of formatUpdateNotice(current, latest, isMajor)) {
+    console.error(line);
   }
-
-  console.error(chalk.yellow(`  Run ${chalk.cyan('danube upgrade')} to update`));
-  console.error();
 }
 
 /** Printed after the CLI has already installed the update for you. */

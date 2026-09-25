@@ -11,7 +11,19 @@ vi.mock('node:os', async () => {
   return { ...actual, homedir: () => testDir };
 });
 
-const { getCurrentVersion, checkForUpdate, printUpdateNotification, isMajorUpgrade, PACKAGE_NAME } = await import('../src/lib/version.js');
+const {
+  getCurrentVersion,
+  checkForUpdate,
+  printUpdateNotification,
+  printAutoUpdateNotice,
+  formatUpdateNotice,
+  isMajorUpgrade,
+  PACKAGE_NAME,
+  UPDATE_CHECK_TTL_MS,
+} = await import('../src/lib/version.js');
+
+// eslint-disable-next-line no-control-regex
+const plain = (lines: string[]) => lines.join('\n').replace(/\x1b\[[0-9;]*m/g, '');
 
 describe('version', () => {
   beforeEach(async () => {
@@ -152,6 +164,157 @@ describe('version', () => {
       expect(fetchMock).not.toHaveBeenCalled();
 
       fetchMock.mockRestore();
+    });
+
+    /**
+     * A day was too long: a fix published in the morning reached nobody who
+     * had run the CLI the evening before.
+     */
+    it('trusts the cache for hours, not a day', async () => {
+      const cacheFile = join(testDir, '.danube', 'update-check.json');
+      await writeFile(cacheFile, JSON.stringify({ latest: '50.0.0', checkedAt: Date.now() - UPDATE_CHECK_TTL_MS - 1 }));
+      const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(JSON.stringify({ version: '60.0.0' }), { status: 200 }),
+      );
+
+      const result = await checkForUpdate();
+
+      expect(UPDATE_CHECK_TTL_MS).toBeLessThanOrEqual(6 * 60 * 60 * 1000);
+      expect(result!.latest).toBe('60.0.0');
+      expect(fetchMock).toHaveBeenCalledOnce();
+    });
+
+    it('never waits on the registry without a deadline', async () => {
+      const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(JSON.stringify({ version: '99.0.0' }), { status: 200 }),
+      );
+
+      await checkForUpdate({ timeoutMs: 1_000 });
+
+      const init = fetchMock.mock.calls[0]![1] as RequestInit;
+      expect(init.signal).toBeInstanceOf(AbortSignal);
+    });
+
+    /**
+     * `danube upgrade` read the notice's cache, so for a day after a release
+     * it answered "already on the latest version".
+     */
+    it('asks the registry despite a fresh cache when forced', async () => {
+      const cacheFile = join(testDir, '.danube', 'update-check.json');
+      await writeFile(cacheFile, JSON.stringify({ latest: getCurrentVersion(), checkedAt: Date.now() }));
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(JSON.stringify({ version: '99.0.0' }), { status: 200 }),
+      );
+
+      const result = await checkForUpdate({ force: true });
+
+      expect(result!.updateAvailable).toBe(true);
+      expect(JSON.parse(await readFile(cacheFile, 'utf-8')).latest).toBe('99.0.0');
+    });
+
+    /** CI=1 made `danube upgrade` claim the registry was unreachable. */
+    it('ignores the passive-notice opt-outs when forced', async () => {
+      process.env.CI = 'true';
+      process.env.DANUBE_NO_UPDATE_CHECK = '1';
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(JSON.stringify({ version: '99.0.0' }), { status: 200 }),
+      );
+
+      const result = await checkForUpdate({ force: true });
+
+      expect(result!.latest).toBe('99.0.0');
+    });
+
+    it('backs off from an unreachable registry instead of timing out on every command', async () => {
+      const cacheFile = join(testDir, '.danube', 'update-check.json');
+      await writeFile(cacheFile, JSON.stringify({ latest: '50.0.0', checkedAt: 0 }));
+      const fetchMock = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('ETIMEDOUT'));
+
+      await expect(checkForUpdate()).resolves.toBeNull();
+      const second = await checkForUpdate();
+
+      expect(fetchMock).toHaveBeenCalledOnce();
+      // The last known answer survives the failed attempt.
+      expect(second!.latest).toBe('50.0.0');
+    });
+
+    it('records the attempt as "no update known" when there was no previous answer', async () => {
+      vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('ENOTFOUND'));
+
+      await checkForUpdate();
+
+      const cache = JSON.parse(await readFile(join(testDir, '.danube', 'update-check.json'), 'utf-8'));
+      expect(cache.latest).toBe(getCurrentVersion());
+    });
+
+    it('does not record a failed forced check', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('busy', { status: 503 }));
+
+      await expect(checkForUpdate({ force: true })).resolves.toBeNull();
+
+      await expect(readFile(join(testDir, '.danube', 'update-check.json'), 'utf-8')).rejects.toThrow();
+    });
+
+    it('returns null rather than throwing when its own version cannot be read', async () => {
+      vi.spyOn(JSON, 'parse').mockImplementationOnce(() => {
+        throw new SyntaxError('Unexpected end of JSON input');
+      });
+
+      await expect(checkForUpdate()).resolves.toBeNull();
+    });
+
+    it('ignores a registry answer that is not a release version', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(JSON.stringify({ version: '2.0.0-beta.1' }), { status: 200 }),
+      );
+
+      await expect(checkForUpdate()).resolves.toBeNull();
+    });
+  });
+
+  describe('printAutoUpdateNotice', () => {
+    it('says what was installed and how to turn it off', () => {
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      printAutoUpdateNotice('1.5.1', '1.6.0');
+
+      const output = plain(errSpy.mock.calls.map((c) => String(c[0] ?? '')));
+      expect(output).toContain('Auto-updated 1.5.1 → 1.6.0');
+      expect(output).toContain('danube config set auto-update false');
+    });
+  });
+
+  describe('formatUpdateNotice', () => {
+    it('frames the notice and tells people how to upgrade', () => {
+      const lines = formatUpdateNotice('1.5.1', '1.6.0', false, 120);
+      const text = plain(lines);
+
+      expect(text).toContain('A new version of the DanubeData CLI is available: 1.5.1 → 1.6.0');
+      expect(text).toContain('Run danube upgrade to get the latest features and fixes.');
+      expect(text).toContain('╭');
+      expect(text).toContain('╰');
+      // Every framed row is the same visible width.
+      const rows = plain(lines).split('\n').filter((l) => l.includes('│'));
+      expect(new Set(rows.map((r) => r.length)).size).toBe(1);
+    });
+
+    it('drops the frame when the terminal is too narrow for it', () => {
+      const text = plain(formatUpdateNotice('1.5.1', '1.6.0', false, 40));
+
+      expect(text).not.toContain('╭');
+      expect(text).toContain('danube upgrade');
+    });
+
+    it('frames by default when the terminal width is unknown', () => {
+      expect(plain(formatUpdateNotice('1.5.1', '1.6.0', false, undefined))).toContain('╭');
+    });
+
+    it('announces a major release as breaking, with what changed', () => {
+      const text = plain(formatUpdateNotice('1.6.0', '2.0.0', true, 120));
+
+      expect(text).toContain('A MAJOR DanubeData CLI release is out: 1.6.0 → 2.0.0');
+      expect(text).toContain('https://docs.danubedata.ro/failure-codes');
+      expect(text).toContain('danube upgrade');
     });
   });
 

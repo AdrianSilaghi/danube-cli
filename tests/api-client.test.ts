@@ -248,6 +248,45 @@ describe('ApiClient', () => {
 
       delete process.env.DANUBE_TOKEN;
     });
+
+    describe('project scoping', () => {
+      const teamHeader = async (client: InstanceType<typeof ApiClient>) => {
+        const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({}) });
+        globalThis.fetch = fetchMock;
+        await client.get('/api/v1/static-sites');
+        return (fetchMock.mock.calls[0]![1] as { headers: Record<string, string> }).headers['X-Team-Id'];
+      };
+
+      afterEach(async () => {
+        const { setProjectOverride } = await import('../src/lib/project-context.js');
+        setProjectOverride(null);
+      });
+
+      it('scopes to the saved project by default', async () => {
+        mockReadConfig.mockResolvedValueOnce({ token: 't', teamId: 20 });
+
+        expect(await teamHeader(await ApiClient.create())).toBe('20');
+      });
+
+      /**
+       * A linked static site belongs to one project; pinning the client to it
+       * is what stops `danube project use` elsewhere from turning every pages
+       * request into a 404.
+       */
+      it('lets a pinned project outrank --project and the saved one', async () => {
+        const { setProjectOverride } = await import('../src/lib/project-context.js');
+        setProjectOverride(7);
+        mockReadConfig.mockResolvedValueOnce({ token: 't', teamId: 20 });
+
+        expect(await teamHeader(await ApiClient.create({ teamId: 4 }))).toBe('4');
+      });
+
+      it('falls back to the usual selection when the pin is null', async () => {
+        mockReadConfig.mockResolvedValueOnce({ token: 't', teamId: 20 });
+
+        expect(await teamHeader(await ApiClient.create({ teamId: null }))).toBe('20');
+      });
+    });
   });
 
   it('unwraps the cause of undici fetch failures', async () => {

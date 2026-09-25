@@ -1,12 +1,24 @@
 import { buildProgram } from './program.js';
 import { handleError } from './lib/handle-error.js';
-import { checkForUpdate, printAutoUpdateNotice, printUpdateNotification } from './lib/version.js';
-import { readConfig } from './lib/config.js';
-import { performUpgrade } from './lib/upgrade.js';
 import { isJsonMode } from './lib/json-mode.js';
 import { findUnknownCommand, formatUnknownCommand, wantsJsonOutput } from './lib/command-resolution.js';
+import { autoUpdateIfEnabled, prepareUpdateNotice } from './lib/update-notice.js';
 
 const program = buildProgram();
+const argv = process.argv.slice(2);
+
+// Checked before anything runs and printed as the process exits, so the notice
+// reaches every interactive run: a successful command, a failed one,
+// `--help`, an unknown command and a bare `danube`. Automation never sees it —
+// the gates (JSON mode, redirected stderr, CI, DANUBE_NO_UPDATE_CHECK) live in
+// prepareUpdateNotice and checkForUpdate.
+//
+// Awaited rather than overlapped with the command on purpose: `--help`,
+// `--version` and a bare `danube` exit synchronously inside Commander, before
+// an overlapped check could ever land. The wait is a local file read, plus at
+// most one second of registry time once every six hours.
+const updateNotice = await prepareUpdateNotice(argv);
+process.on('exit', () => updateNotice.print());
 
 // Graceful SIGINT fallback — clean exit when Ctrl+C is pressed outside polling loops
 process.on('SIGINT', () => {
@@ -21,7 +33,6 @@ process.on('unhandledRejection', (err) => handleError(err));
 // `danube rapids probe --help` printed the `rapids` help and exited 0 while
 // `danube rapids probe` exited 1 — the same non-existent command reported two
 // different ways depending on a flag.
-const argv = process.argv.slice(2);
 const unknown = findUnknownCommand(program, argv);
 if (unknown) {
   const { lines, exitCode, stream } = formatUnknownCommand(unknown, wantsJsonOutput(argv));
@@ -31,36 +42,7 @@ if (unknown) {
 }
 
 program.parseAsync()
-  .then(async () => {
-    // Runs AFTER the command, and only for an interactive human. The four
-    // gates (JSON mode, TTY, CI, opt-out) are why automation never inherits a
-    // version change it did not ask for — `checkForUpdate` enforces the last
-    // two itself.
-    if (isJsonMode() || !process.stderr.isTTY) return;
-
-    const result = await checkForUpdate();
-    if (!result?.updateAvailable) return;
-
-    // Auto-update is opt-in AND same-major only. A major bump renames codes
-    // and changes semantics — installing that underneath someone mid-session
-    // is the failure this CLI exists to help people avoid, so it is always
-    // announced and never applied.
-    if (!result.isMajor) {
-      const config = await readConfig().catch(() => null);
-
-      if (config?.autoUpdate === true) {
-        const outcome = await performUpgrade(result.current, result.latest);
-
-        // A refusal (version manager, unwritable prefix) falls through to the
-        // ordinary notice rather than nagging about plumbing every run.
-        if (outcome.ok) {
-          printAutoUpdateNotice(outcome.from, outcome.to);
-
-          return;
-        }
-      }
-    }
-
-    printUpdateNotification(result.current, result.latest, result.isMajor);
-  })
+  // Auto-update (opt-in, same-major only) runs only after a command succeeded:
+  // installing underneath a failing command would muddy what went wrong.
+  .then(() => autoUpdateIfEnabled(updateNotice))
   .catch((err) => handleError(err));
