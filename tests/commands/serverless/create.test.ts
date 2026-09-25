@@ -289,4 +289,25 @@ describe('serverless create command', () => {
     expect(printed).toMatchObject({ id: 'abc-123', name: 'my-api' });
     setJsonMode(false);
   });
+
+  it('offers Micro between Free and Small when prompting for a resource profile', async () => {
+    mockGet.mockResolvedValue(teamsResponse());
+    mockPost.mockResolvedValue(containerResponse());
+    mockSelect.mockResolvedValue('micro');
+
+    await createCommand.parseAsync([
+      'node', 'test',
+      '--name', 'my-api',
+      '--type', 'docker_image',
+      '--image', 'nginx',
+      '--tag', 'latest',
+      '--port', '3000',
+    ]);
+
+    const profilePrompt = mockSelect.mock.calls
+      .map(([config]) => config as { message: string; choices: { value: string }[] })
+      .find((config) => config.message === 'Resource profile:');
+    expect(profilePrompt?.choices.map((choice) => choice.value)).toEqual(['free', 'micro', 'small', 'medium', 'large']);
+    expect(mockPost).toHaveBeenCalledWith('/api/v1/serverless', expect.objectContaining({ resource_profile: 'micro' }));
+  });
 });
