@@ -30,15 +30,23 @@ export function teamsArray(res: TeamsResponse): Team[] {
   return Array.isArray(res.data) ? res.data : Object.values(res.data);
 }
 
+/**
+ * `StaticSiteResource`. Checked against the OpenAPI spec in parity.ts — the
+ * previous hand-written shape (numeric id, `team_id`, `current_deployment_id`)
+ * described fields the API has never returned.
+ */
 export interface StaticSite {
-  id: number;
-  team_id: number;
+  id: string;
   name: string;
   slug: string;
-  url: string;
-  output_directory: string | null;
   status: string;
-  current_deployment_id: number | null;
+  last_error: string | null;
+  plan: string;
+  deploy_method: string;
+  url: string;
+  /** Equals the revision number of the newest deployment. */
+  deployment_count: number;
+  deployed_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -60,7 +68,7 @@ export interface StaticSiteBuild {
 }
 
 export interface StaticSiteDeployment {
-  id: number;
+  id: string;
   revision_number: number;
   status: 'pending' | 'building' | 'deploying' | 'active' | 'failed' | 'inactive';
   image_ref: string | null;
@@ -75,16 +83,29 @@ export interface StaticSiteDeployment {
   created_at: string;
 }
 
+/** The TXT record that proves ownership of a custom domain. */
+export interface StaticSiteDnsInstructions {
+  record_type: string;
+  record_name: string;
+  record_value: string;
+  instructions: string;
+}
+
+/**
+ * `StaticSiteDomainResource`. The previous hand-written shape (`type`,
+ * `status`, `verification_record`) matched nothing the API returns, so
+ * `domains ls` crashed on the first real domain and `domains add` never
+ * showed the DNS record to create.
+ */
 export interface StaticSiteDomain {
-  id: number;
-  static_site_id: number;
+  id: string;
   domain: string;
-  type: 'default' | 'custom';
-  status: 'pending' | 'active' | 'failed';
-  verification_record: string | null;
-  verified_at: string | null;
+  verification_status: 'pending' | 'verified' | 'failed' | string;
+  tls_status: string;
+  deployment_status: string;
+  is_primary: boolean;
+  dns_instructions: StaticSiteDnsInstructions | null;
   created_at: string;
-  updated_at: string;
 }
 
 export interface Pagination {
@@ -110,7 +131,7 @@ export interface MessageWithDataResponse<T> {
 
 export interface DeployResponse {
   message: string;
-  site_id: number;
+  site_id: string;
   status: string;
 }
 

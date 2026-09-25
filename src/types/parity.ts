@@ -31,6 +31,11 @@ import type {
   ServerlessContainer,
   StorageBucket,
   Pagination,
+  StaticSite,
+  StaticSiteBuild,
+  StaticSiteDeployment,
+  StaticSiteDomain,
+  DeployResponse,
 } from './api.js';
 
 type Json<T> = T extends { content: { 'application/json': infer B } } ? B : never;
@@ -374,3 +379,31 @@ type _guardFindingShape = Satisfies<{
   remediation: string | null;
   retryable: boolean;
 }, GeneratedFinding>;
+
+/**
+ * Static sites (`danube pages`).
+ *
+ * These types had drifted from the API entirely without a check to catch it:
+ * numeric ids where the API returns UUIDs, and a domain shape (`type`,
+ * `status`, `verification_record`) that matched nothing it returns — which is
+ * how `pages domains ls` came to crash on the first real domain and `pages
+ * domains add` to never print the DNS record to create.
+ *
+ * Omitted: the build and deployment `status` unions (the spec types them as a
+ * bare string), and `dns_instructions`, which the spec documents as a string
+ * while the API has always returned the object StaticSiteDnsInstructions.
+ */
+type StaticSiteShow = Json<paths['/static-sites/{staticSite}']['get']['responses'][200]>;
+type StaticSiteLatestBuild = Json<paths['/static-sites/{staticSite}/builds/latest']['get']['responses'][200]>;
+type StaticSiteDeployments = Json<paths['/static-sites/{staticSite}/deployments']['get']['responses'][200]>;
+type StaticSiteDomains = Json<paths['/static-sites/{staticSite}/domains']['get']['responses'][200]>;
+type StaticSiteDeploy = Json<paths['/static-sites/{staticSite}/deploy']['post']['responses'][202]>;
+
+type _staticSiteShow = Satisfies<{ data: StaticSite }, StaticSiteShow>;
+type _staticSiteLatestBuild = Satisfies<{ data: Omit<StaticSiteBuild, 'status'> | null }, StaticSiteLatestBuild>;
+type _staticSiteDeployments = Satisfies<
+  { data: Omit<StaticSiteDeployment, 'status'>[]; pagination: Pagination },
+  StaticSiteDeployments
+>;
+type _staticSiteDomains = Satisfies<{ data: Omit<StaticSiteDomain, 'dns_instructions'>[] }, StaticSiteDomains>;
+type _staticSiteDeploy = Satisfies<DeployResponse, StaticSiteDeploy>;

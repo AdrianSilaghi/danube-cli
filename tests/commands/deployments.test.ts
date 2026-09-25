@@ -2,26 +2,30 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const mockGet = vi.fn();
 const mockPost = vi.fn();
-vi.mock('../../src/lib/api-client.js', () => ({
-  ApiClient: {
-    create: () => Promise.resolve({ get: mockGet, post: mockPost }),
+const mockOpenLinkedSite = vi.fn();
+vi.mock('../../src/lib/linked-site.js', () => ({
+  openLinkedSite: () => mockOpenLinkedSite(),
+}));
+
+const spinner: string[] = [];
+vi.mock('ora', () => ({
+  default: () => {
+    const instance = {
+      start: () => instance,
+      succeed: (t: string) => { spinner.push(`succeed:${t}`.replace(/\x1b\[[0-9;]*m/g, '')); return instance; },
+      fail: (t: string) => { spinner.push(`fail:${t}`.replace(/\x1b\[[0-9;]*m/g, '')); return instance; },
+    };
+    return instance;
   },
 }));
 
-const mockReadProjectConfig = vi.fn();
-vi.mock('../../src/lib/project.js', () => ({
-  readProjectConfig: () => mockReadProjectConfig(),
-}));
-
-vi.mock('ora', () => ({
-  default: () => ({
-    start: vi.fn().mockReturnThis(),
-    succeed: vi.fn().mockReturnThis(),
-    fail: vi.fn().mockReturnThis(),
-  }),
+vi.mock('../../src/lib/sleep.js', () => ({
+  sleep: vi.fn().mockResolvedValue(undefined),
 }));
 
 const { deploymentsCommand } = await import('../../src/commands/deployments.js');
+const { setJsonMode } = await import('../../src/lib/json-mode.js');
+const { NotLinkedError } = await import('../../src/lib/errors.js');
 
 class ExitError extends Error {
   constructor(public code: number) {
@@ -29,10 +33,32 @@ class ExitError extends Error {
   }
 }
 
+const SITE_ID = '01a0d8fa-35fa-709d-b9d1-319c28ba28fa';
+const URL = 'https://site-ab12.pages.danubedata.ro';
+const DEPLOYMENTS = `/api/v1/static-sites/${SITE_ID}/deployments`;
+
+const site = (overrides: Record<string, unknown> = {}) => ({
+  id: SITE_ID, status: 'active', last_error: null, url: URL, deployment_count: 2, ...overrides,
+});
+const deployment = (id: string, revision: number, overrides: Record<string, unknown> = {}) => ({
+  id, revision_number: revision, status: 'active', is_current: false, trigger_type: 'manual',
+  deployed_at: '2026-09-25T14:32:01+00:00', created_at: '2026-09-25T14:32:01+00:00', ...overrides,
+});
+
+/** Deployment pages and site polls, each served in order with the last repeating. */
+function serve(pages: unknown[], sites: unknown[] = [site()]): void {
+  const next = (queue: unknown[]) => (queue.length > 1 ? queue.shift() : queue[0]);
+  mockGet.mockImplementation(async (path: string) =>
+    path.startsWith(DEPLOYMENTS) ? next(pages) : { data: next(sites) });
+}
+
 describe('deployments command', () => {
   const originalExit = process.exit;
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+
+  const logged = () => consoleLogSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('\n').replace(/\x1b\[[0-9;]*m/g, '');
+  const envelope = () => JSON.parse(String(consoleLogSpy.mock.calls.at(-1)![0]));
 
   beforeEach(() => {
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -40,27 +66,34 @@ describe('deployments command', () => {
     process.exit = vi.fn().mockImplementation((code: number) => {
       throw new ExitError(code);
     }) as never;
+    spinner.length = 0;
     mockGet.mockReset();
     mockPost.mockReset();
-    mockReadProjectConfig.mockReset();
+    mockOpenLinkedSite.mockReset();
+    mockOpenLinkedSite.mockResolvedValue({
+      project: { siteId: SITE_ID, teamId: 4, siteName: 'site' },
+      api: { get: mockGet, post: mockPost },
+      site: site(),
+    });
+    mockPost.mockResolvedValue({ message: 'Rollback to revision #1 initiated.' });
   });
 
   afterEach(() => {
     process.exit = originalExit;
+    setJsonMode(false);
     vi.restoreAllMocks();
   });
 
   describe('ls', () => {
     it('throws NotLinkedError when no project', async () => {
-      mockReadProjectConfig.mockResolvedValue(null);
+      mockOpenLinkedSite.mockRejectedValue(new NotLinkedError());
       await expect(
         deploymentsCommand.parseAsync(['node', 'test', 'ls']),
       ).rejects.toThrow('No project linked');
     });
 
     it('shows message when no deployments', async () => {
-      mockReadProjectConfig.mockResolvedValue({ siteId: 1, teamId: 1, siteName: 'test' });
-      mockGet.mockResolvedValue({ data: [] });
+      serve([{ data: [] }]);
 
       await deploymentsCommand.parseAsync(['node', 'test', 'ls']);
 
@@ -68,54 +101,51 @@ describe('deployments command', () => {
     });
 
     it('displays deployments table', async () => {
-      mockReadProjectConfig.mockResolvedValue({ siteId: 1, teamId: 1, siteName: 'test' });
-      mockGet.mockResolvedValue({
+      serve([{
         data: [
-          {
-            id: 1, revision_number: 3, status: 'active', is_current: true,
-            trigger_type: 'cli', deployed_at: '2024-06-01T12:00:00Z', created_at: '2024-06-01T11:00:00Z',
-          },
-          {
-            id: 2, revision_number: 2, status: 'inactive', is_current: false,
-            trigger_type: 'cli', deployed_at: null, created_at: '2024-05-31T10:00:00Z',
-          },
+          deployment('d3', 3, { is_current: true }),
+          deployment('d2', 2, { status: 'inactive', deployed_at: null }),
         ],
-      });
+      }]);
 
       await deploymentsCommand.parseAsync(['node', 'test', 'ls']);
 
-      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('REVISION'));
+      expect(logged()).toContain('REVISION');
+      expect(logged()).toContain('(current)');
+    });
+
+    it('lists as JSON', async () => {
+      setJsonMode(true);
+      serve([{ data: [deployment('d3', 3)] }]);
+
+      await deploymentsCommand.parseAsync(['node', 'test', 'ls']);
+
+      expect(envelope()).toMatchObject({ success: true, data: [{ id: 'd3', revision_number: 3 }], meta: { count: 1 } });
     });
 
     it('fetches every page and shows a truncation note when capped', async () => {
-      mockReadProjectConfig.mockResolvedValue({ siteId: 1, teamId: 1, siteName: 'test' });
-      mockGet.mockResolvedValue({
-        data: [{
-          id: 1, revision_number: 3, status: 'active', is_current: true,
-          trigger_type: 'cli', deployed_at: '2024-06-01T12:00:00Z', created_at: '2024-06-01T11:00:00Z',
-        }],
+      serve([{
+        data: [deployment('d3', 3, { is_current: true })],
         pagination: { current_page: 1, last_page: 1, per_page: 100, total: 250 },
-      });
+      }]);
 
       await deploymentsCommand.parseAsync(['node', 'test', 'ls']);
 
-      expect(mockGet).toHaveBeenCalledWith('/api/v1/static-sites/1/deployments?per_page=100&page=1');
-      const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
-      expect(output).toContain('Showing 1 of 250');
+      expect(mockGet).toHaveBeenCalledWith(`${DEPLOYMENTS}?per_page=100&page=1`);
+      expect(logged()).toContain('Showing 1 of 250');
     });
   });
 
   describe('rollback', () => {
     it('throws NotLinkedError when no project', async () => {
-      mockReadProjectConfig.mockResolvedValue(null);
+      mockOpenLinkedSite.mockRejectedValue(new NotLinkedError());
       await expect(
         deploymentsCommand.parseAsync(['node', 'test', 'rollback', '2']),
       ).rejects.toThrow('No project linked');
     });
 
     it('exits when revision not found', async () => {
-      mockReadProjectConfig.mockResolvedValue({ siteId: 1, teamId: 1, siteName: 'test' });
-      mockGet.mockResolvedValue({ data: [{ id: 1, revision: 3 }] });
+      serve([{ data: [deployment('d3', 3)] }]);
 
       await expect(
         deploymentsCommand.parseAsync(['node', 'test', 'rollback', '99']),
@@ -125,35 +155,98 @@ describe('deployments command', () => {
       expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('not found'));
     });
 
-    it('activates the deployment', async () => {
-      mockReadProjectConfig.mockResolvedValue({ siteId: 1, teamId: 1, siteName: 'test' });
-      mockGet.mockResolvedValue({ data: [{ id: 5, revision_number: 2 }, { id: 3, revision_number: 1 }] });
-      mockPost.mockResolvedValue({ message: 'Activated' });
+    /**
+     * The activate call only queues the rollback; "Rolled back" used to be
+     * printed before anything had happened.
+     */
+    it('waits for the rollback to be published before saying so', async () => {
+      serve(
+        [{ data: [deployment('d2', 2), deployment('d1', 1)] }],
+        [site({ status: 'deploying' }), site({ deployment_count: 3 })],
+      );
 
-      await deploymentsCommand.parseAsync(['node', 'test', 'rollback', '2']);
+      await deploymentsCommand.parseAsync(['node', 'test', 'rollback', '1']);
 
-      expect(mockPost).toHaveBeenCalledWith('/api/v1/static-sites/1/deployments/5/activate');
+      expect(mockPost).toHaveBeenCalledWith(`${DEPLOYMENTS}/d1/activate`);
+      expect(spinner).toEqual(['succeed:Rolled back to revision 1 (published as revision #3)']);
+    });
+
+    it('reports the published revision under --json', async () => {
+      setJsonMode(true);
+      serve([{ data: [deployment('d1', 1)] }], [site({ deployment_count: 3 })]);
+
+      await deploymentsCommand.parseAsync(['node', 'test', 'rollback', '1']);
+
+      expect(envelope()).toMatchObject({
+        success: true,
+        data: { status: 'activated', revision: 1, deployment_id: 'd1', published_revision: 3, url: URL },
+      });
+    });
+
+    it('returns once accepted with --no-wait', async () => {
+      serve([{ data: [deployment('d1', 1)] }]);
+
+      await deploymentsCommand.parseAsync(['node', 'test', 'rollback', '1', '--no-wait']);
+
+      expect(spinner).toEqual(['succeed:Rollback to revision 1 started']);
+      expect(mockGet).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the old JSON shape with --no-wait', async () => {
+      setJsonMode(true);
+      serve([{ data: [deployment('d1', 1)] }]);
+
+      await deploymentsCommand.parseAsync(['node', 'test', 'rollback', '1', '--no-wait']);
+
+      expect(envelope()).toEqual({
+        success: true, data: { status: 'activated', revision: 1, deployment_id: 'd1' }, error: null, meta: {},
+      });
+    });
+
+    it('fails when the platform cannot publish the rollback', async () => {
+      serve([{ data: [deployment('d1', 1)] }], [site({ status: 'error', last_error: 'GitOps push failed' })]);
+
+      await expect(deploymentsCommand.parseAsync(['node', 'test', 'rollback', '1'])).rejects.toThrow(ExitError);
+
+      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(spinner).toEqual(['fail:Rollback to revision 1 did not complete']);
+      expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('GitOps push failed'));
+    });
+
+    it('emits a failure envelope under --json', async () => {
+      setJsonMode(true);
+      serve([{ data: [deployment('d1', 1)] }], [site({ status: 'suspended' })]);
+
+      await expect(deploymentsCommand.parseAsync(['node', 'test', 'rollback', '1'])).rejects.toThrow(ExitError);
+
+      expect(envelope()).toMatchObject({ success: false, error: { code: 'static_site.suspended' } });
+    });
+
+    it('reports a timeout', async () => {
+      setJsonMode(true);
+      let now = 0;
+      vi.spyOn(Date, 'now').mockImplementation(() => (now += 60_000));
+      serve([{ data: [deployment('d1', 1)] }], [site({ status: 'deploying' })]);
+
+      await expect(deploymentsCommand.parseAsync(['node', 'test', 'rollback', '1'])).rejects.toThrow(ExitError);
+
+      expect(envelope()).toMatchObject({
+        success: false,
+        error: { code: 'static_site.timeout', message: expect.stringContaining('Timed out waiting for the rollback') },
+      });
     });
 
     it('walks multiple pages to find a revision beyond the first page', async () => {
-      mockReadProjectConfig.mockResolvedValue({ siteId: 1, teamId: 1, siteName: 'test' });
-      mockGet
-        .mockResolvedValueOnce({
-          data: [{ id: 1, revision_number: 3 }],
-          pagination: { current_page: 1, last_page: 2, per_page: 100, total: 2 },
-        })
-        .mockResolvedValueOnce({
-          data: [{ id: 2, revision_number: 2 }],
-          pagination: { current_page: 2, last_page: 2, per_page: 100, total: 2 },
-        });
-      mockPost.mockResolvedValue({ message: 'Activated' });
+      serve([
+        { data: [deployment('d3', 3)], pagination: { current_page: 1, last_page: 2, per_page: 100, total: 2 } },
+        { data: [deployment('d2', 2)], pagination: { current_page: 2, last_page: 2, per_page: 100, total: 2 } },
+      ]);
 
-      await deploymentsCommand.parseAsync(['node', 'test', 'rollback', '2']);
+      await deploymentsCommand.parseAsync(['node', 'test', 'rollback', '2', '--no-wait']);
 
-      expect(mockGet).toHaveBeenCalledTimes(2);
-      expect(mockGet).toHaveBeenNthCalledWith(1, '/api/v1/static-sites/1/deployments?per_page=100&page=1');
-      expect(mockGet).toHaveBeenNthCalledWith(2, '/api/v1/static-sites/1/deployments?per_page=100&page=2');
-      expect(mockPost).toHaveBeenCalledWith('/api/v1/static-sites/1/deployments/2/activate');
+      expect(mockGet).toHaveBeenNthCalledWith(1, `${DEPLOYMENTS}?per_page=100&page=1`);
+      expect(mockGet).toHaveBeenNthCalledWith(2, `${DEPLOYMENTS}?per_page=100&page=2`);
+      expect(mockPost).toHaveBeenCalledWith(`${DEPLOYMENTS}/d2/activate`);
     });
   });
 });

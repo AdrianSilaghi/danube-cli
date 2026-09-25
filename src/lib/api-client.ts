@@ -14,7 +14,12 @@ export class ApiClient {
     this.teamId = teamId ?? null;
   }
 
-  static async create(): Promise<ApiClient> {
+  /**
+   * `teamId` pins the client to one project, for requests about a resource
+   * whose project is already known — a linked static site belongs to exactly
+   * one project, so scoping its requests to any other can only 404.
+   */
+  static async create(options: { teamId?: number | null } = {}): Promise<ApiClient> {
     const config = await readConfig();
     const token = getToken(config);
     if (!token) {
@@ -26,7 +31,7 @@ export class ApiClient {
     //
     // Project-locked tokens stay server-enforced: a header the token is not
     // permitted to use is rejected upstream, never silently honoured here.
-    const teamId = getProjectOverride() ?? getTeamId(config);
+    const teamId = options.teamId ?? getProjectOverride() ?? getTeamId(config);
 
     return new ApiClient(token, config?.apiBase, teamId);
   }

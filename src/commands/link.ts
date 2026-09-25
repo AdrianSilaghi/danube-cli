@@ -4,8 +4,40 @@ import chalk from 'chalk';
 import { ApiClient } from '../lib/api-client.js';
 import { writeProjectConfig } from '../lib/project.js';
 import { canPrompt } from '../lib/interactive.js';
+import { UsageError } from '../lib/errors.js';
+import { getProjectOverride } from '../lib/project-context.js';
 import { teamsArray } from '../types/api.js';
 import type { TeamsResponse, PaginatedResponse, StaticSite, MessageWithDataResponse } from '../types/api.js';
+
+/**
+ * The team to link in. An explicit `--project` answers the question instead
+ * of the prompt; it must still be a team the account belongs to.
+ */
+async function chooseTeam(api: ApiClient): Promise<number> {
+  const teams = teamsArray(await api.get<TeamsResponse>('/api/v1/user/teams'));
+  const explicit = getProjectOverride();
+
+  if (explicit !== null) {
+    const team = teams.find(t => t.id === explicit);
+    if (!team) {
+      throw new UsageError(`You are not a member of project ${explicit}. Run \`danube project ls\` to see your projects.`);
+    }
+    console.log(`Team: ${chalk.bold(team.name)}`);
+
+    return team.id;
+  }
+
+  if (teams.length === 1) {
+    console.log(`Team: ${chalk.bold(teams[0]!.name)}`);
+
+    return teams[0]!.id;
+  }
+
+  return select({
+    message: 'Select a team:',
+    choices: teams.map(t => ({ name: t.name, value: t.id })),
+  });
+}
 
 export const linkCommand = new Command('link')
   .description('Link current directory to a DanubeData static site')
@@ -14,29 +46,19 @@ export const linkCommand = new Command('link')
       throw new Error('`danube pages link` is interactive — run it in a terminal without --json.');
     }
 
-    const api = await ApiClient.create();
+    const teamId = await chooseTeam(await ApiClient.create());
 
-    // 1. Fetch teams
-    const teamsRes = await api.get<TeamsResponse>('/api/v1/user/teams');
-    const teams = teamsArray(teamsRes);
-
-    let teamId: number;
-    if (teams.length === 1) {
-      teamId = teams[0]!.id;
-      console.log(`Team: ${chalk.bold(teams[0]!.name)}`);
-    } else {
-      teamId = await select({
-        message: 'Select a team:',
-        choices: teams.map(t => ({ name: t.name, value: t.id })),
-      });
-    }
+    // Everything from here on is about the chosen team, so the requests are
+    // scoped to it. Unscoped, they went out as whichever project happened to
+    // be selected, and a new site took its plan from that project instead.
+    const api = await ApiClient.create({ teamId });
 
     // 2. Fetch existing sites
     const sitesRes = await api.get<PaginatedResponse<StaticSite>>(
       `/api/v1/teams/${teamId}/static-sites`,
     );
 
-    const CREATE_NEW = -1;
+    const CREATE_NEW = '';
     const choices = [
       ...sitesRes.data.map(s => ({ name: `${s.name} (${s.url})`, value: s.id })),
       { name: chalk.cyan('+ Create new site'), value: CREATE_NEW },
@@ -79,4 +101,5 @@ export const linkCommand = new Command('link')
 
     console.log(chalk.green(`\nLinked to ${chalk.bold(site.name)} (${site.url})`));
     console.log(`Config saved to ${chalk.dim('.danube/project.json')}`);
+    console.log(chalk.dim(`To deploy from CI without this file, set DANUBE_SITE_ID=${site.id} and DANUBE_TEAM_ID=${teamId}.`));
   });
