@@ -190,7 +190,7 @@ describe('deploy command', () => {
     let now = 0;
     vi.spyOn(Date, 'now').mockImplementation(() => (now += 30_000));
     fetchSpy.mockImplementation(async () => new Response(`<link href="/style.css?v=${OLD_BUILD_ID}">`, { status: 200 }));
-    serve([oldBuild, build()], [site({ deployment_count: 3 })]);
+    serve([oldBuild, build()], [site(), site({ deployment_count: 3 })]);
 
     await deployCommand.parseAsync(['node', 'test', '--dir', testDir]);
 
@@ -204,7 +204,7 @@ describe('deploy command', () => {
     let now = 0;
     vi.spyOn(Date, 'now').mockImplementation(() => (now += 30_000));
     fetchSpy.mockImplementation(async () => new Response('default backend - 404', { status: 404 }));
-    serve([oldBuild, build()], [site({ deployment_count: 3 })]);
+    serve([oldBuild, build()], [site(), site({ deployment_count: 3 })]);
 
     await deployCommand.parseAsync(['node', 'test', '--dir', testDir]);
 
@@ -213,7 +213,7 @@ describe('deploy command', () => {
 
   it('says so when a password prompt stops the check', async () => {
     fetchSpy.mockResolvedValue(new Response('', { status: 401 }));
-    serve([oldBuild, build()], [site({ deployment_count: 3 })]);
+    serve([oldBuild, build()], [site(), site({ deployment_count: 3 })]);
 
     await deployCommand.parseAsync(['node', 'test', '--dir', testDir]);
 

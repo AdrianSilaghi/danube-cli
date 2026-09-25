@@ -8,8 +8,8 @@ vi.mock('../src/lib/sleep.js', () => ({
 
 const {
   captureDeployBaseline,
+  captureSiteBaseline,
   servesBuild,
-  siteBaseline,
   waitForBuild,
   waitForPublish,
   waitUntilServed,
@@ -55,24 +55,28 @@ describe('static site deploy', () => {
   });
 
   describe('baselines', () => {
-    it('records the newest build before the upload', async () => {
-      const { api } = fakeApi([makeBuild({ build_number: 7 })], [makeSite()]);
+    it('reads the site and its newest build right before the upload', async () => {
+      const { api, get } = fakeApi([makeBuild({ build_number: 7 })], [makeSite({ deployment_count: 4 })]);
 
-      await expect(captureDeployBaseline(api, makeSite({ deployment_count: 4 }))).resolves.toEqual({
+      await expect(captureDeployBaseline(api, SITE_ID)).resolves.toEqual({
         buildNumber: 7, deploymentCount: 4, status: 'active', lastError: null,
       });
+      expect(get).toHaveBeenCalledWith(`/api/v1/static-sites/${SITE_ID}`);
+      expect(get).toHaveBeenCalledWith(`/api/v1/static-sites/${SITE_ID}/builds/latest`);
     });
 
     it('starts from zero for a site that has never built', async () => {
-      const { api } = fakeApi([null], [makeSite()]);
+      const { api } = fakeApi([null], [makeSite({ deployment_count: 0, status: 'pending' })]);
 
-      await expect(captureDeployBaseline(api, makeSite({ deployment_count: 0, status: 'pending' }))).resolves.toMatchObject({
+      await expect(captureDeployBaseline(api, SITE_ID)).resolves.toMatchObject({
         buildNumber: 0, deploymentCount: 0, status: 'pending',
       });
     });
 
-    it('reads a site baseline from the site', () => {
-      expect(siteBaseline(makeSite({ status: 'error', last_error: 'boom', deployment_count: 9 }))).toEqual({
+    it('reads a site baseline from the live site', async () => {
+      const { api } = fakeApi([null], [makeSite({ status: 'error', last_error: 'boom', deployment_count: 9 })]);
+
+      await expect(captureSiteBaseline(api, SITE_ID)).resolves.toEqual({
         deploymentCount: 9, status: 'error', lastError: 'boom',
       });
     });

@@ -26,13 +26,13 @@ export const deployCommand = new Command('deploy')
   .option('--dir <directory>', 'Directory to deploy (overrides danube.json)')
   .option('--no-wait', 'Skip waiting for deployment to complete')
   .action(async (opts: { dir?: string; wait: boolean }) => {
-    const { api, site } = await openLinkedSite();
     const danubeJson = await readDanubeJson();
 
     // Resolve deploy directory
     const deployDir = resolve(opts.dir || danubeJson?.outputDir || '.');
 
-    // Verify directory exists
+    // Verify directory exists — before any network call, so a mistyped --dir
+    // fails at once, even offline.
     try {
       await access(deployDir);
     } catch {
@@ -40,14 +40,16 @@ export const deployCommand = new Command('deploy')
       process.exit(1);
     }
 
+    const { api, site } = await openLinkedSite();
+
     // Package files
     const packSpinner = step('Packaging files...');
     const { buffer, fileCount } = await packageDirectory(deployDir, danubeJson?.ignore);
     packSpinner?.succeed(`Packaged ${fileCount} files (${formatBytes(buffer.length)})`);
 
-    // Taken BEFORE the upload: the build and revision this deploy produces are
-    // the first ones newer than these.
-    const baseline = await captureDeployBaseline(api, site);
+    // Taken right BEFORE the upload: the build and revision this deploy
+    // produces are the first ones newer than these.
+    const baseline = await captureDeployBaseline(api, site.id);
 
     // Upload
     const uploadSpinner = step('Uploading...');

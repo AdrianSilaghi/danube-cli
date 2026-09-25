@@ -51,12 +51,21 @@ export type BuildOutcome = { kind: 'built'; build: StaticSiteBuild } | DeployFai
 export type PublishOutcome = { kind: 'published'; site: StaticSite } | DeployFailure | DeployTimeout;
 export type ServeOutcome = 'live' | 'password_protected' | 'not_confirmed';
 
-export function siteBaseline(site: StaticSite): SiteBaseline {
+function siteBaseline(site: StaticSite): SiteBaseline {
   return { deploymentCount: site.deployment_count, status: site.status, lastError: site.last_error };
 }
 
-export async function captureDeployBaseline(api: ApiClient, site: StaticSite): Promise<DeployBaseline> {
-  const build = await fetchLatestBuild(api, site.id);
+/**
+ * Read the site immediately before the mutating call, never earlier: a
+ * revision recorded in between — a slow paginated listing is enough time for
+ * someone else's deploy — would otherwise be mistaken for this one's.
+ */
+export async function captureSiteBaseline(api: ApiClient, siteId: string): Promise<SiteBaseline> {
+  return siteBaseline(await fetchSite(api, siteId));
+}
+
+export async function captureDeployBaseline(api: ApiClient, siteId: string): Promise<DeployBaseline> {
+  const [site, build] = await Promise.all([fetchSite(api, siteId), fetchLatestBuild(api, siteId)]);
 
   return { ...siteBaseline(site), buildNumber: build?.build_number ?? 0 };
 }

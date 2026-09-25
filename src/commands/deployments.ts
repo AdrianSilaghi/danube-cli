@@ -5,7 +5,7 @@ import { fetchAllPages } from '../lib/paginate.js';
 import { openLinkedSite } from '../lib/linked-site.js';
 import { formatTable, statusColor, formatDate } from '../lib/output.js';
 import { isJsonMode, jsonEnvelope, jsonOutput } from '../lib/json-mode.js';
-import { siteBaseline, waitForPublish } from '../lib/static-site-deploy.js';
+import { captureSiteBaseline, waitForPublish } from '../lib/static-site-deploy.js';
 import type { StaticSiteDeployment, MessageResponse } from '../types/api.js';
 
 const lsCommand = new Command('ls')
@@ -63,11 +63,12 @@ const rollbackCommand = new Command('rollback')
 
     const result = { status: 'activated', revision: Number(revision), deployment_id: deployment.id };
     const spinner = isJsonMode() ? null : ora(`Rolling back to revision ${revision}...`).start();
+    const baseline = opts.wait ? await captureSiteBaseline(api, site.id) : null;
     await api.post<MessageResponse>(
       `/api/v1/static-sites/${site.id}/deployments/${deployment.id}/activate`,
     );
 
-    if (!opts.wait) {
+    if (!baseline) {
       if (isJsonMode()) {
         jsonOutput(result);
         return;
@@ -78,7 +79,7 @@ const rollbackCommand = new Command('rollback')
 
     // The activate call only queues the rollback. It is done when the
     // platform records the revision that re-publishes the old image.
-    const published = await waitForPublish(api, site.id, siteBaseline(site), false);
+    const published = await waitForPublish(api, site.id, baseline, false);
 
     if (published.kind === 'published') {
       if (isJsonMode()) {
@@ -89,18 +90,25 @@ const rollbackCommand = new Command('rollback')
       return;
     }
 
-    const message = published.kind === 'failed'
-      ? published.message
-      : 'Timed out waiting for the rollback to be published. Check status with `danube pages deployments ls`.';
+    // Same contract as `pages deploy`: a timeout warns and exits 0 for a
+    // person — the rollback is still in flight — and exits 1 under --json.
+    if (published.kind === 'timeout') {
+      const message = 'Timed out waiting for the rollback to be published. Check status with `danube pages deployments ls`.';
+      if (isJsonMode()) {
+        jsonEnvelope({ ...result, status: 'timeout' }, { error: { code: 'static_site.timeout', message, retryable: true } });
+        process.exit(1);
+      }
+      spinner!.warn(message);
+      return;
+    }
 
     if (isJsonMode()) {
-      const code = published.kind === 'failed' ? `static_site.${published.code}` : 'static_site.timeout';
-      jsonEnvelope(result, { error: { code, message } });
+      jsonEnvelope({ ...result, status: 'failed' }, { error: { code: `static_site.${published.code}`, message: published.message } });
       process.exit(1);
     }
 
     spinner!.fail(`Rollback to revision ${revision} did not complete`);
-    console.error(chalk.red(message));
+    console.error(chalk.red(published.message));
     process.exit(1);
   });
 

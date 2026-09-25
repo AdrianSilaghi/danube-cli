@@ -12,6 +12,11 @@ const argv = process.argv.slice(2);
 // `--help`, an unknown command and a bare `danube`. Automation never sees it —
 // the gates (JSON mode, redirected stderr, CI, DANUBE_NO_UPDATE_CHECK) live in
 // prepareUpdateNotice and checkForUpdate.
+//
+// Awaited rather than overlapped with the command on purpose: `--help`,
+// `--version` and a bare `danube` exit synchronously inside Commander, before
+// an overlapped check could ever land. The wait is a local file read, plus at
+// most one second of registry time once every six hours.
 const updateNotice = await prepareUpdateNotice(argv);
 process.on('exit', () => updateNotice.print());
 

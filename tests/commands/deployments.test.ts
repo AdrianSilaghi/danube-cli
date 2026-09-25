@@ -14,6 +14,7 @@ vi.mock('ora', () => ({
       start: () => instance,
       succeed: (t: string) => { spinner.push(`succeed:${t}`.replace(/\x1b\[[0-9;]*m/g, '')); return instance; },
       fail: (t: string) => { spinner.push(`fail:${t}`.replace(/\x1b\[[0-9;]*m/g, '')); return instance; },
+      warn: (t: string) => { spinner.push(`warn:${t}`.replace(/\x1b\[[0-9;]*m/g, '')); return instance; },
     };
     return instance;
   },
@@ -162,7 +163,7 @@ describe('deployments command', () => {
     it('waits for the rollback to be published before saying so', async () => {
       serve(
         [{ data: [deployment('d2', 2), deployment('d1', 1)] }],
-        [site({ status: 'deploying' }), site({ deployment_count: 3 })],
+        [site(), site({ status: 'deploying' }), site({ deployment_count: 3 })],
       );
 
       await deploymentsCommand.parseAsync(['node', 'test', 'rollback', '1']);
@@ -171,9 +172,26 @@ describe('deployments command', () => {
       expect(spinner).toEqual(['succeed:Rolled back to revision 1 (published as revision #3)']);
     });
 
+    /**
+     * The baseline is read right before the activate call, not when the
+     * command started: a revision recorded while every deployment page was
+     * being listed would otherwise count as this rollback's.
+     */
+    it('takes its baseline after listing, right before activating', async () => {
+      const order: string[] = [];
+      serve([{ data: [deployment('d1', 1)] }], [site({ deployment_count: 3 }), site({ deployment_count: 4 })]);
+      mockGet.mockImplementationOnce(async () => { order.push('list'); return { data: [deployment('d1', 1)] }; });
+      mockPost.mockImplementation(async () => { order.push('activate'); return {}; });
+
+      await deploymentsCommand.parseAsync(['node', 'test', 'rollback', '1']);
+
+      expect(order).toEqual(['list', 'activate']);
+      expect(spinner).toEqual(['succeed:Rolled back to revision 1 (published as revision #4)']);
+    });
+
     it('reports the published revision under --json', async () => {
       setJsonMode(true);
-      serve([{ data: [deployment('d1', 1)] }], [site({ deployment_count: 3 })]);
+      serve([{ data: [deployment('d1', 1)] }], [site(), site({ deployment_count: 3 })]);
 
       await deploymentsCommand.parseAsync(['node', 'test', 'rollback', '1']);
 
@@ -204,7 +222,7 @@ describe('deployments command', () => {
     });
 
     it('fails when the platform cannot publish the rollback', async () => {
-      serve([{ data: [deployment('d1', 1)] }], [site({ status: 'error', last_error: 'GitOps push failed' })]);
+      serve([{ data: [deployment('d1', 1)] }], [site(), site({ status: 'error', last_error: 'GitOps push failed' })]);
 
       await expect(deploymentsCommand.parseAsync(['node', 'test', 'rollback', '1'])).rejects.toThrow(ExitError);
 
@@ -213,16 +231,22 @@ describe('deployments command', () => {
       expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('GitOps push failed'));
     });
 
-    it('emits a failure envelope under --json', async () => {
+    /** The envelope used to keep `status: 'activated'` on a failed rollback. */
+    it('emits a failure envelope under --json, with status failed', async () => {
       setJsonMode(true);
       serve([{ data: [deployment('d1', 1)] }], [site({ status: 'suspended' })]);
 
       await expect(deploymentsCommand.parseAsync(['node', 'test', 'rollback', '1'])).rejects.toThrow(ExitError);
 
-      expect(envelope()).toMatchObject({ success: false, error: { code: 'static_site.suspended' } });
+      expect(envelope()).toEqual({
+        success: false,
+        data: { status: 'failed', revision: 1, deployment_id: 'd1' },
+        error: { code: 'static_site.suspended', message: expect.stringContaining('suspended') },
+        meta: {},
+      });
     });
 
-    it('reports a timeout', async () => {
+    it('reports a timeout under --json with status timeout, exiting 1', async () => {
       setJsonMode(true);
       let now = 0;
       vi.spyOn(Date, 'now').mockImplementation(() => (now += 60_000));
@@ -230,10 +254,26 @@ describe('deployments command', () => {
 
       await expect(deploymentsCommand.parseAsync(['node', 'test', 'rollback', '1'])).rejects.toThrow(ExitError);
 
-      expect(envelope()).toMatchObject({
+      expect(envelope()).toEqual({
         success: false,
-        error: { code: 'static_site.timeout', message: expect.stringContaining('Timed out waiting for the rollback') },
+        data: { status: 'timeout', revision: 1, deployment_id: 'd1' },
+        error: { code: 'static_site.timeout', message: expect.stringContaining('Timed out waiting for the rollback'), retryable: true },
+        meta: {},
       });
+    });
+
+    /** Same contract as `pages deploy`: the rollback is still in flight, so a person gets a warning and exit 0. */
+    it('warns and exits 0 when the rollback outlasts the wait', async () => {
+      let now = 0;
+      vi.spyOn(Date, 'now').mockImplementation(() => (now += 60_000));
+      serve([{ data: [deployment('d1', 1)] }], [site({ status: 'deploying' })]);
+
+      await deploymentsCommand.parseAsync(['node', 'test', 'rollback', '1']);
+
+      expect(process.exit).not.toHaveBeenCalled();
+      expect(spinner).toEqual([
+        'warn:Timed out waiting for the rollback to be published. Check status with `danube pages deployments ls`.',
+      ]);
     });
 
     it('walks multiple pages to find a revision beyond the first page', async () => {
