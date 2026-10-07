@@ -8,6 +8,16 @@ export const POLL_INTERVAL_MS = 2_000;
 
 export const DEFAULT_WAIT_TIMEOUT_MS = 60_000;
 
+/** No poll is given longer than a request is normally given. */
+export const POLL_REQUEST_TIMEOUT_MS = 30_000;
+
+/**
+ * The last look at the policy starts at the ceiling, so it is given this long to
+ * answer even though no time is left. A wait is therefore over within its
+ * timeout plus this one second, however slow the server is.
+ */
+export const LAST_LOOK_MS = 1_000;
+
 export interface PolicyWaitResult {
   /** False when the timeout elapsed first: the change is still being applied, and has not failed. */
   settled: boolean;
@@ -25,34 +35,44 @@ export interface PolicyWaitResult {
  * caveat belongs in what the caller tells the person; this only knows when to
  * stop asking.
  *
- * The last poll is made at the deadline, never after it: the final sleep is cut
- * to what is left of the timeout. A poll that fails ends the wait with its
- * error — the caller knows the change itself was accepted.
+ * The timeout is a ceiling, not a suggestion. Each poll is told how long it has
+ * (`fetchPolicy` gets it, and cuts the request there), so a poll still in flight
+ * cannot hold the wait past it; the last look, made at the ceiling, gets
+ * LAST_LOOK_MS. A poll the ceiling cut short is "not settled", not an error; a
+ * poll that fails before it ends the wait with its error, because the caller
+ * knows the change itself was accepted.
  *
  * `fetchPolicy` is passed in, rather than the client, so the caller's own error
  * mapping applies to the polls as well.
  */
 export async function waitForPolicy(
-  fetchPolicy: () => Promise<BucketPolicy>,
+  fetchPolicy: (timeoutMs: number) => Promise<BucketPolicy>,
   accepted: BucketPolicy,
   opts: { timeoutMs?: number } = {},
 ): Promise<PolicyWaitResult> {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS;
   const startedAt = Date.now();
+  const elapsed = (): number => Date.now() - startedAt;
   let policy = accepted;
 
   while (policy.status === POLICY_UPDATING) {
-    const remaining = timeoutMs - (Date.now() - startedAt);
+    const remaining = timeoutMs - elapsed();
 
     if (remaining <= 0) {
-      return { settled: false, policy, waitedMs: Date.now() - startedAt };
+      return { settled: false, policy, waitedMs: elapsed() };
     }
 
     await sleep(Math.min(POLL_INTERVAL_MS, remaining));
-    policy = await fetchPolicy();
+
+    try {
+      policy = await fetchPolicy(Math.min(Math.max(timeoutMs - elapsed(), LAST_LOOK_MS), POLL_REQUEST_TIMEOUT_MS));
+    } catch (err) {
+      if (elapsed() >= timeoutMs) return { settled: false, policy, waitedMs: elapsed() };
+      throw err;
+    }
   }
 
-  return { settled: true, policy, waitedMs: Date.now() - startedAt };
+  return { settled: true, policy, waitedMs: elapsed() };
 }
 
 const WAIT_TIMEOUT = /^(\d+)([smh])?$/;

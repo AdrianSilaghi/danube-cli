@@ -4,6 +4,7 @@ import {
   parseKeyLevel,
   readKeyScopeFlags,
   resolveAccessKey,
+  keyState,
   KEY_LEVELS,
   KEY_SCOPES,
   MAX_BUCKET_PERMISSIONS,
@@ -169,6 +170,16 @@ const apiListing = (items: unknown[], total = items.length) =>
     get: vi.fn().mockResolvedValue({ data: items, pagination: { current_page: 1, last_page: 1, per_page: 100, total } }),
   }) as unknown as ApiClient & { get: ReturnType<typeof vi.fn> };
 
+describe('keyState', () => {
+  it('is the status, except that a key past its expiry date is "expired" whatever its status says', () => {
+    expect(keyState(key({ status: 'active', is_expired: false }))).toBe('active');
+    expect(keyState(key({ status: 'active' }))).toBe('active');
+    expect(keyState(key({ status: 'active', is_expired: true }))).toBe('expired');
+    expect(keyState(key({ status: 'revoked', is_expired: true }))).toBe('revoked');
+    expect(keyState(key({ status: 'error' }))).toBe('error');
+  });
+});
+
 describe('resolveAccessKey', () => {
   it('finds a key by its id', async () => {
     const api = apiListing([key({ id: uuid(1), name: 'one' }), key({ id: uuid(2), name: 'two' })]);
@@ -302,6 +313,56 @@ describe('resolveAccessKey', () => {
       const api = apiListing([key({ id: uuid(1), name: 'old', status: 'revoked' })]);
 
       expect((await resolveAccessKey(api, 'old')).status).toBe('revoked');
+    });
+  });
+
+  describe('a listing read in several pages', () => {
+    // The list is newest first and paged by offset: a key created between two page reads
+    // pushes the last key of page 1 onto page 2, so it is listed twice.
+    const pages = (...perPage: unknown[][]) =>
+      ({
+        get: vi.fn((path: string) => {
+          const number = Number(/[?&]page=(\d+)/.exec(path)![1]);   // not `per_page=100`
+          return Promise.resolve({
+            data: perPage[number - 1] ?? [],
+            pagination: { current_page: number, last_page: perPage.length, per_page: 2, total: 3 },
+          });
+        }),
+      }) as unknown as ApiClient;
+
+    it('does not read a key listed twice as two keys with the same name', async () => {
+      const api = pages(
+        [key({ id: uuid(1), name: 'one' }), key({ id: uuid(2), name: 'two' })],
+        [key({ id: uuid(2), name: 'two' }), key({ id: uuid(3), name: 'three' })],
+      );
+
+      const hit = await resolveAccessKey(api, 'two');
+
+      expect(hit.id).toBe(uuid(2));
+    });
+
+    it('still refuses two DIFFERENT keys with one name', async () => {
+      const api = pages(
+        [key({ id: uuid(1), name: 'twin' }), key({ id: uuid(2), name: 'twin' })],
+        [key({ id: uuid(2), name: 'twin' }), key({ id: uuid(3), name: 'three' })],
+      );
+
+      const message = ((await resolveAccessKey(api, 'twin').catch((e: unknown) => e)) as Error).message;
+
+      expect(message).toContain('2 keys match');
+      expect(message.match(new RegExp(uuid(2), 'g'))).toHaveLength(1);
+    });
+
+    it('still says the list was cut short, counting each key once', async () => {
+      // The same two keys on every page, up to the 20-page limit, of 5000 keys in all.
+      const api = {
+        get: vi.fn().mockResolvedValue({
+          data: [key({ id: uuid(1), name: 'one' }), key({ id: uuid(2), name: 'two' })],
+          pagination: { current_page: 1, last_page: 25, per_page: 2, total: 5_000 },
+        }),
+      } as unknown as ApiClient;
+
+      await expect(resolveAccessKey(api, 'nope')).rejects.toThrow(/only 2 of 5000 were searched/);
     });
   });
 

@@ -11,7 +11,7 @@ vi.mock('../src/lib/sleep.js', () => ({
   }),
 }));
 
-const { waitForPolicy, parseWaitTimeout, POLL_INTERVAL_MS, DEFAULT_WAIT_TIMEOUT_MS } = await import('../src/lib/wait-for-policy.js');
+const { waitForPolicy, parseWaitTimeout, POLL_INTERVAL_MS, DEFAULT_WAIT_TIMEOUT_MS, POLL_REQUEST_TIMEOUT_MS, LAST_LOOK_MS } = await import('../src/lib/wait-for-policy.js');
 const { UsageError } = await import('../src/lib/errors.js');
 import type { BucketPolicy } from '../src/types/api.js';
 
@@ -43,6 +43,11 @@ describe('waitForPolicy', () => {
   it('polls every two seconds and defaults to a minute', () => {
     expect(POLL_INTERVAL_MS).toBe(2_000);
     expect(DEFAULT_WAIT_TIMEOUT_MS).toBe(60_000);
+  });
+
+  it('lets a poll take 30 seconds at most, and the last look at least one', () => {
+    expect(POLL_REQUEST_TIMEOUT_MS).toBe(30_000);
+    expect(LAST_LOOK_MS).toBe(1_000);
   });
 
   it('does not poll at all when the accepted change is not updating', async () => {
@@ -134,6 +139,58 @@ describe('waitForPolicy', () => {
     expect(result.settled).toBe(false);
     expect(result.waitedMs).toBe(60_000);
     expect(fetchPolicy).toHaveBeenCalledTimes(30);
+  });
+
+  describe('the ceiling is a ceiling', () => {
+    it('gives each poll the time that is left, so none can run past it', async () => {
+      const fetchPolicy = fetching('updating');
+
+      await waitForPolicy(fetchPolicy, policy('updating'), { timeoutMs: 10_000 });
+
+      // The last one starts at the ceiling itself, and is given the one second of the last look.
+      expect(fetchPolicy.mock.calls.map((c) => c[0])).toEqual([8_000, 6_000, 4_000, 2_000, 1_000]);
+    });
+
+    it('never gives a poll more than 30 seconds, however long the ceiling is', async () => {
+      const fetchPolicy = fetching('active');
+
+      await waitForPolicy(fetchPolicy, policy('updating'), { timeoutMs: 10 * 60_000 });
+
+      expect(fetchPolicy).toHaveBeenCalledWith(30_000);
+    });
+
+    it('gives the last look a second even when the ceiling is already used up by waiting for it', async () => {
+      const fetchPolicy = fetching('updating');
+
+      await waitForPolicy(fetchPolicy, policy('updating'), { timeoutMs: 1_500 });
+
+      expect(sleeps).toEqual([1_500]);
+      expect(fetchPolicy).toHaveBeenCalledTimes(1);
+      expect(fetchPolicy).toHaveBeenCalledWith(1_000);
+    });
+
+    it('ends as "not settled", not as an error, when the ceiling is what cut a poll short', async () => {
+      const cutByTheCeiling = vi.fn(async (budgetMs: number) => {
+        now += budgetMs;
+        throw new Error(`Request timed out after ${budgetMs}ms: GET /policy`);
+      });
+
+      const result = await waitForPolicy(cutByTheCeiling, policy('updating'), { timeoutMs: 5_000 });
+
+      expect(result.settled).toBe(false);
+      expect(result.waitedMs).toBe(5_000);
+      // Nothing newer was seen, so the accepted document is the one it hands back.
+      expect(result.policy.status).toBe('updating');
+      expect(cutByTheCeiling).toHaveBeenCalledTimes(1);
+    });
+
+    it('still lets an error through when the ceiling is not what ended the poll', async () => {
+      const failedEarly = vi.fn(async () => {
+        throw new Error('connect ECONNREFUSED');
+      });
+
+      await expect(waitForPolicy(failedEarly, policy('updating'), { timeoutMs: 60_000 })).rejects.toThrow('ECONNREFUSED');
+    });
   });
 
   it('stops polling when a poll fails, and lets the error through', async () => {

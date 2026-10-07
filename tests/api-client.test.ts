@@ -224,6 +224,49 @@ describe('ApiClient', () => {
     );
   });
 
+  describe('a GET with its own timeout', () => {
+    // A fetch that never answers and gives up when it is aborted, as a hung server would.
+    const hungServer = () =>
+      vi.fn((_url: string, init: { signal: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          init.signal.addEventListener('abort', () => reject(new DOMException('The operation was aborted.', 'AbortError')));
+        }));
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('is cut at the time it was given, and says how long that was', async () => {
+      vi.useFakeTimers();
+      globalThis.fetch = hungServer() as never;
+      let outcome: unknown = 'pending';
+      const request = new ApiClient('my-token', 'https://api.test').get('/api/v1/slow', 2_000)
+        .catch((err: unknown) => { outcome = err; });
+
+      await vi.advanceTimersByTimeAsync(1_999);
+      expect(outcome).toBe('pending');
+
+      await vi.advanceTimersByTimeAsync(1);
+      await request;
+      expect((outcome as Error).message).toBe('Request timed out after 2000ms: GET /api/v1/slow');
+    });
+
+    it('keeps the 30 second default when no timeout is given', async () => {
+      vi.useFakeTimers();
+      globalThis.fetch = hungServer() as never;
+      let outcome: unknown = 'pending';
+      const request = new ApiClient('my-token', 'https://api.test').get('/api/v1/slow')
+        .catch((err: unknown) => { outcome = err; });
+
+      await vi.advanceTimersByTimeAsync(29_999);
+      expect(outcome).toBe('pending');
+
+      await vi.advanceTimersByTimeAsync(1);
+      await request;
+      expect((outcome as Error).message).toBe('Request timed out after 30000ms: GET /api/v1/slow');
+    });
+  });
+
   it('passes abort signal to fetch', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,

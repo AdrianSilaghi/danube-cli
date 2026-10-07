@@ -8,8 +8,9 @@ import { resolveResources } from '../../lib/resolve.js';
 import { formatTable, statusColor, formatDate, printDetails } from '../../lib/output.js';
 import { isJsonMode, jsonOutput, jsonError } from '../../lib/json-mode.js';
 import { promptOr, confirmDestruction } from '../../lib/interactive.js';
-import { UsageError } from '../../lib/errors.js';
-import { readKeyScopeFlags, type BucketGrantSpec } from '../../lib/storage-keys.js';
+import { ApiError, UsageError } from '../../lib/errors.js';
+import { refuseRepeatedFlags, singleValue } from '../../lib/single-value-flag.js';
+import { keyState, readKeyScopeFlags, type BucketGrantSpec } from '../../lib/storage-keys.js';
 import type {
   StorageAccessKey,
   StorageBucket,
@@ -18,6 +19,13 @@ import type {
   CreateAccessKeyResponse,
   MessageResponse,
 } from '../../types/api.js';
+
+/** The state of a key, coloured: a key past its expiry date is `expired`, not the `active` the API still calls it. */
+const stateText = (key: StorageAccessKey): string => {
+  const state = keyState(key);
+
+  return state === 'expired' ? chalk.yellow(state) : statusColor(state);
+};
 
 const lsCommand = new Command('ls')
   .description('List all access keys')
@@ -42,7 +50,7 @@ const lsCommand = new Command('ls')
       k.name,
       k.access_key_id,
       k.scope ?? '-',
-      statusColor(k.status),
+      stateText(k),
       k.expires_at ? formatDate(k.expires_at) : 'never',
       k.last_used_at ? formatDate(k.last_used_at) : '-',
       formatDate(k.created_at),
@@ -66,13 +74,20 @@ interface CreateOptions {
 const collect = (value: string, previous: string[] = []): string[] => [...previous, value];
 
 /**
- * The buckets named in `--bucket`, each as the bucket itself. One reading of the
- * bucket list serves them all. Naming one bucket twice, whether both times by
- * name or once by name and once by id, is refused: two levels for one bucket is
- * not something to pick between.
+ * The buckets named in `--bucket`, each as the bucket itself, by exact name or
+ * full id: this decides which buckets a key may reach, so the beginning of an id
+ * is not a name. One reading of the bucket list serves them all. Naming one
+ * bucket twice, whether both times by name or once by name and once by id, is
+ * refused: two levels for one bucket is not something to pick between.
  */
 async function resolveGrantedBuckets(api: ApiClient, grants: BucketGrantSpec[]): Promise<StorageBucket[]> {
-  const buckets = await resolveResources<StorageBucket>(api, '/api/v1/storage/buckets', 'bucket', grants.map((g) => g.bucket));
+  const buckets = await resolveResources<StorageBucket>(
+    api,
+    '/api/v1/storage/buckets',
+    'bucket',
+    grants.map((g) => g.bucket),
+    { exact: true },
+  );
   const seen = new Set<string>();
 
   for (const bucket of buckets) {
@@ -107,30 +122,112 @@ function createBody(
   };
 }
 
+const revokeCommandFor = (id: string): string => `danube storage keys revoke ${id} --yes`;
+
+/** Best effort: whether the key was revoked, and if not, why. */
+async function tryToRevoke(api: ApiClient, id: string): Promise<{ revoked: true } | { revoked: false; reason: string }> {
+  try {
+    await api.delete<MessageResponse>(`/api/v1/storage/access-keys/${encodeURIComponent(id)}`);
+    return { revoked: true };
+  } catch (err) {
+    return { revoked: false, reason: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 /**
- * The server made a key, but not the one that was asked for.
- *
- * An older server ignores a field it does not know and answers with the key it
- * DID create: a team key, which reaches every bucket. That key must not be
- * passed off as a success, and its secret is not shown — the person revokes it.
+ * The platform answered with a key of another scope than the one asked for. It
+ * should never happen, but if it does the key it made may reach every bucket.
+ * The secret is not shown, so nobody can use that key, and the command revokes
+ * it rather than leave a broader key behind: `keys revoke` asks to confirm, so
+ * it could not even be run from a script. Exits 1 whether or not that worked.
  */
-function failScopeNotApplied(res: CreateAccessKeyResponse, requested: StorageKeyScope, spinner: Ora | null): never {
+async function failScopeNotApplied(
+  api: ApiClient,
+  res: CreateAccessKeyResponse,
+  requested: StorageKeyScope,
+  spinner: Ora | null,
+): Promise<never> {
   const reported = res.scope ?? null;
+
+  spinner?.fail('The key was created, but not with the scope you asked for');
+  const outcome = await tryToRevoke(api, res.id);
+
   const lines = [
     `The server created access key ${res.id} but did not apply the scope you asked for (asked for: ${requested}; the server reported: ${reported ?? 'no scope'}).`,
     'A key that is not limited as requested may reach every bucket of the team, so its secret is not shown.',
-    `Revoke it now: danube storage keys revoke ${res.id}`,
+    ...(outcome.revoked
+      ? ['The key has been revoked.']
+      : [`The key could not be revoked: ${outcome.reason}`, `Revoke it now: ${revokeCommandFor(res.id)}`]),
   ];
 
-  spinner?.fail('The key was created, but not with the scope you asked for');
-
   if (isJsonMode()) {
-    jsonError({ code: 'storage.key_scope_not_applied', message: lines.join(' '), id: res.id, requested_scope: requested, reported_scope: reported });
+    jsonError({
+      code: 'storage.key_scope_not_applied',
+      message: lines.join(' '),
+      id: res.id,
+      requested_scope: requested,
+      reported_scope: reported,
+      revoked: outcome.revoked,
+      revoke_command: revokeCommandFor(res.id),
+    });
   } else {
     console.error(chalk.red(lines.join('\n')));
   }
 
   process.exit(1);
+}
+
+/** What a create must answer with for its key to be handed over: an id to revoke it by, and the credentials. */
+const isReadable = (res: unknown): res is CreateAccessKeyResponse => {
+  if (typeof res !== 'object' || res === null) return false;
+
+  const { id, access_key_id: accessKeyId, secret_access_key: secret } = res as Record<string, unknown>;
+
+  return typeof id === 'string' && typeof accessKeyId === 'string' && typeof secret === 'string';
+};
+
+/**
+ * A 2xx means the key exists, whatever the body says. An answer that cannot be
+ * read must not become a crash that never says so, or "Created access key
+ * undefined" with a secret that is `undefined`.
+ */
+function failAnswerUnreadable(spinner: Ora | null): never {
+  const message =
+    "The server accepted the request, but its answer could not be read, so the new key's id and secret are unknown. " +
+    'The key may exist: run `danube storage keys ls` to look for it, and revoke it if it is there.';
+
+  spinner?.fail('The key may have been created, but the answer could not be read');
+
+  if (isJsonMode()) {
+    jsonError({ code: 'storage.key_answer_unreadable', message });
+  } else {
+    console.error(chalk.red(message));
+  }
+
+  process.exit(1);
+}
+
+/**
+ * The create call. A platform that does not know `--scope none` answers 422 about
+ * the scope; that is said as what it means, with what the API said kept.
+ */
+async function createKey(api: ApiClient, body: Record<string, unknown>, scope: StorageKeyScope | undefined): Promise<unknown> {
+  try {
+    return await api.post<unknown>('/api/v1/storage/access-keys', body);
+  } catch (err) {
+    if (scope === 'none' && err instanceof ApiError && err.statusCode === 422 && err.errors?.scope) {
+      throw new ApiError(
+        422,
+        `This platform does not support --scope none yet (the API said: ${err.errors.scope.join(' ')})`,
+        err.errors,
+        err.cause,
+        err.meta,
+        err.retryAfterSeconds,
+      );
+    }
+
+    throw err;
+  }
 }
 
 const LABEL_WIDTH = 19;
@@ -166,8 +263,9 @@ const createCommand = new Command('create')
   .description('Create a new access key')
   .option('--name <name>', 'Key name')
   .option('--expires <date>', 'Expiration date (ISO 8601)')
-  .option('--scope <scope>', 'Where the key reaches: team (every bucket, the default), buckets (only the --bucket list) or none (nothing, until a bucket policy allows it)')
-  .option('--bucket <bucket:level>', 'With --scope buckets: a bucket (name or id) and what the key may do there: read, readwrite or full. Repeat for each bucket (at most 50)', collect)
+  .option('--scope <scope>', 'Where the key reaches: team (every bucket, the default), buckets (only the --bucket list) or none (nothing, until a bucket policy allows it)', singleValue('--scope'))
+  .option('--bucket <bucket:level>', 'With --scope buckets: a bucket (its exact name or full id) and what the key may do there: read, readwrite or full. Repeat for each bucket (at most 50)', collect)
+  .hook('preAction', refuseRepeatedFlags)
   .action(async (opts: CreateOptions) => {
     // Checked before anything is asked or sent: a mistake in the flags costs nothing.
     const { scope, grants } = readKeyScopeFlags(opts.scope, opts.bucket ?? []);
@@ -182,11 +280,14 @@ const createCommand = new Command('create')
     const body = createBody(name.trim(), opts.expires, scope, grants, buckets);
     const spinner = isJsonMode() ? null : ora('Creating access key...').start();
 
-    const res = await api.post<CreateAccessKeyResponse>('/api/v1/storage/access-keys', body);
+    const answer = await createKey(api, body, scope);
+
+    if (!isReadable(answer)) return failAnswerUnreadable(spinner);
+    const res = answer;
 
     // `team` cannot come out broader than a team key, so only the narrower scopes are checked.
     if (scope !== undefined && scope !== 'team' && res.scope !== scope) {
-      failScopeNotApplied(res, scope, spinner);
+      return failScopeNotApplied(api, res, scope, spinner);
     }
 
     if (isJsonMode()) {
@@ -248,7 +349,7 @@ const getCommand = new Command('get')
       ['Name', k.name],
       ['Access Key ID', k.access_key_id],
       ...reachRows(k),
-      ['Status', statusColor(k.status)],
+      ['Status', stateText(k)],
       ['Expires', k.expires_at ? formatDate(k.expires_at) : 'never'],
       ['Last Used', k.last_used_at ? formatDate(k.last_used_at) : '-'],
       ['Created', formatDate(k.created_at)],

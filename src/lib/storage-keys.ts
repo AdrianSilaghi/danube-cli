@@ -113,7 +113,13 @@ export function readKeyScopeFlags(scope: string | undefined, bucketSpecs: string
 /** A key a grant can still go to: not revoked and not past its expiry date. */
 const isUsable = (key: StorageAccessKey): boolean => key.status === 'active' && key.is_expired !== true;
 
-const stateOf = (key: StorageAccessKey): string => (key.status === 'active' && key.is_expired === true ? 'expired' : key.status);
+/**
+ * What a key is, in one word: its status, except that a key past its expiry date
+ * is `expired` even though the API still calls it `active`. The one place this
+ * is decided, so that a list, a detail view and an error all say the same.
+ */
+export const keyState = (key: StorageAccessKey): string =>
+  (key.status === 'active' && key.is_expired === true ? 'expired' : key.status);
 
 /**
  * One key out of the several that answer to the same reference.
@@ -130,7 +136,7 @@ function choose(matches: StorageAccessKey[], reference: string): StorageAccessKe
   if (candidates.length === 1) return candidates[0]!;
 
   // Id, name and state only: nothing here can be a secret.
-  const lines = candidates.map((k) => `  ${k.id}  ${k.name}  ${stateOf(k)}`).join('\n');
+  const lines = candidates.map((k) => `  ${k.id}  ${k.name}  ${keyState(k)}`).join('\n');
 
   throw new UsageError(`Ambiguous key '${reference}' — ${candidates.length} keys match:\n${lines}\nUse the key's id.`);
 }
@@ -147,7 +153,12 @@ export async function resolveAccessKey(api: ApiClient, reference: string): Promi
     throw new UsageError('Empty key given. Name the key by its id, its access key id or its name.');
   }
 
-  const { items, total } = await fetchAllPages<StorageAccessKey>(api, '/api/v1/storage/access-keys');
+  const { items: listed, total, truncated } = await fetchAllPages<StorageAccessKey>(api, '/api/v1/storage/access-keys');
+
+  // Newest first, paged by offset: a key created between two page reads pushes
+  // the last key of one page onto the next, and a name that belongs to ONE key
+  // would read as ambiguous.
+  const items = [...new Map(listed.map((k) => [k.id, k])).values()];
 
   const tiers = [
     items.filter((k) => k.id === reference),
@@ -158,7 +169,7 @@ export async function resolveAccessKey(api: ApiClient, reference: string): Promi
 
   if (matches) return choose(matches, reference);
 
-  const suffix = total > items.length ? ` Note: only ${items.length} of ${total} were searched. Try the key's id.` : '';
+  const suffix = truncated ? ` Note: only ${items.length} of ${total} were searched. Try the key's id.` : '';
 
   throw new ResourceNotFoundError(
     `access key '${reference}' not found. Name a key by its id, its access key id or its name; \`danube storage keys ls\` lists them.${suffix}`,

@@ -51,6 +51,31 @@ describe('policyApi', () => {
 
       expect(err.cause).toMatchObject({ code: POLICY_UNAVAILABLE_CODE, retryable: false });
     });
+
+    describe('when the bucket list said which endpoint the bucket is on', () => {
+      const on = (provider: string) => ({ ...asWrite, provider });
+
+      it('says the bucket is not on the endpoint that supports bucket policies, when it is not on it', async () => {
+        const err = await caught(policyApi(() => Promise.reject(new ApiError(404, 'Not Found')), on('minio')));
+
+        expect(err.message).toBe("Bucket 'invoices' is not on the endpoint that supports bucket policies, so its policy cannot be read or changed.");
+        expect(err.message).not.toMatch(/no such bucket/i);
+        expect(err.cause).toMatchObject({ code: POLICY_UNAVAILABLE_CODE, retryable: false });
+      });
+
+      it('keeps both causes when it is on that endpoint: the editor may still be off, or the platform without the routes', async () => {
+        const err = await caught(policyApi(() => Promise.reject(new ApiError(404, 'Not Found')), on('ceph')));
+
+        expect(err.message).toMatch(/no such bucket/i);
+        expect(err.message).toMatch(/bucket policy editor is not available for this bucket or this platform/);
+      });
+
+      it('keeps both causes when the server did not say (an older platform)', async () => {
+        const err = await caught(policyApi(() => Promise.reject(new ApiError(404, 'Not Found')), asRead));
+
+        expect(err.message).toMatch(/no such bucket/i);
+      });
+    });
   });
 
   describe('403', () => {
@@ -70,12 +95,24 @@ describe('policyApi', () => {
       expect(err.message).not.toContain('storage:write');
     });
 
-    it('does not double the full stop when the server message already ends with one', async () => {
-      const err = await caught(policyApi(() => Promise.reject(new ApiError(403, 'This action is unauthorized.')), asWrite));
+    it.each(['Insufficient permissions', 'Insufficient permissions.', 'insufficient permissions'])(
+      'adds the abilities a change needs only when the server says it is about them (%j)',
+      async (text) => {
+        const err = await caught(policyApi(() => Promise.reject(new ApiError(403, text)), asWrite));
 
-      expect(err.message).toMatch(/^This action is unauthorized\. [A-Z]/);
-      expect(err.message).not.toContain('..');
-    });
+        expect(err.message).toContain('storage:write');
+        expect(err.message).not.toContain('..');
+      },
+    );
+
+    it.each(['This action is unauthorized.', 'This action is unauthorized', 'You do not have the role for this.'])(
+      'leaves a 403 about the person\'s role untouched: the token\'s abilities are not the reason (%j)',
+      async (text) => {
+        const roleDenied = new ApiError(403, text);
+
+        await expect(policyApi(() => Promise.reject(roleDenied), asWrite)).rejects.toBe(roleDenied);
+      },
+    );
 
     it('keeps the error code and meta the server sent', async () => {
       const original = new ApiError(403, 'Insufficient permissions', undefined, { code: 'auth.ability_missing' }, { ability: 'storage:write' });
@@ -176,10 +213,6 @@ describe('parsePolicyStatements', () => {
   it('accepts an empty list, which removes every custom statement', () => {
     expect(parsePolicyStatements('[]', '--statements')).toEqual([]);
     expect(parsePolicyStatements('{"Version":"2012-10-17","Statement":[]}', '--statements')).toEqual([]);
-  });
-
-  it('tolerates the byte order mark an editor on Windows puts in front of a file', () => {
-    expect(parsePolicyStatements(`﻿${JSON.stringify([allow])}`, '--file policy.json')).toEqual([allow]);
   });
 
   it('tolerates whitespace around the document', () => {

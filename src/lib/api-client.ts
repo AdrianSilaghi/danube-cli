@@ -125,8 +125,13 @@ export class ApiClient {
     }
   }
 
-  get<T>(path: string): Promise<T> {
-    return this.request<T>('GET', path);
+  /**
+   * `timeoutMs` is for a caller that has a deadline of its own — a `--wait` must
+   * not be kept past its ceiling by a poll that is still in flight. Without it a
+   * request has the usual 30 seconds.
+   */
+  get<T>(path: string, timeoutMs?: number): Promise<T> {
+    return this.request<T>('GET', path, undefined, timeoutMs);
   }
 
   /**

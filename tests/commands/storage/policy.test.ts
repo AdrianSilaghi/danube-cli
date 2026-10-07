@@ -3,8 +3,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 const mockGet = vi.fn();
 const mockPost = vi.fn();
 const mockPut = vi.fn();
+const mockCreate = vi.fn();
 vi.mock('../../../src/lib/api-client.js', () => ({
-  ApiClient: { create: () => Promise.resolve({ get: mockGet, post: mockPost, put: mockPut }) },
+  ApiClient: { create: (...args: unknown[]) => mockCreate(...args) },
 }));
 
 vi.mock('ora', () => ({
@@ -43,7 +44,7 @@ const { policyCommand } = await import('../../../src/commands/storage/policy.js'
 const { storageCommand } = await import('../../../src/commands/storage/index.js');
 const { setJsonMode } = await import('../../../src/lib/json-mode.js');
 const { handleError } = await import('../../../src/lib/handle-error.js');
-const { ApiError, UsageError, MissingFlagsError, ConfirmationRequiredError, ResourceNotFoundError } = await import(
+const { ApiError, NotAuthenticatedError, UsageError, MissingFlagsError, ConfirmationRequiredError, ResourceNotFoundError } = await import(
   '../../../src/lib/errors.js'
 );
 
@@ -137,12 +138,14 @@ describe('storage policy commands', () => {
     mockGet.mockImplementation((path: string) => {
       if (path.startsWith('/api/v1/storage/buckets?')) return Promise.resolve(page(opts.buckets ?? [bucket]));
       if (path.startsWith('/api/v1/storage/access-keys?')) return Promise.resolve(page(opts.keys ?? [keyRow()]));
-      if (path === POLICY_PATH) return Promise.resolve(policies.length > 1 ? policies.shift() : policies[0]);
+      if (/^\/api\/v1\/storage\/buckets\/[^/?]+\/policy$/.test(path)) return Promise.resolve(policies.length > 1 ? policies.shift() : policies[0]);
       return Promise.reject(new Error(`unexpected GET ${path}`));
     });
   };
 
+  /** Not a request, and not even a client: whatever refused did so before the API was in the picture. */
   const noApiCallWasMade = () => {
+    expect(mockCreate).not.toHaveBeenCalled();
     expect(mockGet).not.toHaveBeenCalled();
     expect(mockPut).not.toHaveBeenCalled();
     expect(mockPost).not.toHaveBeenCalled();
@@ -160,7 +163,8 @@ describe('storage policy commands', () => {
     }) as never;
     setTty(true);
     process.exitCode = undefined;
-    [mockGet, mockPost, mockPut, mockConfirm, mockReadInput].forEach((m) => m.mockReset());
+    [mockGet, mockPost, mockPut, mockCreate, mockConfirm, mockReadInput].forEach((m) => m.mockReset());
+    mockCreate.mockImplementation(() => Promise.resolve({ get: mockGet, post: mockPost, put: mockPut }));
     now = 0;
     sleeps.length = 0;
     vi.spyOn(Date, 'now').mockImplementation(() => now);
@@ -179,6 +183,58 @@ describe('storage policy commands', () => {
 
     expect(policy).toBeDefined();
     expect(policy!.commands.map((c) => c.name()).sort()).toEqual(['get', 'grant', 'set']);
+  });
+
+  describe('which bucket', () => {
+    // These commands decide who may reach a bucket: a name that is not a bucket's name must not
+    // land on the bucket whose id happens to begin with it (`cafe`, `dead`, `beef` are all hex).
+    const lookalike = { ...bucket, id: 'cafe1234-0000-4000-8000-000000000001', name: 'invoices' };
+    const commands: Array<[string, string[]]> = [
+      ['get', ['get', 'cafe']],
+      ['set', ['set', 'cafe', '--clear', '--yes']],
+      ['grant', ['grant', 'cafe', '--key', KEY_ID, '--folder', 'f', '--level', 'read']],
+    ];
+
+    it.each(commands)('%s does not take the beginning of an id for a name', async (_name, args) => {
+      routeGet({ buckets: [lookalike] });
+
+      const attempt = run(...args);
+
+      await expect(attempt).rejects.toThrow(ResourceNotFoundError);
+      await expect(attempt).rejects.toThrow("bucket 'cafe' not found.");
+      expect(mockPut).not.toHaveBeenCalled();
+      expect(mockPost).not.toHaveBeenCalled();
+      expect(mockGet.mock.calls.map((c) => c[0])).not.toContain(`/api/v1/storage/buckets/${lookalike.id}/policy`);
+    });
+
+    it.each(commands)('%s takes a full id', async (name, args) => {
+      routeGet({ buckets: [lookalike] });
+      mockPut.mockResolvedValue(policyDoc('updating'));
+      mockPost.mockResolvedValue({ added_statements: [], warnings: [], ...policyDoc('updating') });
+
+      await run(...args.map((a) => (a === 'cafe' ? lookalike.id : a)));
+
+      const reached = [...mockGet.mock.calls, ...mockPut.mock.calls, ...mockPost.mock.calls].map((c) => c[0]);
+      expect(reached.some((path) => String(path).startsWith(`/api/v1/storage/buckets/${lookalike.id}/policy`))).toBe(true);
+      expect(name).toBeTruthy();
+    });
+
+    it.each(commands)('%s refuses two buckets with one name as a usage error that names them by id', async (_name, args) => {
+      routeGet({
+        buckets: [
+          { ...bucket, id: 'aaaa0000-0000-4000-8000-000000000001', name: 'twin' },
+          { ...bucket, id: 'bbbb0000-0000-4000-8000-000000000002', name: 'twin' },
+        ],
+      });
+
+      const attempt = run(...args.map((a) => (a === 'cafe' ? 'twin' : a)));
+
+      await expect(attempt).rejects.toThrow(UsageError);
+      await expect(attempt).rejects.toThrow(/aaaa0000-0000-4000-8000-000000000001 {2}twin/);
+      await expect(attempt).rejects.toThrow("Use the bucket's id.");
+      expect(mockPut).not.toHaveBeenCalled();
+      expect(mockPost).not.toHaveBeenCalled();
+    });
   });
 
   describe('get', () => {
@@ -264,6 +320,15 @@ describe('storage policy commands', () => {
       await run('get', 'invoices', '--effective');
 
       expect(jsonOut().data).toEqual(doc);
+    });
+
+    it('says which bucket the name resolved to, in the JSON meta', async () => {
+      routeGet();
+      setJsonMode(true);
+
+      await run('get', 'invoices');
+
+      expect(jsonOut().meta).toEqual({ bucket_id: 'b-1' });
     });
 
     it('takes the bucket by id as well as by name', async () => {
@@ -405,6 +470,51 @@ describe('storage policy commands', () => {
         noApiCallWasMade();
         expect(mockReadInput).not.toHaveBeenCalled();
       });
+
+      describe('an empty list', () => {
+        // `--yes` skips the question, so an empty list would wipe every custom statement
+        // for a script whose filter happened to select nothing. Removing them all is --clear.
+        const EMPTY = 'The list is empty, which removes every custom statement; use --clear to do that on purpose.';
+
+        it.each([
+          ['an empty list', ['--statements', '[]']],
+          ['a policy document with an empty Statement', ['--statements', '{"Version":"2012-10-17","Statement":[]}']],
+        ])('is refused for %s, even with --yes', async (_name, flags) => {
+          const attempt = run('set', 'invoices', ...flags, '--yes');
+
+          await expect(attempt).rejects.toThrow(UsageError);
+          await expect(attempt).rejects.toThrow(EMPTY);
+          noApiCallWasMade();
+        });
+
+        it.each(['policy.json', '-'])('is refused from %s too', async (source) => {
+          mockReadInput.mockResolvedValue('[]');
+
+          await expect(run('set', 'invoices', '--file', source, '--yes')).rejects.toThrow(EMPTY);
+
+          noApiCallWasMade();
+        });
+
+        it('is refused at a terminal as well, before the question is asked', async () => {
+          await expect(run('set', 'invoices', '--statements', '[]')).rejects.toThrow(EMPTY);
+
+          expect(mockConfirm).not.toHaveBeenCalled();
+          noApiCallWasMade();
+        });
+      });
+
+      it.each([
+        ['--file', ['--file', 'a.json', '--file', 'b.json']],
+        ['--statements', ['--statements', '[]', '--statements', '[]']],
+        ['--wait-timeout', ['--clear', '--wait', '--wait-timeout', '5', '--wait-timeout', '6']],
+      ])('refuses %s given twice, which would silently keep the last', async (flag, flags) => {
+        const attempt = run('set', 'invoices', ...flags, '--yes');
+
+        await expect(attempt).rejects.toThrow(UsageError);
+        await expect(attempt).rejects.toThrow(`${flag} was given more than once; give it once.`);
+        noApiCallWasMade();
+        expect(mockReadInput).not.toHaveBeenCalled();
+      });
     });
 
     describe('confirmation', () => {
@@ -443,14 +553,17 @@ describe('storage policy commands', () => {
         expect(mockConfirm.mock.calls[0]![0].message).toMatch(/Remove ALL custom policy statements of bucket invoices/);
       });
 
-      it('asks about removing everything for an empty list as well', async () => {
+      it('asks about a file at a terminal, and goes ahead on yes: only the standard input cannot be asked about', async () => {
         routeGet();
         confirmed();
-        mockPut.mockResolvedValue(policyDoc('updating', []));
+        mockReadInput.mockResolvedValue(JSON.stringify([readStatement]));
+        mockPut.mockResolvedValue(policyDoc('updating', [readStatement]));
 
-        await run('set', 'invoices', '--statements', '[]');
+        await run('set', 'invoices', '--file', 'policy.json');
 
-        expect(mockConfirm.mock.calls[0]![0].message).toMatch(/Remove ALL custom policy statements/);
+        expect(mockReadInput).toHaveBeenCalledWith('policy.json');
+        expect(mockConfirm).toHaveBeenCalledTimes(1);
+        expect(mockPut).toHaveBeenCalledTimes(1);
       });
 
       it('cancels, and saves nothing, when the answer is no', async () => {
@@ -473,8 +586,7 @@ describe('storage policy commands', () => {
         expect(mockPut).toHaveBeenCalledTimes(1);
       });
 
-      it('refuses to go ahead without --yes when it cannot ask, and saves nothing', async () => {
-        routeGet();
+      it('refuses to go ahead without --yes when it cannot ask, before it asks the API anything', async () => {
         setTty(false);
 
         const attempt = run('set', 'invoices', '--statements', JSON.stringify([readStatement]));
@@ -482,25 +594,76 @@ describe('storage policy commands', () => {
         await expect(attempt).rejects.toThrow(ConfirmationRequiredError);
         await expect(attempt).rejects.toThrow(/without --force in non-interactive mode/);
         expect(mockConfirm).not.toHaveBeenCalled();
-        expect(mockPut).not.toHaveBeenCalled();
+        noApiCallWasMade();
+      });
+
+      it('does not even read the file first', async () => {
+        setTty(false);
+
+        await expect(run('set', 'invoices', '--file', 'policy.json')).rejects.toThrow(ConfirmationRequiredError);
+
+        expect(mockReadInput).not.toHaveBeenCalled();
+        noApiCallWasMade();
       });
 
       it('exits 5 with that message when it cannot ask', async () => {
-        routeGet();
         setTty(undefined);
 
         await expect(runCli('set', 'invoices', '--clear')).rejects.toMatchObject({ code: 5 });
 
         expect(err()).toMatch(/Refusing to proceed with replacing the custom policy statements of bucket invoices without --force/);
+        noApiCallWasMade();
       });
 
-      it('refuses under --json too, without --yes', async () => {
-        routeGet();
+      it('refuses under --json too, without --yes, before anything is sent', async () => {
         setJsonMode(true);
 
         await expect(run('set', 'invoices', '--clear')).rejects.toThrow(ConfirmationRequiredError);
 
-        expect(mockPut).not.toHaveBeenCalled();
+        noApiCallWasMade();
+      });
+
+      describe('statements from the standard input', () => {
+        // The question cannot be answered on a standard input that was read to its end: at a
+        // terminal the person types the statements, ends the input, and the prompt then reads
+        // the same ended input. It has to be said up front, before anything is read.
+        const REFUSAL = 'Refusing to proceed with replacing the custom policy statements of bucket invoices: '
+          + 'the statements come from the standard input, so there is nothing left to answer a confirmation on. '
+          + 'Add --yes (or --force) to go ahead.';
+
+        it('need --yes even at a terminal, and nothing is read, asked or sent without it', async () => {
+          setTty(true);
+
+          const attempt = run('set', 'invoices', '--file', '-');
+
+          await expect(attempt).rejects.toThrow(ConfirmationRequiredError);
+          await expect(attempt).rejects.toThrow(REFUSAL);
+          expect(mockReadInput).not.toHaveBeenCalled();
+          expect(mockConfirm).not.toHaveBeenCalled();
+          noApiCallWasMade();
+        });
+
+        it('exit 5 with that message, under --json too', async () => {
+          await expect(runCli('set', 'invoices', '--file', '-')).rejects.toMatchObject({ code: 5 });
+          expect(err()).toContain(REFUSAL);
+
+          setJsonMode(true);
+          await expect(runCli('set', 'invoices', '--file', '-')).rejects.toMatchObject({ code: 5 });
+          expect(jsonOut().error).toMatchObject({ code: 'confirmation_required', message: REFUSAL });
+          noApiCallWasMade();
+        });
+
+        it.each(['--yes', '-y', '--force', '-f'])('go ahead with %s, and are read only then', async (flag) => {
+          routeGet();
+          mockReadInput.mockResolvedValue(JSON.stringify([readStatement]));
+          mockPut.mockResolvedValue(policyDoc('updating', [readStatement]));
+
+          await run('set', 'invoices', '--file', '-', flag);
+
+          expect(mockReadInput).toHaveBeenCalledWith('-');
+          expect(mockConfirm).not.toHaveBeenCalled();
+          expect(mockPut).toHaveBeenCalledTimes(1);
+        });
       });
 
       it('does not ask when the input is refused first', async () => {
@@ -548,6 +711,69 @@ describe('storage policy commands', () => {
         expect(jsonOut().error).toBeNull();
       });
 
+      it('says which bucket the name resolved to, in the JSON meta', async () => {
+        routeGet();
+        mockPut.mockResolvedValue(policyDoc('updating', [readStatement]));
+        setJsonMode(true);
+
+        await run('set', 'invoices', '--statements', JSON.stringify([readStatement]), '--yes');
+
+        expect(jsonOut().meta).toEqual({ bucket_id: 'b-1' });
+      });
+
+      describe('when the answer carries nothing', () => {
+        // The change is made by now. An answer that is null or empty must not turn into a crash that never says so.
+        it.each([['null', null], ['an empty object', {}]])('says it was accepted, and where to look, for %s', async (_name, body) => {
+          routeGet();
+          mockPut.mockResolvedValue(body);
+
+          await run('set', 'invoices', '--clear', '--yes');
+
+          expect(out()).toContain('Removed all custom statements from bucket invoices.');
+          expect(everything()).toContain('The change was accepted; the answer carried no status.');
+          expect(everything()).toContain('danube storage policy get invoices shows what is stored.');
+          expect(everything()).not.toContain('undefined');
+          expect(process.exitCode).toBeUndefined();
+        });
+
+        it('prints it as it is under --json', async () => {
+          routeGet();
+          mockPut.mockResolvedValue(null);
+          setJsonMode(true);
+
+          await run('set', 'invoices', '--clear', '--yes');
+
+          expect(jsonOut()).toMatchObject({ success: true, data: null, meta: { bucket_id: 'b-1' } });
+        });
+
+        it('has nothing to print as data when the wait is cut off before any poll could answer', async () => {
+          mockPut.mockResolvedValue(null);
+          mockGet.mockImplementation((path: string, budgetMs?: number) => {
+            if (path.startsWith('/api/v1/storage/buckets?')) return Promise.resolve(page([bucket]));
+            now += budgetMs!;
+            return Promise.reject(new Error(`Request timed out after ${budgetMs}ms: GET ${path}`));
+          });
+          setJsonMode(true);
+
+          await run('set', 'invoices', '--clear', '--yes', '--wait', '--wait-timeout', '1');
+
+          const result = jsonOut();
+          expect(result.data).toBeNull();
+          expect(result.error).toMatchObject({ code: 'storage.policy_wait_timeout', retryable: true });
+          expect(process.exitCode).toBe(75);
+        });
+
+        it('waits all the same, since it cannot tell the change is no longer being applied', async () => {
+          routeGet({ policies: [policyDoc('updating'), policyDoc('active')] });
+          mockPut.mockResolvedValue(null);
+
+          await run('set', 'invoices', '--clear', '--yes', '--wait');
+
+          expect(polls()).toBe(2);
+          expect(everything()).toContain('The change is no longer being applied.');
+        });
+      });
+
       it('names the status plainly when the answer is not updating', async () => {
         routeGet();
         mockPut.mockResolvedValue(policyDoc('active', [readStatement]));
@@ -578,13 +804,18 @@ describe('storage policy commands', () => {
         expect(output).toContain('danube storage policy get invoices');
       });
 
-      it('does not claim the change reached the storage gateway', async () => {
+      it('says what active means in these words, and claims nothing more about the storage gateway', async () => {
         routeGet({ policies: [policyDoc('active', [readStatement])] });
         mockPut.mockResolvedValue(policyDoc('updating', [readStatement]));
 
         await run('set', 'invoices', ...flags);
 
-        expect(everything()).not.toMatch(/successfully|has reached|was applied|is live|now applied/i);
+        expect(out().split('\n').slice(-3)).toEqual([
+          'Status: active. The change is no longer being applied.',
+          'That does not prove the storage gateway holds it: a change the gateway refused also ends as active.',
+          'danube storage policy get invoices shows what is stored.',
+        ]);
+        expect(err()).not.toContain('gateway');
       });
 
       it('does not poll when the accepted change is already not updating', async () => {
@@ -642,21 +873,85 @@ describe('storage policy commands', () => {
         expect(err()).toContain('danube storage policy get invoices');
       });
 
-      it('lets a failed poll through under --json too, as the JSON error, without a note on stderr', async () => {
-        mockPut.mockResolvedValue(policyDoc('updating', [readStatement]));
-        let calls = 0;
-        mockGet.mockImplementation((path: string) => {
-          if (path.startsWith('/api/v1/storage/buckets?')) return Promise.resolve(page([bucket]));
-          calls++;
-          return Promise.reject(new ApiError(500, 'server on fire'));
+      describe('a failed poll under --json', () => {
+        // The change was accepted. A script that only saw {success: false, api_error} would
+        // think it was not, and might send it again, or give up on it.
+        const pollFailsWith = (failure: Error) => {
+          mockPut.mockResolvedValue(policyDoc('updating', [readStatement]));
+          mockGet.mockImplementation((path: string) =>
+            path.startsWith('/api/v1/storage/buckets?') ? Promise.resolve(page([bucket])) : Promise.reject(failure));
+          setJsonMode(true);
+        };
+
+        it('is ONE envelope that says the change was accepted, carries it, and sets the exit code instead of throwing', async () => {
+          pollFailsWith(new ApiError(500, 'server on fire'));
+
+          await run('set', 'invoices', ...flags);
+
+          expect(logSpy).toHaveBeenCalledTimes(1);
+          const result = jsonOut();
+          expect(result.success).toBe(false);
+          expect(result.data).toEqual(policyDoc('updating', [readStatement]));
+          expect(result.error).toEqual({
+            code: 'storage.policy_wait_failed',
+            message: 'server on fire',
+            retryable: true,
+            status: 500,
+          });
+          expect(result.meta).toEqual({ bucket_id: 'b-1', accepted: true });
+          expect(process.exitCode).toBe(1);
+          expect(errSpy).not.toHaveBeenCalled();
         });
-        setJsonMode(true);
 
-        await expect(runCli('set', 'invoices', ...flags)).rejects.toMatchObject({ code: 1 });
+        it('keeps the message of a failure that was not even an Error', async () => {
+          pollFailsWith('the pipe broke' as unknown as Error);
 
-        expect(calls).toBe(1);
-        expect(errSpy).not.toHaveBeenCalled();
-        expect(jsonOut().error).toMatchObject({ code: 'api_error', status: 500, message: 'server on fire' });
+          await run('set', 'invoices', ...flags);
+
+          expect(jsonOut().error).toMatchObject({ code: 'storage.policy_wait_failed', message: 'the pipe broke' });
+        });
+
+        it('carries the status and the Retry-After of a 429, so a script knows when to look again', async () => {
+          pollFailsWith(new ApiError(429, 'Too Many Requests', undefined, undefined, undefined, 12));
+
+          await run('set', 'invoices', ...flags);
+
+          expect(jsonOut().error).toMatchObject({ code: 'storage.policy_wait_failed', status: 429, retry_after_seconds: 12, retryable: true });
+        });
+
+        it('has no status for a failure that was not an answer from the API', async () => {
+          pollFailsWith(new Error('Could not reach GET http://x/policy (ECONNREFUSED).'));
+
+          await run('set', 'invoices', ...flags);
+
+          const { error } = jsonOut();
+          expect(error.message).toBe('Could not reach GET http://x/policy (ECONNREFUSED).');
+          expect(error).not.toHaveProperty('status');
+          expect(error).not.toHaveProperty('retry_after_seconds');
+          expect(process.exitCode).toBe(1);
+        });
+
+        it.each([
+          ['a 404, as every other command exits for one', new ApiError(404, 'Not Found'), 4],
+          ['a login that no longer works', new NotAuthenticatedError(), 3],
+        ])('exits as the other commands do for %s', async (_what, failure, exitCode) => {
+          pollFailsWith(failure);
+
+          await run('set', 'invoices', ...flags);
+
+          expect(process.exitCode).toBe(exitCode);
+          expect(jsonOut().error.code).toBe('storage.policy_wait_failed');
+        });
+      });
+
+      it('asks each poll to finish within the time that is left, so none runs past the ceiling', async () => {
+        routeGet({ policies: [policyDoc('updating')] });
+        mockPut.mockResolvedValue(policyDoc('updating', [readStatement]));
+
+        await run('set', 'invoices', ...flags, '--wait-timeout', '10');
+
+        const budgets = mockGet.mock.calls.filter((c) => c[0] === POLICY_PATH).map((c) => c[1]);
+        expect(budgets).toEqual([8_000, 6_000, 4_000, 2_000, 1_000]);
       });
 
       it('names the other status when the bucket ends in one, and exits 1', async () => {
@@ -683,7 +978,7 @@ describe('storage policy commands', () => {
         expect(result.success).toBe(true);
         expect(result.data.status).toBe('active');
         expect(result.data.custom_policy_statements).toEqual([readStatement]);
-        expect(result.meta).toEqual({ waited_ms: 4_000, settled: true });
+        expect(result.meta).toEqual({ bucket_id: 'b-1', waited_ms: 4_000, settled: true });
         expect(process.exitCode).toBeUndefined();
       });
 
@@ -698,7 +993,7 @@ describe('storage policy commands', () => {
         expect(result.success).toBe(false);
         expect(result.error).toMatchObject({ code: 'storage.policy_wait_timeout', retryable: true });
         expect(result.data.status).toBe('updating');
-        expect(result.meta).toEqual({ waited_ms: 4_000, settled: false });
+        expect(result.meta).toEqual({ bucket_id: 'b-1', waited_ms: 4_000, settled: false });
         expect(process.exitCode).toBe(75);
       });
 
@@ -751,6 +1046,47 @@ describe('storage policy commands', () => {
         expect(err()).toContain('API Error (403): Insufficient permissions');
         expect(err()).toContain('storage:read');
         expect(err()).toContain('storage:write');
+      });
+
+      it('does not blame the token for a 403 that is about the person\'s role', async () => {
+        routeGet();
+        mockPut.mockRejectedValue(new ApiError(403, 'This action is unauthorized.'));
+
+        await expect(runCli('set', 'invoices', '--clear', '--yes')).rejects.toMatchObject({ code: 1 });
+
+        expect(err()).toContain('API Error (403): This action is unauthorized.');
+        expect(err()).not.toContain('storage:');
+      });
+
+      describe('a 404 for a bucket the list said is not on the endpoint that supports policies', () => {
+        it('says exactly that, and exits 4', async () => {
+          routeGet({ buckets: [{ ...bucket, provider: 'minio' }] });
+          mockPut.mockRejectedValue(new ApiError(404, 'Not Found'));
+
+          await expect(runCli('set', 'invoices', '--clear', '--yes')).rejects.toMatchObject({ code: 4 });
+
+          expect(err()).toContain("Bucket 'invoices' is not on the endpoint that supports bucket policies, so its policy cannot be read or changed.");
+          expect(err()).not.toMatch(/no such bucket/i);
+        });
+
+        it('keeps both causes for a bucket that is on it', async () => {
+          routeGet({ buckets: [{ ...bucket, provider: 'ceph' }] });
+          mockPut.mockRejectedValue(new ApiError(404, 'Not Found'));
+
+          await expect(runCli('set', 'invoices', '--clear', '--yes')).rejects.toMatchObject({ code: 4 });
+
+          expect(err()).toMatch(/no such bucket/i);
+        });
+
+        it('says it for a read, and for the polls of a wait, too', async () => {
+          routeGet({ buckets: [{ ...bucket, provider: 'minio' }] });
+          mockGet.mockImplementation((path: string) =>
+            path.startsWith('/api/v1/storage/buckets?') ? Promise.resolve(page([{ ...bucket, provider: 'minio' }])) : Promise.reject(new ApiError(404, 'Not Found')));
+
+          await expect(runCli('get', 'invoices')).rejects.toMatchObject({ code: 4 });
+
+          expect(err()).toContain('is not on the endpoint that supports bucket policies');
+        });
       });
 
       it('says the policy is being applied, that nothing was saved, and when to try again, when it answers 409', async () => {
@@ -963,11 +1299,12 @@ describe('storage policy commands', () => {
         noApiCallWasMade();
       });
 
-      it('names every required flag that is missing', async () => {
+      it('names every required flag that is missing, without saying it is about non-interactive mode: it never asks', async () => {
         const attempt = run('grant', 'invoices', '--folder', 'f');
 
         await expect(attempt).rejects.toThrow(MissingFlagsError);
-        await expect(attempt).rejects.toThrow(/--key, --level/);
+        await expect(attempt).rejects.toThrow('Missing required flags: --key, --level');
+        await expect(attempt).rejects.not.toThrow(/non-interactive/);
         noApiCallWasMade();
       });
 
@@ -978,7 +1315,21 @@ describe('storage policy commands', () => {
         const attempt = run('grant', 'invoices', ...flags);
 
         await expect(attempt).rejects.toThrow(MissingFlagsError);
-        await expect(attempt).rejects.toThrow(new RegExp(`flag in non-interactive mode: ${missing}$`));
+        await expect(attempt).rejects.toThrow(`Missing required flag: ${missing}`);
+        noApiCallWasMade();
+      });
+
+      it.each([
+        ['--key', ['--key', 'a', '--key', 'b', '--folder', 'f', '--level', 'read']],
+        ['--folder', ['--key', KEY_ID, '--folder', 'a', '--folder', 'b', '--level', 'read']],
+        ['--level', ['--key', KEY_ID, '--folder', 'f', '--level', 'read', '--level', 'full']],
+        ['--wait-timeout', ['--key', KEY_ID, '--folder', 'f', '--level', 'read', '--wait', '--wait-timeout', '5', '--wait-timeout', '6']],
+      ])('refuses %s given twice, which would silently keep the last', async (flag, flags) => {
+        const attempt = run('grant', 'invoices', ...flags);
+
+        await expect(attempt).rejects.toThrow(UsageError);
+        await expect(attempt).rejects.toThrow(`${flag} was given more than once; give it once.`);
+        noApiCallWasMade();
       });
 
       it('never turns an empty folder into the whole bucket', async () => {
@@ -987,7 +1338,7 @@ describe('storage policy commands', () => {
 
         await expect(run('grant', 'invoices', '--key', KEY_ID, '--folder', '', '--level', 'read')).rejects.toThrow(UsageError);
 
-        expect(mockPost).not.toHaveBeenCalled();
+        noApiCallWasMade();
       });
     });
 
@@ -1073,6 +1424,165 @@ describe('storage policy commands', () => {
         expect(logSpy).toHaveBeenCalledTimes(1);
         expect(jsonOut().data).toEqual(response);
       });
+
+      it('says which bucket and which key the names resolved to, in the JSON meta', async () => {
+        routeGet();
+        mockPost.mockResolvedValue(accepted());
+        setJsonMode(true);
+
+        await run('grant', 'invoices', '--key', 'invoices-service', '--folder', 'f', '--level', 'read');
+
+        expect(jsonOut().meta).toEqual({ bucket_id: 'b-1', key_id: KEY_ID });
+      });
+    });
+
+    describe('what a grant does not do: narrow', () => {
+      // A grant only adds. A key that already holds `full` on a folder and is granted `read`
+      // there still holds `full`: the output must not read as if it had been set to `read`.
+      const TWO_OTHERS = 'This key has 2 other statements in the policy; a grant only adds. To narrow its access replace the custom statements: danube storage policy set invoices.';
+      const fullObjects = { Effect: 'Allow', Principal: { AWS: [ARN] }, Action: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject'], Resource: ['arn:aws:s3:::dd-4-invoices/invoices/*'] };
+      const listing = { Effect: 'Allow', Principal: { AWS: [ARN] }, Action: ['s3:ListBucket'], Resource: ['arn:aws:s3:::dd-4-invoices'] };
+      const someoneElse = { Effect: 'Allow', Principal: { AWS: ['arn:aws:iam:::user/team-4-sk-someone1'] }, Action: ['s3:GetObject'] };
+      const everyone = { Effect: 'Deny', Principal: '*', Action: ['s3:DeleteBucket'] };
+
+      it('says so when the key already has other statements, naming how many and how to narrow', async () => {
+        routeGet();
+        mockPost.mockResolvedValue(accepted({
+          added_statements: [readStatement],
+          custom_policy_statements: [fullObjects, listing, readStatement],
+        }));
+
+        await run('grant', 'invoices', '--key', KEY_ID, '--folder', 'invoices', '--level', 'read');
+
+        expect(err()).toContain(TWO_OTHERS);
+      });
+
+      it('says "1 other statement" for one', async () => {
+        routeGet();
+        mockPost.mockResolvedValue(accepted({
+          added_statements: [readStatement],
+          custom_policy_statements: [fullObjects, readStatement],
+        }));
+
+        await run('grant', 'invoices', '--key', KEY_ID, '--folder', 'invoices', '--level', 'read');
+
+        expect(err()).toContain('This key has 1 other statement in the policy; a grant only adds.');
+      });
+
+      it('counts only statements that name this key, whether the principal is a list or a single ARN', async () => {
+        routeGet();
+        const named = { ...fullObjects, Principal: { AWS: ARN } };
+        mockPost.mockResolvedValue(accepted({
+          added_statements: [readStatement],
+          custom_policy_statements: [named, someoneElse, everyone, readStatement],
+        }));
+
+        await run('grant', 'invoices', '--key', KEY_ID, '--folder', 'invoices', '--level', 'read');
+
+        expect(err()).toContain('This key has 1 other statement in the policy');
+      });
+
+      it('says nothing for a key whose only statements are the ones just added', async () => {
+        routeGet();
+        mockPost.mockResolvedValue(accepted({
+          added_statements: [readStatement, listing],
+          custom_policy_statements: [someoneElse, readStatement, listing],
+        }));
+
+        await run('grant', 'invoices', '--key', KEY_ID, '--folder', 'invoices', '--level', 'read');
+
+        expect(err()).not.toContain('a grant only adds');
+      });
+
+      it('says nothing when nothing was added: the statements it finds are the grant being asked again', async () => {
+        routeGet();
+        mockPost.mockResolvedValue(accepted({
+          added_statements: [],
+          custom_policy_statements: [readStatement, listing],
+        }));
+
+        await run('grant', 'invoices', '--key', KEY_ID, '--folder', 'invoices', '--level', 'read');
+
+        expect(out()).toContain('Nothing to add');
+        expect(err()).not.toContain('a grant only adds');
+      });
+
+      it('says nothing for a key that has no ARN of its own to look for', async () => {
+        routeGet({ keys: [keyRow({ arn: null })] });
+        mockPost.mockResolvedValue(accepted({
+          added_statements: [readStatement],
+          custom_policy_statements: [fullObjects, readStatement],
+        }));
+
+        await run('grant', 'invoices', '--key', KEY_ID, '--folder', 'invoices', '--level', 'read');
+
+        expect(err()).not.toContain('a grant only adds');
+      });
+
+      it('prints it after the warnings, and not under --json, where the response carries the statements', async () => {
+        routeGet();
+        mockPost.mockResolvedValue(accepted({
+          added_statements: [readStatement],
+          warnings: ['A warning.'],
+          custom_policy_statements: [fullObjects, listing, readStatement],
+        }));
+
+        await run('grant', 'invoices', '--key', KEY_ID, '--folder', 'invoices', '--level', 'read');
+        expect(err().indexOf('A warning.')).toBeLessThan(err().indexOf('a grant only adds'));
+
+        errSpy.mockClear();
+        setJsonMode(true);
+        await run('grant', 'invoices', '--key', KEY_ID, '--folder', 'invoices', '--level', 'read');
+        expect(errSpy).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('when the answer carries too little', () => {
+      // The grant is applied by now: a missing field must not become a crash that never says so.
+      it('names what it cannot say, instead of "nothing to add", when added_statements is missing', async () => {
+        routeGet();
+        mockPost.mockResolvedValue({ ...policyDoc('updating', [readStatement]) });
+
+        await run('grant', 'invoices', '--key', KEY_ID, '--folder', 'f', '--level', 'read');
+
+        expect(out()).toContain('The grant was accepted, but the answer did not say what was added.');
+        expect(out()).not.toContain('Nothing to add');
+        expect(out()).toMatch(/Where\s+folder f/);
+        expect(everything()).toMatch(/Status: updating/);
+      });
+
+      it('takes missing warnings for none', async () => {
+        routeGet();
+        mockPost.mockResolvedValue({ added_statements: [readStatement], ...policyDoc('updating', [readStatement]) });
+
+        await run('grant', 'invoices', '--key', KEY_ID, '--folder', 'f', '--level', 'read');
+
+        expect(out()).toContain('Added 1 statement to the policy');
+        expect(err()).not.toContain('Warning');
+      });
+
+      it.each([['null', null], ['an empty object', {}]])('says it was accepted, and where to look, for %s', async (_name, body) => {
+        routeGet();
+        mockPost.mockResolvedValue(body);
+
+        await run('grant', 'invoices', '--key', KEY_ID, '--whole-bucket', '--level', 'full');
+
+        expect(out()).toContain('The grant was accepted, but the answer did not say what was added.');
+        expect(out()).toMatch(/Where\s+the whole bucket/);
+        expect(everything()).toContain('The change was accepted; the answer carried no status.');
+        expect(everything()).not.toContain('undefined');
+        expect(process.exitCode).toBeUndefined();
+      });
+
+      it('prints a null answer as it is under --json, with what the names resolved to', async () => {
+        routeGet();
+        mockPost.mockResolvedValue(null);
+        setJsonMode(true);
+
+        await run('grant', 'invoices', '--key', KEY_ID, '--folder', 'f', '--level', 'read');
+
+        expect(jsonOut()).toMatchObject({ success: true, data: null, meta: { bucket_id: 'b-1', key_id: KEY_ID } });
+      });
     });
 
     describe('--wait', () => {
@@ -1102,7 +1612,7 @@ describe('storage policy commands', () => {
         expect(result.data.status).toBe('active');
         expect(result.data.added_statements).toEqual([readStatement, denyStatement]);
         expect(result.data.warnings).toEqual(['A warning.']);
-        expect(result.meta.settled).toBe(true);
+        expect(result.meta).toEqual({ bucket_id: 'b-1', key_id: KEY_ID, waited_ms: 2_000, settled: true });
       });
 
       it('gives up at --wait-timeout and exits 75', async () => {

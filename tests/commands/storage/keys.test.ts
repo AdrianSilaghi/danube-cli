@@ -26,7 +26,7 @@ vi.mock('@inquirer/prompts', () => ({
 
 const { keysCommand } = await import('../../../src/commands/storage/keys.js');
 const { setJsonMode } = await import('../../../src/lib/json-mode.js');
-const { UsageError, ResourceNotFoundError } = await import('../../../src/lib/errors.js');
+const { ApiError, UsageError, ResourceNotFoundError } = await import('../../../src/lib/errors.js');
 
 class ExitError extends Error {
   constructor(public code: number) {
@@ -182,6 +182,22 @@ describe('keys command', () => {
       await keysCommand.parseAsync(['node', 'test', 'ls']);
 
       expect(printed()).not.toContain(ARN);
+    });
+
+    it('shows a key past its expiry date as expired, not active', async () => {
+      mockGet.mockResolvedValue(page([
+        makeKey({ id: 'k-live', name: 'live-key', status: 'active', is_expired: false }),
+        makeKey({ id: 'k-late', name: 'late-key', status: 'active', is_expired: true }),
+        makeKey({ id: 'k-gone', name: 'gone-key', status: 'revoked', is_expired: true }),
+      ]));
+
+      await keysCommand.parseAsync(['node', 'test', 'ls']);
+
+      const [, , live, late, gone] = plain(String(consoleLogSpy.mock.calls[0]![0])).split('\n');
+      expect(live).toMatch(/live-key\s.*\sactive\s/);
+      expect(late).toMatch(/late-key\s.*\sexpired\s/);
+      expect(late).not.toContain('active');
+      expect(gone).toMatch(/gone-key\s.*\srevoked\s/);
     });
 
     it('shows when a key expires and when it was last used', async () => {
@@ -384,6 +400,45 @@ describe('keys command', () => {
         expect(mockPost).not.toHaveBeenCalled();
       });
 
+      it('does not take the beginning of a bucket id for a bucket name: a mistyped name must not land on another bucket', async () => {
+        routeBuckets(makeBucket('invoices', { id: 'cafe1234-0000-4000-8000-000000000001' }));
+
+        const attempt = keysCommand.parseAsync([
+          'node', 'test', 'create', '--name', 'svc', '--scope', 'buckets', '--bucket', 'cafe:full',
+        ]);
+
+        await expect(attempt).rejects.toThrow(ResourceNotFoundError);
+        await expect(attempt).rejects.toThrow("bucket 'cafe' not found.");
+        expect(mockPost).not.toHaveBeenCalled();
+      });
+
+      it('takes a full bucket id', async () => {
+        routeBuckets(makeBucket('invoices', { id: 'cafe1234-0000-4000-8000-000000000001' }));
+        mockPost.mockResolvedValue(created({ arn: ARN, scope: 'buckets' }));
+
+        await keysCommand.parseAsync([
+          'node', 'test', 'create', '--name', 'svc', '--scope', 'buckets', '--bucket', 'cafe1234-0000-4000-8000-000000000001:full',
+        ]);
+
+        expect(sentBody().bucket_permissions).toStrictEqual([{ bucket_id: 'cafe1234-0000-4000-8000-000000000001', level: 'full' }]);
+      });
+
+      it('refuses two buckets with the same name as a usage error naming them by id, and creates nothing', async () => {
+        routeBuckets(
+          makeBucket('twin', { id: 'aaaa0000-0000-4000-8000-000000000001' }),
+          makeBucket('twin', { id: 'bbbb0000-0000-4000-8000-000000000002' }),
+        );
+
+        const attempt = keysCommand.parseAsync([
+          'node', 'test', 'create', '--name', 'svc', '--scope', 'buckets', '--bucket', 'twin:read',
+        ]);
+
+        await expect(attempt).rejects.toThrow(UsageError);
+        await expect(attempt).rejects.toThrow(/aaaa0000-0000-4000-8000-000000000001 {2}twin/);
+        await expect(attempt).rejects.toThrow("Use the bucket's id.");
+        expect(mockPost).not.toHaveBeenCalled();
+      });
+
       it.each([
         ['twice by name', ['invoices:read', 'invoices:full']],
         ['once by name and once by id', ['invoices:read', 'b-invoices:full']],
@@ -408,6 +463,7 @@ describe('keys command', () => {
         ['--scope team with a bucket', ['--scope', 'team', '--bucket', 'invoices:read'], /--scope team takes no --bucket/],
         ['--scope none with a bucket', ['--scope', 'none', '--bucket', 'invoices:read'], /--scope none takes no --bucket/],
         ['a scope that does not exist', ['--scope', 'everything'], /team, buckets or none/],
+        ['a scope given twice, which would silently keep the last', ['--scope', 'none', '--scope', 'team'], /--scope was given more than once/],
         ['a bucket with no level', ['--scope', 'buckets', '--bucket', 'invoices'], /<bucket>:<level>/],
         ['a level that does not exist', ['--scope', 'buckets', '--bucket', 'invoices:admin'], /read, readwrite or full/],
         ['a level with no bucket', ['--scope', 'buckets', '--bucket', ':read'], /names no bucket/],
@@ -435,53 +491,112 @@ describe('keys command', () => {
     });
 
     describe('a key that did not get the scope that was asked for', () => {
-      // An older server ignores a field it does not know and answers with the
-      // key it did create: a team key, which reaches every bucket. Printing
-      // that as a success would hand over a key broader than the one asked for.
-      it('is not reported as a success when --scope none comes back as team', async () => {
-        mockPost.mockResolvedValue(created({ scope: 'team', arn: null }));
+      // The platform should never answer with a key of another scope than the one asked for. If
+      // it does, the key it made may reach every bucket. Its secret is not shown, so nobody can
+      // use it: the command revokes it, instead of leaving a broader key behind that only a
+      // person at a terminal could clean up (`keys revoke` asks to confirm, so it cannot run in
+      // automation).
+      const askForNone = ['node', 'test', 'create', '--name', 'svc', '--scope', 'none'];
+      const answersWithATeamKey = () => mockPost.mockResolvedValue(created({ scope: 'team', arn: null }));
+      const REVOKE_PATH = '/api/v1/storage/access-keys/key-uuid-1';
 
-        await expect(keysCommand.parseAsync(['node', 'test', 'create', '--name', 'svc', '--scope', 'none']))
-          .rejects.toThrow(ExitError);
+      it('is not reported as a success when --scope none comes back as team, and exits 1', async () => {
+        answersWithATeamKey();
+        mockDelete.mockResolvedValue({ message: 'Access key has been revoked' });
+
+        await expect(keysCommand.parseAsync(askForNone)).rejects.toThrow(ExitError);
 
         expect(process.exit).toHaveBeenCalledWith(1);
         const output = printed();
         expect(output).toContain('did not apply the scope you asked for');
         expect(output).toContain('asked for: none');
         expect(output).toContain('reported: team');
-        expect(output).toContain('danube storage keys revoke key-uuid-1');
       });
 
-      it('does not print the secret of a key that is not what was asked for', async () => {
-        mockPost.mockResolvedValue(created({ scope: 'team', arn: null }));
+      it('revokes the key it just created, once, and says that it did', async () => {
+        answersWithATeamKey();
+        mockDelete.mockResolvedValue({ message: 'Access key has been revoked' });
 
-        await expect(keysCommand.parseAsync(['node', 'test', 'create', '--name', 'svc', '--scope', 'none'])).rejects.toThrow(ExitError);
+        await expect(keysCommand.parseAsync(askForNone)).rejects.toThrow(ExitError);
+
+        expect(mockDelete).toHaveBeenCalledTimes(1);
+        expect(mockDelete).toHaveBeenCalledWith(REVOKE_PATH);
+        expect(printed()).toContain('The key has been revoked.');
+        expect(printed()).not.toContain('Revoke it now');
+        expect(process.exit).toHaveBeenCalledWith(1);
+      });
+
+      it('says it could not revoke it, and why, and gives the command that revokes without asking', async () => {
+        answersWithATeamKey();
+        mockDelete.mockRejectedValue(new ApiError(403, 'Insufficient permissions'));
+
+        await expect(keysCommand.parseAsync(askForNone)).rejects.toThrow(ExitError);
+
+        expect(process.exit).toHaveBeenCalledWith(1);
+        expect(printed()).toContain('The key could not be revoked: Insufficient permissions');
+        expect(printed()).toContain('Revoke it now: danube storage keys revoke key-uuid-1 --yes');
+        expect(printed()).not.toContain('has been revoked');
+      });
+
+      it('treats a revoke that fails on the network the same way', async () => {
+        answersWithATeamKey();
+        mockDelete.mockRejectedValue(new Error('Could not reach DELETE http://x (ECONNREFUSED).'));
+
+        await expect(keysCommand.parseAsync(askForNone)).rejects.toThrow(ExitError);
+
+        expect(printed()).toContain('The key could not be revoked: Could not reach DELETE http://x (ECONNREFUSED).');
+        expect(printed()).toContain('danube storage keys revoke key-uuid-1 --yes');
+      });
+
+      it('keeps the reason of a revoke that failed with something that was not an Error', async () => {
+        answersWithATeamKey();
+        mockDelete.mockRejectedValue('the pipe broke');
+
+        await expect(keysCommand.parseAsync(askForNone)).rejects.toThrow(ExitError);
+
+        expect(printed()).toContain('The key could not be revoked: the pipe broke');
+      });
+
+      it.each([
+        ['when the revoke worked', () => mockDelete.mockResolvedValue({ message: 'revoked' })],
+        ['when the revoke failed', () => mockDelete.mockRejectedValue(new ApiError(500, 'boom'))],
+      ])('never prints the secret, %s', async (_when, revokeOutcome) => {
+        answersWithATeamKey();
+        revokeOutcome();
+
+        await expect(keysCommand.parseAsync(askForNone)).rejects.toThrow(ExitError);
 
         expect(printed()).not.toContain(SECRET);
         expect(printed()).not.toContain('Secret Access Key');
       });
 
-      it('is not reported as a success when the answer does not say what scope the key has', async () => {
+      it('revokes a key whose answer does not say what scope it has, too', async () => {
         routeBuckets(makeBucket('invoices'));
         const { scope: _omitted, ...withoutScope } = created({ arn: ARN });
         mockPost.mockResolvedValue(withoutScope);
+        mockDelete.mockResolvedValue({ message: 'revoked' });
 
         await expect(keysCommand.parseAsync([
           'node', 'test', 'create', '--name', 'svc', '--scope', 'buckets', '--bucket', 'invoices:read',
         ])).rejects.toThrow(ExitError);
 
+        expect(mockDelete).toHaveBeenCalledWith(REVOKE_PATH);
         expect(printed()).toContain('reported: no scope');
         expect(printed()).not.toContain(SECRET);
       });
 
-      it('says so as one failure envelope under --json, with the key id and without the secret', async () => {
-        mockPost.mockResolvedValue(created({ scope: 'team', arn: null }));
+      it.each([
+        ['worked', () => mockDelete.mockResolvedValue({ message: 'revoked' }), true],
+        ['failed', () => mockDelete.mockRejectedValue(new ApiError(403, 'Insufficient permissions')), false],
+      ])('says so as one failure envelope under --json when the revoke %s, with the key id and no secret', async (_outcome, revokeOutcome, revoked) => {
+        answersWithATeamKey();
+        revokeOutcome();
         setJsonMode(true);
 
-        await expect(keysCommand.parseAsync(['node', 'test', 'create', '--name', 'svc', '--scope', 'none']))
-          .rejects.toThrow(ExitError);
+        await expect(keysCommand.parseAsync(askForNone)).rejects.toThrow(ExitError);
 
         expect(process.exit).toHaveBeenCalledWith(1);
+        expect(consoleLogSpy).toHaveBeenCalledTimes(1);
         const out = jsonOutputOf();
         expect(out.success).toBe(false);
         expect(out.error).toMatchObject({
@@ -489,6 +604,8 @@ describe('keys command', () => {
           id: 'key-uuid-1',
           requested_scope: 'none',
           reported_scope: 'team',
+          revoked,
+          revoke_command: 'danube storage keys revoke key-uuid-1 --yes',
         });
         expect(JSON.stringify(out)).not.toContain(SECRET);
       });
@@ -496,9 +613,10 @@ describe('keys command', () => {
       it('does not second-guess an answer that matches what was asked', async () => {
         mockPost.mockResolvedValue(created({ scope: 'none', arn: ARN }));
 
-        await keysCommand.parseAsync(['node', 'test', 'create', '--name', 'svc', '--scope', 'none']);
+        await keysCommand.parseAsync(askForNone);
 
         expect(process.exit).not.toHaveBeenCalled();
+        expect(mockDelete).not.toHaveBeenCalled();
         expect(printed()).toContain(SECRET);
       });
 
@@ -508,6 +626,7 @@ describe('keys command', () => {
 
         await keysCommand.parseAsync(['node', 'test', 'create', '--name', 'svc', '--scope', 'team']);
 
+        expect(mockDelete).not.toHaveBeenCalled();
         expect(printed()).toContain(SECRET);
       });
 
@@ -517,7 +636,102 @@ describe('keys command', () => {
 
         await keysCommand.parseAsync(['node', 'test', 'create', '--name', 'svc']);
 
+        expect(mockDelete).not.toHaveBeenCalled();
         expect(printed()).toContain(SECRET);
+      });
+    });
+
+    describe('an answer that cannot be read', () => {
+      // A 2xx means the key exists, whatever the body says: it must not become a crash that
+      // never says so, or "Created access key undefined" with an `undefined` secret.
+      const create = ['node', 'test', 'create', '--name', 'svc'];
+
+      it.each([
+        ['null', null],
+        ['an empty object', {}],
+        ['a body that is not an object', 'ok'],
+        ['a key without its secret', { id: 'key-uuid-1', name: 'svc', access_key_id: 'DDAKCREATED0000001' }],
+        ['a key without its id', { name: 'svc', access_key_id: 'DDAKCREATED0000001', secret_access_key: SECRET }],
+      ])('is reported as unreadable, with where to look, rather than as a crash: %s', async (_name, body) => {
+        mockPost.mockResolvedValue(body);
+
+        await expect(keysCommand.parseAsync(create)).rejects.toThrow(ExitError);
+
+        expect(process.exit).toHaveBeenCalledWith(1);
+        expect(printed()).toContain('its answer could not be read');
+        expect(printed()).toContain('The key may exist: run `danube storage keys ls`');
+        expect(printed()).not.toContain('undefined');
+        expect(printed()).not.toContain('TypeError');
+      });
+
+      it('never prints a secret from an answer it did not trust', async () => {
+        mockPost.mockResolvedValue({ name: 'svc', access_key_id: 'DDAKCREATED0000001', secret_access_key: SECRET });
+
+        await expect(keysCommand.parseAsync(create)).rejects.toThrow(ExitError);
+
+        expect(printed()).not.toContain(SECRET);
+      });
+
+      it('says it as one failure envelope under --json', async () => {
+        mockPost.mockResolvedValue(null);
+        setJsonMode(true);
+
+        await expect(keysCommand.parseAsync(create)).rejects.toThrow(ExitError);
+
+        expect(process.exit).toHaveBeenCalledWith(1);
+        expect(consoleLogSpy).toHaveBeenCalledTimes(1);
+        const out = jsonOutputOf();
+        expect(out.success).toBe(false);
+        expect(out.error.code).toBe('storage.key_answer_unreadable');
+        expect(out.error.message).toContain('danube storage keys ls');
+      });
+
+      it('is judged before the scope: an unreadable answer to --scope none is not "not applied", and there is no id to revoke', async () => {
+        mockPost.mockResolvedValue(null);
+
+        await expect(keysCommand.parseAsync([...create, '--scope', 'none'])).rejects.toThrow(ExitError);
+
+        expect(printed()).toContain('could not be read');
+        expect(printed()).not.toContain('did not apply the scope');
+        expect(mockDelete).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('a platform that does not know --scope none', () => {
+      const askForNone = ['node', 'test', 'create', '--name', 'svc', '--scope', 'none'];
+
+      it('says so, with what the API said, when it refuses the scope with a 422', async () => {
+        mockPost.mockRejectedValue(new ApiError(422, 'The selected scope is invalid.', { scope: ['The selected scope is invalid.'] }));
+
+        const attempt = keysCommand.parseAsync(askForNone);
+
+        await expect(attempt).rejects.toThrow(ApiError);
+        await expect(attempt).rejects.toThrow('This platform does not support --scope none yet (the API said: The selected scope is invalid.)');
+        await expect(attempt).rejects.toMatchObject({ statusCode: 422, errors: { scope: ['The selected scope is invalid.'] } });
+      });
+
+      it('leaves a 422 about something else alone', async () => {
+        const refused = new ApiError(422, 'The name field is required.', { name: ['The name field is required.'] });
+        mockPost.mockRejectedValue(refused);
+
+        await expect(keysCommand.parseAsync(askForNone)).rejects.toBe(refused);
+      });
+
+      it('leaves a 422 about the scope alone when another scope was asked for', async () => {
+        routeBuckets(makeBucket('invoices'));
+        const refused = new ApiError(422, 'The selected scope is invalid.', { scope: ['The selected scope is invalid.'] });
+        mockPost.mockRejectedValue(refused);
+
+        await expect(keysCommand.parseAsync([
+          'node', 'test', 'create', '--name', 'svc', '--scope', 'buckets', '--bucket', 'invoices:read',
+        ])).rejects.toBe(refused);
+      });
+
+      it('leaves any other failure alone', async () => {
+        const down = new ApiError(500, 'boom');
+        mockPost.mockRejectedValue(down);
+
+        await expect(keysCommand.parseAsync(askForNone)).rejects.toBe(down);
       });
     });
 
@@ -654,6 +868,15 @@ describe('keys command', () => {
 
       expect(printed()).not.toMatch(/Expires\s+never/);
       expect(printed()).not.toMatch(/Last Used\s+-/);
+    });
+
+    it('shows a key past its expiry date as expired, not active', async () => {
+      mockGet.mockResolvedValue({ access_key: makeKey({ status: 'active', is_expired: true }) });
+
+      await keysCommand.parseAsync(['node', 'test', 'get', 'key-1']);
+
+      expect(printed()).toMatch(/Status\s+expired/);
+      expect(printed()).not.toMatch(/Status\s+active/);
     });
 
     it('says a team key signs as the team', async () => {

@@ -49,6 +49,8 @@ export function handleError(err: unknown): never {
         // concerns, and whether a retry can help. Without this, every API
         // failure looks equally retryable from the outside.
         ...(err.cause && { cause: err.cause }),
+        // How long it asked to be left alone. Zero is an answer too ("now").
+        ...(err.retryAfterSeconds !== undefined && { retry_after_seconds: err.retryAfterSeconds }),
       });
       process.exit(err.statusCode === 404 ? 4 : 1);
     }

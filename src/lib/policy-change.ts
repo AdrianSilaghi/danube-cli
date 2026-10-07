@@ -1,8 +1,8 @@
 import chalk from 'chalk';
 import type { ApiClient } from './api-client.js';
-import { isJsonMode, jsonOutput, jsonEnvelope } from './json-mode.js';
+import { isJsonMode, jsonEnvelope } from './json-mode.js';
 import { statusColor } from './output.js';
-import { UsageError } from './errors.js';
+import { ApiError, NotAuthenticatedError, UsageError } from './errors.js';
 import { policyApi, policyPath, POLICY_UPDATING } from './bucket-policy.js';
 import { waitForPolicy, parseWaitTimeout, DEFAULT_WAIT_TIMEOUT_MS, type PolicyWaitResult } from './wait-for-policy.js';
 import { CLIENT_WAIT_TIMEOUT_EXIT_CODE } from './report-run.js';
@@ -38,23 +38,41 @@ export function waitCeiling(flags: WaitFlags): number | null {
 export interface Change {
   api: ApiClient;
   bucket: StorageBucket;
-  accepted: BucketPolicy;
+  /**
+   * What the API answered. It is a policy document, but the change is made by the
+   * time it arrives, so a body that is empty or has no status is reported as what
+   * it is, not as a crash.
+   */
+  accepted: BucketPolicy | null;
   /** What the change did, in words: printed before the status, and before any wait. */
   describe: () => void;
   /** How long to wait, or null for not waiting. */
   ceilingMs: number | null;
+  /** What the names on the command line resolved to: the ids the JSON says it acted on. */
+  meta: Record<string, unknown>;
 }
 
 /** What `updating` means, in the words the API's own documentation uses. */
 const ON_ITS_WAY = 'The change is saved and on its way to the storage gateway.';
 
+/** Where a wait starts when the answer did not say: on its way, which is what a 202 means. */
+const ASSUMED_UPDATING: BucketPolicy = { custom_policy_statements: [], effective_policy: null, status: POLICY_UPDATING };
+
 const seconds = (ms: number): number => Math.round(ms / 1000);
 
 const checkLater = (bucketName: string): string => `danube storage policy get ${bucketName} shows what is stored.`;
 
-function printAccepted(bucketName: string, status: string): void {
-  console.log(`Status: ${statusColor(status)}`);
-  if (status === POLICY_UPDATING) console.log(`${ON_ITS_WAY} Add --wait to wait until it is no longer being applied.`);
+const hasStatus = (accepted: BucketPolicy | null): accepted is BucketPolicy => typeof accepted?.status === 'string';
+
+function printAccepted(bucketName: string, accepted: BucketPolicy | null): void {
+  if (!hasStatus(accepted)) {
+    console.log('The change was accepted; the answer carried no status.');
+    console.log(chalk.dim(checkLater(bucketName)));
+    return;
+  }
+
+  console.log(`Status: ${statusColor(accepted.status)}`);
+  if (accepted.status === POLICY_UPDATING) console.log(`${ON_ITS_WAY} Add --wait to wait until it is no longer being applied.`);
   console.log(chalk.dim(checkLater(bucketName)));
 }
 
@@ -82,7 +100,15 @@ function printTimeout(bucketName: string, waitedMs: number): void {
   console.error(chalk.dim(`Check later: danube storage policy get ${bucketName}`));
 }
 
-function waitEnvelope(accepted: BucketPolicy, result: PolicyWaitResult): void {
+/**
+ * The document last seen, over what only the accepted answer carries (a grant's
+ * added statements and warnings): what the polls saw is newer, and wins.
+ */
+function latestDocument(accepted: BucketPolicy | null, observed: BucketPolicy | null): BucketPolicy | null {
+  return observed ? { ...accepted, ...observed } : accepted;
+}
+
+function waitEnvelope(change: Change, result: PolicyWaitResult): void {
   const status = result.policy.status;
   const error = !result.settled
     ? {
@@ -94,25 +120,55 @@ function waitEnvelope(accepted: BucketPolicy, result: PolicyWaitResult): void {
       ? null
       : { code: 'storage.policy_not_active', message: `The bucket ended in status '${status}', so the change may not have been applied.`, retryable: false };
 
-  // What only the accepted answer carries (a grant's added statements and
-  // warnings) stays; what the polls saw is newer, and wins.
-  jsonEnvelope({ ...accepted, ...result.policy }, { error, meta: { waited_ms: result.waitedMs, settled: result.settled } });
+  const observed = result.policy === ASSUMED_UPDATING ? null : result.policy;
+
+  jsonEnvelope(latestDocument(change.accepted, observed), {
+    error,
+    meta: { ...change.meta, waited_ms: result.waitedMs, settled: result.settled },
+  });
+}
+
+/** The exit code `handleError` gives the same failure, so a wait that failed exits as the command would have. */
+function exitCodeFor(err: unknown): number {
+  if (err instanceof NotAuthenticatedError) return 3;
+
+  return err instanceof ApiError && err.statusCode === 404 ? 4 : 1;
+}
+
+/**
+ * A poll failed after the change was accepted. A person is told so, and then the
+ * error is reported as it would have been. A script gets one envelope that
+ * carries the accepted document and says `accepted: true`: the bare API error
+ * it would otherwise see reads as if the change had not been made.
+ */
+function reportFailedWait(change: Change, err: unknown): void {
+  if (!isJsonMode()) {
+    console.error(chalk.yellow(`The change was accepted, but waiting for it failed. ${checkLater(change.bucket.name)}`));
+    throw err;
+  }
+
+  jsonEnvelope(change.accepted, {
+    error: {
+      code: 'storage.policy_wait_failed',
+      message: err instanceof Error ? err.message : String(err),
+      retryable: true,
+      ...(err instanceof ApiError && { status: err.statusCode }),
+      ...(err instanceof ApiError && err.retryAfterSeconds !== undefined && { retry_after_seconds: err.retryAfterSeconds }),
+    },
+    meta: { ...change.meta, accepted: true },
+  });
+  process.exitCode = exitCodeFor(err);
 }
 
 async function waitFor(change: Change, ceilingMs: number): Promise<PolicyWaitResult> {
   const { api, bucket, accepted } = change;
-  const fetchPolicy = () =>
-    policyApi(() => api.get<BucketPolicy>(policyPath(bucket.id)), { bucket: bucket.name, needs: 'read' });
+  const fetchPolicy = (timeoutMs: number) =>
+    policyApi(
+      () => api.get<BucketPolicy>(policyPath(bucket.id), timeoutMs),
+      { bucket: bucket.name, needs: 'read', provider: bucket.provider },
+    );
 
-  try {
-    return await waitForPolicy(fetchPolicy, accepted, { timeoutMs: ceilingMs });
-  } catch (err) {
-    // The change itself went through: a person who sees only the error would think it did not.
-    if (!isJsonMode()) {
-      console.error(chalk.yellow(`The change was accepted, but waiting for it failed. ${checkLater(bucket.name)}`));
-    }
-    throw err;
-  }
+  return waitForPolicy(fetchPolicy, hasStatus(accepted) ? accepted : ASSUMED_UPDATING, { timeoutMs: ceilingMs });
 }
 
 /**
@@ -129,10 +185,10 @@ export async function finishChange(change: Change): Promise<void> {
 
   if (ceilingMs === null) {
     if (isJsonMode()) {
-      jsonOutput(accepted);
+      jsonEnvelope(accepted, { meta: change.meta });
     } else {
       change.describe();
-      printAccepted(bucket.name, accepted.status);
+      printAccepted(bucket.name, accepted);
     }
     return;
   }
@@ -142,9 +198,15 @@ export async function finishChange(change: Change): Promise<void> {
     console.error(chalk.dim(`Waiting for the change to finish being applied (up to ${seconds(ceilingMs)}s)...`));
   }
 
-  const result = await waitFor(change, ceilingMs);
+  let result: PolicyWaitResult;
+  try {
+    result = await waitFor(change, ceilingMs);
+  } catch (err) {
+    reportFailedWait(change, err);
+    return;
+  }
 
-  if (isJsonMode()) waitEnvelope(accepted, result);
+  if (isJsonMode()) waitEnvelope(change, result);
   else if (result.settled) printSettled(bucket.name, result.policy);
   else printTimeout(bucket.name, result.waitedMs);
 

@@ -141,6 +141,11 @@ export interface StorageBucket {
   name: string;
   minio_bucket_name: string | null;
   region: string;
+  /**
+   * Which storage endpoint the bucket is on (`ceph` or `minio`). A bucket policy
+   * can be edited only on one of them; absent on a server that does not say.
+   */
+  provider?: string;
   status: string;
   endpoint: string | null;
   public_access: boolean;

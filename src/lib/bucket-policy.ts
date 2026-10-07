@@ -16,9 +16,21 @@ export interface PolicyCall {
   bucket: string;
   /** What the call needs of the token: a read, or a change (which reads the answer too). */
   needs: 'read' | 'write';
+  /**
+   * The `provider` the bucket list gave the bucket, when it gave one: the policy
+   * editor covers buckets on one endpoint only (`ceph`), and a 404 for a bucket
+   * on another is then not a puzzle.
+   */
+  provider?: string;
 }
 
+/** The provider of the endpoint that supports bucket policies. */
+const POLICY_PROVIDER = 'ceph';
+
 const endWithFullStop = (text: string): string => `${text.replace(/[.\s]+$/, '')}.`;
+
+/** What the API says when the TOKEN lacks an ability, as opposed to the person lacking a role. */
+const isAbilityRefusal = (message: string): boolean => /^insufficient permissions\.?$/i.test(message.trim());
 
 const NEEDS: Record<PolicyCall['needs'], string> = {
   read: 'Reading a bucket policy needs an API token with the storage:read ability.',
@@ -31,14 +43,23 @@ function retryIn(seconds: number | undefined): string {
   return seconds === 1 ? '1 second' : `${seconds} seconds`;
 }
 
+function unavailableMessage(context: PolicyCall): string {
+  if (context.provider !== undefined && context.provider !== POLICY_PROVIDER) {
+    return `Bucket '${context.bucket}' is not on the endpoint that supports bucket policies, so its policy cannot be read or changed.`;
+  }
+
+  return `Bucket policy not found for '${context.bucket}': either there is no such bucket, or the bucket policy editor is not available for this bucket or this platform.`;
+}
+
 /**
  * The failure the policy endpoints report, said in terms of what a person can do.
  *
  * - 404 means one of two things the API does not tell apart: there is no such
  *   bucket, or the policy editor does not cover it — it is off, the bucket is
  *   not on the endpoint that supports policies, or this platform has no policy
- *   routes yet. The message names both rather than choosing.
- * - 403 names the abilities a token needs.
+ *   routes yet. The message names both rather than choosing — unless the bucket
+ *   list already said the bucket is on another endpoint, which settles it.
+ * - 403 names the abilities a token needs, when it is the token that lacks them.
  * - 409 means the bucket's policy was being applied and the change was NOT
  *   saved; it says when to try again.
  *
@@ -57,13 +78,12 @@ export async function policyApi<T>(call: () => Promise<T>, context: PolicyCall):
 
     switch (err.statusCode) {
       case 404:
-        throw new ApiError(
-          404,
-          `Bucket policy not found for '${context.bucket}': either there is no such bucket, or the bucket policy editor is not available for this bucket or this platform.`,
-          undefined,
-          { code: POLICY_UNAVAILABLE_CODE, retryable: false },
-        );
+        throw new ApiError(404, unavailableMessage(context), undefined, { code: POLICY_UNAVAILABLE_CODE, retryable: false });
       case 403:
+        // Only a token that lacks an ability is told which abilities a change needs:
+        // a person whose role may not edit the bucket would be sent to fix the wrong thing.
+        if (!isAbilityRefusal(err.message)) throw err;
+
         throw new ApiError(
           403,
           `${endWithFullStop(err.message)} ${NEEDS[context.needs]}`,
@@ -92,8 +112,8 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
 
 function parseJson(text: string, origin: string): unknown {
   try {
-    // An editor on Windows can put a byte order mark in front of a file.
-    return JSON.parse(text.replace(/^﻿/, ''));
+    // A byte order mark is gone by now: reading a file or the standard input decodes it away.
+    return JSON.parse(text);
   } catch (err) {
     throw new UsageError(`${origin} is not valid JSON: ${(err as Error).message}`);
   }

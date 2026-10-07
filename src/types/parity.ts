@@ -3,12 +3,14 @@
  * OpenAPI spec generated from the Laravel backend (npm run gen:types).
  * If the backend changes a response shape, `npm run build` fails here.
  *
- * NOTE (2026-07-14): `npm run gen:types` was run against the LIVE deployed
- * spec (https://danubedata.ro/docs/api.json). That spec does NOT yet include
- * this plan's new Laravel endpoints (`/plans`, `per_page` query params on
- * `/vps`) — they aren't deployed. That's expected and fine: this file only
- * asserts the six long-existing endpoints below. A post-deploy `npm run
- * gen:types` regen (to pick up the new surface) is on the release checklist.
+ * RELEASE ORDER when a check below reads a path the deployed platform does not
+ * serve yet (as the storage access key and bucket policy checks at the end did
+ * for 1.7.0, whose `generated.d.ts` came from the merged api.json of the
+ * platform repository, not from production): deploy the platform first, then
+ * run `npm run gen:types` — it points at PRODUCTION — and expect NO diff, then
+ * tag. Running `npm run gen:types` BEFORE the deploy drops those paths from
+ * `generated.d.ts` and `npm run build` fails in this file, by design: the CLI
+ * would otherwise be released against routes that answer 404.
  *
  * NOTE on path keys: the spec's `servers[0].url` is
  * `https://danubedata.ro/api/v1`, so openapi-typescript emits `paths` keys

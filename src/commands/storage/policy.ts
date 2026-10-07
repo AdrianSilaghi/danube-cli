@@ -3,13 +3,21 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { ApiClient } from '../../lib/api-client.js';
 import { resolveResource } from '../../lib/resolve.js';
-import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
-import { confirmDestruction } from '../../lib/interactive.js';
+import { isJsonMode, jsonEnvelope } from '../../lib/json-mode.js';
+import { canPrompt, confirmDestruction } from '../../lib/interactive.js';
 import { printDetails, statusColor } from '../../lib/output.js';
-import { MissingFlagsError, UsageError } from '../../lib/errors.js';
+import { ConfirmationRequiredError, MissingFlagsError, UsageError } from '../../lib/errors.js';
 import { readInput, STDIN_SOURCE } from '../../lib/read-input.js';
+import { refuseRepeatedFlags, singleValue } from '../../lib/single-value-flag.js';
 import { parseKeyLevel, resolveAccessKey } from '../../lib/storage-keys.js';
-import { policyApi, parsePolicyStatements, policyPath, folderGrantsPath, POLICY_UPDATING } from '../../lib/bucket-policy.js';
+import {
+  policyApi,
+  parsePolicyStatements,
+  policyPath,
+  folderGrantsPath,
+  POLICY_UPDATING,
+  type PolicyCall,
+} from '../../lib/bucket-policy.js';
 import { finishChange, waitCeiling, type WaitFlags } from '../../lib/policy-change.js';
 import type {
   BucketPolicy,
@@ -20,8 +28,19 @@ import type {
   StorageKeyLevel,
 } from '../../types/api.js';
 
+/**
+ * A bucket by its exact name, slug or full id. These commands decide who may
+ * reach a bucket, so a name that is not a bucket's name must not land on the
+ * bucket whose id happens to begin with it.
+ */
 const resolveBucket = (api: ApiClient, reference: string): Promise<StorageBucket> =>
-  resolveResource<StorageBucket>(api, '/api/v1/storage/buckets', 'bucket', reference);
+  resolveResource<StorageBucket>(api, '/api/v1/storage/buckets', 'bucket', reference, { exact: true });
+
+const callOn = (bucket: StorageBucket, needs: PolicyCall['needs']): PolicyCall => ({
+  bucket: bucket.name,
+  needs,
+  provider: bucket.provider,
+});
 
 const plural = (count: number, noun: string): string => `${count} ${noun}${count === 1 ? '' : 's'}`;
 
@@ -64,13 +83,10 @@ const getCommand = new Command('get')
     const api = await ApiClient.create();
     const bucket = await resolveBucket(api, reference);
 
-    const policy = await policyApi(
-      () => api.get<BucketPolicy>(policyPath(bucket.id)),
-      { bucket: bucket.name, needs: 'read' },
-    );
+    const policy = await policyApi(() => api.get<BucketPolicy>(policyPath(bucket.id)), callOn(bucket, 'read'));
 
     if (isJsonMode()) {
-      jsonOutput(policy);
+      jsonEnvelope(policy, { meta: { bucket_id: bucket.id } });
       return;
     }
 
@@ -87,12 +103,14 @@ interface SetOptions extends WaitFlags {
   yes?: boolean;
 }
 
-/**
- * The statements to store, from the one source the person named. All of it is
- * read and checked before any API call: a file that is not JSON must cost
- * nothing.
- */
-async function statementsFrom(opts: SetOptions): Promise<BucketPolicyStatement[]> {
+/** Where the statements come from, before any of them is read. */
+type StatementsSource =
+  | { kind: 'clear' }
+  | { kind: 'inline'; text: string }
+  | { kind: 'file'; path: string };
+
+/** The one source the person named: not none, and not several. */
+function sourceOf(opts: SetOptions): StatementsSource {
   const given = [
     opts.file !== undefined ? '--file' : null,
     opts.statements !== undefined ? '--statements' : null,
@@ -107,28 +125,69 @@ async function statementsFrom(opts: SetOptions): Promise<BucketPolicyStatement[]
     throw new UsageError(`Use only one of --file, --statements and --clear (got ${given.join(' and ')}).`);
   }
 
-  if (opts.clear) return [];
+  if (opts.clear) return { kind: 'clear' };
 
-  if (opts.statements !== undefined) return parsePolicyStatements(opts.statements, '--statements');
+  return opts.statements !== undefined ? { kind: 'inline', text: opts.statements } : { kind: 'file', path: opts.file! };
+}
 
-  const source = opts.file!;
+/**
+ * Refuses, before anything is read or sent, a replacement that nobody can be
+ * asked about. A person is asked at a terminal; a script has to say `--yes`. And
+ * the standard input is no place to ask from when it also carries the
+ * statements: it has been read to its end by then, so at a terminal the person
+ * would type the whole policy and meet a question that cannot be answered.
+ */
+function requireAnAnswerableConfirmation(source: StatementsSource, opts: SetOptions, reference: string): void {
+  if (opts.force || opts.yes) return;
 
-  return parsePolicyStatements(await readInput(source), source === STDIN_SOURCE ? 'the standard input' : `--file ${source}`);
+  const what = `replacing the custom policy statements of bucket ${reference}`;
+
+  if (source.kind === 'file' && source.path === STDIN_SOURCE) {
+    throw new ConfirmationRequiredError(
+      what,
+      'the statements come from the standard input, so there is nothing left to answer a confirmation on. Add --yes (or --force) to go ahead.',
+    );
+  }
+
+  if (!canPrompt()) throw new ConfirmationRequiredError(what);
+}
+
+/**
+ * The statements to store. An empty list is refused: it removes every custom
+ * statement, and `--yes` would let a filter that selected nothing do that
+ * without anyone asking. Removing them all is `--clear`.
+ */
+async function loadStatements(source: StatementsSource): Promise<BucketPolicyStatement[]> {
+  if (source.kind === 'clear') return [];
+
+  const statements = source.kind === 'inline'
+    ? parsePolicyStatements(source.text, '--statements')
+    : parsePolicyStatements(await readInput(source.path), source.path === STDIN_SOURCE ? 'the standard input' : `--file ${source.path}`);
+
+  if (statements.length === 0) {
+    throw new UsageError('The list is empty, which removes every custom statement; use --clear to do that on purpose.');
+  }
+
+  return statements;
 }
 
 const setCommand = new Command('set')
   .description("Replace a bucket's custom policy statements: give --file, --statements or --clear")
   .argument('<bucket>', 'Bucket name or ID')
-  .option('--file <path>', 'Read the statements from a JSON file: a list, or a policy document. - reads the standard input')
-  .option('--statements <json>', 'The statements as JSON: a list, or a policy document')
+  .option('--file <path>', 'Read the statements from a JSON file: a list, or a policy document. - reads the standard input (and needs --yes)', singleValue('--file'))
+  .option('--statements <json>', 'The statements as JSON: a list, or a policy document', singleValue('--statements'))
   .option('--clear', 'Remove every custom statement (use instead of --file and --statements)')
   .option('-f, --force', 'Skip confirmation')
   .option('-y, --yes', 'Alias for --force')
   .option('--wait', 'Wait until the change is no longer being applied')
-  .option('--wait-timeout <seconds>', 'How long --wait waits, in seconds or as 90s, 2m, 1h (default 60)')
+  .option('--wait-timeout <seconds>', 'How long --wait waits, in seconds or as 90s, 2m, 1h (default 60)', singleValue('--wait-timeout'))
+  .hook('preAction', refuseRepeatedFlags)
   .action(async (reference: string, opts: SetOptions) => {
+    // All of it is checked, and read, before the API is asked anything.
     const ceilingMs = waitCeiling(opts);
-    const statements = await statementsFrom(opts);
+    const source = sourceOf(opts);
+    requireAnAnswerableConfirmation(source, opts, reference);
+    const statements = await loadStatements(source);
 
     const api = await ApiClient.create();
     const bucket = await resolveBucket(api, reference);
@@ -148,7 +207,7 @@ const setCommand = new Command('set')
     const accepted = await sending('Saving the policy...', () =>
       policyApi(
         () => api.put<BucketPolicy>(policyPath(bucket.id), { custom_policy_statements: statements }),
-        { bucket: bucket.name, needs: 'write' },
+        callOn(bucket, 'write'),
       ),
     );
 
@@ -157,6 +216,7 @@ const setCommand = new Command('set')
       bucket,
       accepted,
       ceilingMs,
+      meta: { bucket_id: bucket.id },
       describe: () => console.log(
         statements.length === 0
           ? `Removed all custom statements from bucket ${bucket.name}.`
@@ -192,7 +252,8 @@ function readGrantFlags(opts: GrantOptions): GrantRequest {
   const missing = [opts.key === undefined ? '--key' : null, opts.level === undefined ? '--level' : null]
     .filter((flag): flag is string => flag !== null);
 
-  if (missing.length > 0) throw new MissingFlagsError(missing);
+  // This command never asks for what is missing, so it is not "non-interactive mode".
+  if (missing.length > 0) throw new MissingFlagsError(missing, { promptable: false });
 
   const level = parseKeyLevel(opts.level!, '--level');
 
@@ -211,32 +272,72 @@ function readGrantFlags(opts: GrantOptions): GrantRequest {
   return { key: opts.key!, level, folder: opts.wholeBucket ? null : opts.folder! };
 }
 
-function describeGrant(bucket: StorageBucket, key: StorageAccessKey, request: GrantRequest, granted: BucketPolicyGrant): void {
-  const added = granted.added_statements.length;
+/** Whether a statement names this ARN among its principals (`{AWS: [arn, ...]}` or `{AWS: arn}`). */
+function namesPrincipal(statement: BucketPolicyStatement, arn: string): boolean {
+  const principal = statement.Principal;
+  if (typeof principal !== 'object' || principal === null) return false;
 
-  console.log(
-    added === 0
-      ? `Nothing to add: the policy of bucket ${bucket.name} already allows this.`
-      : `Added ${plural(added, 'statement')} to the policy of bucket ${bucket.name}.`,
-  );
+  const aws = (principal as { AWS?: unknown }).AWS;
+
+  return Array.isArray(aws) ? aws.includes(arn) : aws === arn;
+}
+
+/**
+ * How many statements the key already had, besides the ones this grant added. A
+ * grant only adds: a key holding `full` on a folder that is granted `read` there
+ * keeps `full`. Nothing is counted when nothing was added — the statements found
+ * are then the grant being asked for again, not other access.
+ */
+function otherStatementsFor(key: StorageAccessKey, added: BucketPolicyStatement[], stored: BucketPolicyStatement[]): number {
+  const arn = key.arn;
+  if (!arn || added.length === 0) return 0;
+
+  const justAdded = new Set(added.map((statement) => JSON.stringify(statement)));
+
+  return stored.filter((statement) => !justAdded.has(JSON.stringify(statement)) && namesPrincipal(statement, arn)).length;
+}
+
+function describeGrant(bucket: StorageBucket, key: StorageAccessKey, request: GrantRequest, granted: BucketPolicyGrant | null): void {
+  // The grant is applied by now: an answer with less than it should say is not a crash.
+  const addedList = granted?.added_statements;
+  const added = Array.isArray(addedList) ? addedList : null;
+
+  if (added === null) {
+    console.log('The grant was accepted, but the answer did not say what was added.');
+  } else {
+    console.log(
+      added.length === 0
+        ? `Nothing to add: the policy of bucket ${bucket.name} already allows this.`
+        : `Added ${plural(added.length, 'statement')} to the policy of bucket ${bucket.name}.`,
+    );
+  }
+
   printDetails([
     ['Key', `${key.name} (${key.id})`],
     ['Where', request.folder === null ? 'the whole bucket' : `folder ${request.folder}`],
     ['Level', request.level],
   ]);
 
-  for (const warning of granted.warnings) console.error(chalk.yellow(`Warning: ${warning}`));
+  for (const warning of granted?.warnings ?? []) console.error(chalk.yellow(`Warning: ${warning}`));
+
+  const others = otherStatementsFor(key, added ?? [], granted?.custom_policy_statements ?? []);
+  if (others > 0) {
+    console.error(chalk.yellow(
+      `This key has ${plural(others, 'other statement')} in the policy; a grant only adds. To narrow its access replace the custom statements: danube storage policy set ${bucket.name}.`,
+    ));
+  }
 }
 
 const grantCommand = new Command('grant')
   .description('Give an access key access to a folder of a bucket, or to the whole bucket')
   .argument('<bucket>', 'Bucket name or ID')
-  .option('--key <key>', "Required. The access key: its id, its S3 access key id or its name ('danube storage keys ls' lists them)")
-  .option('--folder <path>', 'The folder to give access to, such as invoices or reports/2026 (this or --whole-bucket)')
+  .option('--key <key>', "Required. The access key: its id, its S3 access key id or its name ('danube storage keys ls' lists them)", singleValue('--key'))
+  .option('--folder <path>', 'The folder to give access to, such as invoices or reports/2026 (this or --whole-bucket)', singleValue('--folder'))
   .option('--whole-bucket', 'Give access to the whole bucket instead of a folder (never inferred: an empty folder is refused)')
-  .option('--level <level>', 'Required. What the key may do with the objects: read, readwrite (also add and overwrite) or full (also delete)')
+  .option('--level <level>', 'Required. What the key may do with the objects: read, readwrite (also add and overwrite) or full (also delete)', singleValue('--level'))
   .option('--wait', 'Wait until the change is no longer being applied')
-  .option('--wait-timeout <seconds>', 'How long --wait waits, in seconds or as 90s, 2m, 1h (default 60)')
+  .option('--wait-timeout <seconds>', 'How long --wait waits, in seconds or as 90s, 2m, 1h (default 60)', singleValue('--wait-timeout'))
+  .hook('preAction', refuseRepeatedFlags)
   .action(async (reference: string, opts: GrantOptions) => {
     const request = readGrantFlags(opts);
     const ceilingMs = waitCeiling(opts);
@@ -252,13 +353,17 @@ const grantCommand = new Command('grant')
       : { key_id: key.id, folder: request.folder, level: request.level };
 
     const granted = await sending('Adding the grant to the policy...', () =>
-      policyApi(
-        () => api.post<BucketPolicyGrant>(folderGrantsPath(bucket.id), body),
-        { bucket: bucket.name, needs: 'write' },
-      ),
+      policyApi(() => api.post<BucketPolicyGrant>(folderGrantsPath(bucket.id), body), callOn(bucket, 'write')),
     );
 
-    await finishChange({ api, bucket, accepted: granted, ceilingMs, describe: () => describeGrant(bucket, key, request, granted) });
+    await finishChange({
+      api,
+      bucket,
+      accepted: granted,
+      ceilingMs,
+      meta: { bucket_id: bucket.id, key_id: key.id },
+      describe: () => describeGrant(bucket, key, request, granted),
+    });
   });
 
 export const policyCommand = new Command('policy')
