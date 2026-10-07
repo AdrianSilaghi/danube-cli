@@ -33,6 +33,16 @@ describe('output', () => {
       expect(lines).toHaveLength(2); // header + separator only
     });
 
+    it('renders numbers and leaves missing values blank, as API fields arrive', () => {
+      // Snapshot ids are integers in the API; a number used to reach
+      // stripAnsi() and throw "str.replace is not a function".
+      const result = formatTable(['ID', 'NAME', 'SIZE'], [[42, 'nightly', null], [7, undefined, 0]]);
+      const lines = result.split('\n');
+      expect(lines[2]!.trimEnd()).toBe('42  nightly');
+      // '7' padded to the ID column (2), the blank NAME (7) and both separators.
+      expect(lines[3]!.trimEnd()).toBe(`7${' '.repeat(1 + 2 + 7 + 2)}0`);
+    });
+
     it('aligns columns correctly with ANSI-colored cells', () => {
       const colored = chalk.green('live');
       const result = formatTable(
