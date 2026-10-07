@@ -447,7 +447,7 @@ export interface CacheConnectionInfo {
 }
 
 export interface CacheSnapshot {
-  id: string;
+  id: number;
   name: string;
   description: string | null;
   status: string;
@@ -552,7 +552,7 @@ export interface DatabaseReplicationStatus {
 }
 
 export interface DatabaseSnapshot {
-  id: string;
+  id: number;
   name: string;
   description: string | null;
   status: string;

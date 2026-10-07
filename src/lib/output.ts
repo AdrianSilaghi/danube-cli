@@ -5,14 +5,22 @@ function stripAnsi(str: string): string {
   return str.replace(/\x1B\[[0-9;]*m/g, '');
 }
 
-export function formatTable(headers: string[], rows: string[][]): string {
+/** A table cell as commands pass it: API fields are not all strings (snapshot ids are integers). */
+export type TableCell = string | number | null | undefined;
+
+function cellText(cell: TableCell): string {
+  return cell == null ? '' : String(cell);
+}
+
+export function formatTable(headers: string[], rows: TableCell[][]): string {
+  const cells = rows.map(row => row.map(cellText));
   const widths = headers.map((h, i) =>
-    Math.max(h.length, ...rows.map(r => stripAnsi(r[i] || '').length)),
+    Math.max(h.length, ...cells.map(r => stripAnsi(r[i] ?? '').length)),
   );
 
   const sep = widths.map(w => '-'.repeat(w)).join('  ');
   const headerLine = headers.map((h, i) => h.padEnd(widths[i]!)).join('  ');
-  const bodyLines = rows.map(row =>
+  const bodyLines = cells.map(row =>
     row.map((cell, i) => {
       const pad = widths[i]! - stripAnsi(cell).length;
       return cell + ' '.repeat(Math.max(0, pad));

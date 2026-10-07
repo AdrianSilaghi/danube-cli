@@ -98,6 +98,15 @@ describe('database snapshots', () => {
       await snapshotsCommand.parseAsync(['node', 'test', 'ls']);
       expect(consoleLogSpy).toHaveBeenCalledWith('No database snapshots found.');
     });
+
+    it('lists snapshots with the integer ids the API sends', async () => {
+      // 1.7.0 failed here with "str.replace is not a function".
+      mockGet.mockResolvedValue({ data: [makeSnapshot({ id: 1234 })] });
+      await snapshotsCommand.parseAsync(['node', 'test', 'ls']);
+      const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
+      expect(output).toContain('1234');
+      expect(output).toContain('nightly');
+    });
   });
 
   describe('create', () => {
