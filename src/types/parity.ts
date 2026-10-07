@@ -3,12 +3,14 @@
  * OpenAPI spec generated from the Laravel backend (npm run gen:types).
  * If the backend changes a response shape, `npm run build` fails here.
  *
- * NOTE (2026-07-14): `npm run gen:types` was run against the LIVE deployed
- * spec (https://danubedata.ro/docs/api.json). That spec does NOT yet include
- * this plan's new Laravel endpoints (`/plans`, `per_page` query params on
- * `/vps`) — they aren't deployed. That's expected and fine: this file only
- * asserts the six long-existing endpoints below. A post-deploy `npm run
- * gen:types` regen (to pick up the new surface) is on the release checklist.
+ * RELEASE ORDER when a check below reads a path the deployed platform does not
+ * serve yet (as the storage access key and bucket policy checks at the end did
+ * for 1.7.0, whose `generated.d.ts` came from the merged api.json of the
+ * platform repository, not from production): deploy the platform first, then
+ * run `npm run gen:types` — it points at PRODUCTION — and expect NO diff, then
+ * tag. Running `npm run gen:types` BEFORE the deploy drops those paths from
+ * `generated.d.ts` and `npm run build` fails in this file, by design: the CLI
+ * would otherwise be released against routes that answer 404.
  *
  * NOTE on path keys: the spec's `servers[0].url` is
  * `https://danubedata.ro/api/v1`, so openapi-typescript emits `paths` keys
@@ -36,6 +38,10 @@ import type {
   StaticSiteDeployment,
   StaticSiteDomain,
   DeployResponse,
+  StorageAccessKey,
+  CreateAccessKeyResponse,
+  BucketPolicy,
+  BucketPolicyGrant,
 } from './api.js';
 
 type Json<T> = T extends { content: { 'application/json': infer B } } ? B : never;
@@ -407,3 +413,40 @@ type _staticSiteDeployments = Satisfies<
 >;
 type _staticSiteDomains = Satisfies<{ data: Omit<StaticSiteDomain, 'dns_instructions'>[] }, StaticSiteDomains>;
 type _staticSiteDeploy = Satisfies<DeployResponse, StaticSiteDeploy>;
+
+/**
+ * Storage access keys and bucket policies (`danube storage keys` and
+ * `danube storage policy`).
+ *
+ * These are pinned because the commands branch on what they say: `scope` and
+ * `arn` decide whether a key is described as a team key, and `status` decides
+ * when a `--wait` stops. The key's `level` and `bucket_permissions[].level` are
+ * a plain string in the spec although the API only ever sends read, readwrite
+ * or full, so the CLI's own types leave them as strings too.
+ *
+ * `scope` is narrower in the CLI than a bare string would be, so a value the
+ * API adds later fails to compile here instead of being shown as if it were
+ * understood.
+ */
+type KeyList = Json<paths['/storage/access-keys']['get']['responses'][200]>;
+type KeyShow = Json<paths['/storage/access-keys/{accessKey}']['get']['responses'][200]>;
+type KeyCreate = Json<paths['/storage/access-keys']['post']['responses'][201]>;
+type PolicyShow = Json<paths['/storage/buckets/{bucket}/policy']['get']['responses'][200]>;
+type PolicyReplace = Json<paths['/storage/buckets/{bucket}/policy']['put']['responses'][202]>;
+type PolicyGrant = Json<paths['/storage/buckets/{bucket}/policy/folder-grants']['post']['responses'][202]>;
+
+type _keyList = Satisfies<{ data: StorageAccessKey[]; pagination: Pagination }, KeyList>;
+type _keyShow = Satisfies<{ access_key: StorageAccessKey }, KeyShow>;
+type _keyCreate = Satisfies<CreateAccessKeyResponse, KeyCreate>;
+type _policyShow = Satisfies<BucketPolicy, PolicyShow>;
+type _policyReplace = Satisfies<BucketPolicy, PolicyReplace>;
+type _policyGrant = Satisfies<BucketPolicyGrant, PolicyGrant>;
+
+/**
+ * `arn` is `null` for a key that signs as the team and a string for every other
+ * key. `Satisfies` cannot hold that — a plain `string` is assignable to
+ * `string | null` — and a relapse to non-nullable is exactly what would make
+ * the CLI describe a team key as one with an identity of its own.
+ */
+type _guardKeyArnIsNullable = AssertTrue<Exact<KeyShow['access_key']['arn'], string | null>>;
+type _guardCreatedKeyArnIsNullable = AssertTrue<Exact<KeyCreate['arn'], string | null>>;

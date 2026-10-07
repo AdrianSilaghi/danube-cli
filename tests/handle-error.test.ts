@@ -38,6 +38,34 @@ describe('handleError', () => {
     expect(exitCodeOf(new ApiError(422, 'Invalid'))).toBe(1);
   });
 
+  describe('Retry-After', () => {
+    const payload = () => JSON.parse(logSpy.mock.calls.at(-1)![0] as string);
+
+    it('is in the JSON error body when the API sent one, so a script knows how long to wait', () => {
+      setJsonMode(true);
+
+      exitCodeOf(new ApiError(429, 'Too Many Requests', undefined, undefined, undefined, 12));
+
+      expect(payload().error).toMatchObject({ code: 'api_error', status: 429, retry_after_seconds: 12 });
+    });
+
+    it('is there for a zero too, which means "now"', () => {
+      setJsonMode(true);
+
+      exitCodeOf(new ApiError(503, 'Unavailable', undefined, undefined, undefined, 0));
+
+      expect(payload().error.retry_after_seconds).toBe(0);
+    });
+
+    it('is not in the body when the API sent none', () => {
+      setJsonMode(true);
+
+      exitCodeOf(new ApiError(429, 'Too Many Requests'));
+
+      expect(payload().error).not.toHaveProperty('retry_after_seconds');
+    });
+  });
+
   it('exits 2 on MissingFlagsError and emits flags in JSON mode', () => {
     setJsonMode(true);
     expect(exitCodeOf(new MissingFlagsError(['--name']))).toBe(2);

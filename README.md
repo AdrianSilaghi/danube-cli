@@ -177,7 +177,7 @@ the command as missing rather than printing the parent's help and exiting 0.
 | 4 | Resource not found |
 | 5 | Confirmation required (add `--force`) |
 | 8 | Bucket metrics stale or unavailable |
-| 75 | `rapids run --wait` / `runs logs --follow`: the CLIENT gave up waiting before the run reached a terminal state — the run itself has not failed |
+| 75 | `rapids run --wait` / `runs logs --follow`: the CLIENT gave up waiting before the run reached a terminal state — the run itself has not failed. `storage policy set\|grant --wait`: the CLIENT gave up waiting while the change was still being applied — the change was accepted and has not failed |
 | 124 | `rapids run --wait` / `runs logs --follow`: the run itself timed out server-side (`status: "timed_out"`) |
 | 130 | Cancelled (Ctrl+C), or `rapids run --wait`: the run was cancelled |
 
@@ -285,10 +285,13 @@ danube vps reboot <name-or-id>
 | `danube storage buckets update <name-or-id>` | Update bucket settings |
 | `danube storage buckets rm <name-or-id>` | Delete a bucket |
 | `danube storage buckets metrics <name-or-id>` | Show bucket metrics |
-| `danube storage keys ls` | List all access keys |
-| `danube storage keys create` | Create a new access key |
-| `danube storage keys get <id>` | Show access key details |
+| `danube storage keys ls` | List all access keys, with their id and scope |
+| `danube storage keys create` | Create a new access key (`--name`, `--expires`, `--scope`, `--bucket`) |
+| `danube storage keys get <id>` | Show access key details: scope, ARN and buckets |
 | `danube storage keys revoke <id>` | Revoke an access key |
+| `danube storage policy get <bucket>` | Show a bucket's policy status and its custom statements (`--effective`) |
+| `danube storage policy set <bucket>` | Replace the custom statements (`--file`, `--statements`, `--clear`, `--yes`, `--wait`, `--wait-timeout`) |
+| `danube storage policy grant <bucket>` | Give a key access to a folder, or to the whole bucket (`--key`, `--folder`, `--whole-bucket`, `--level`, `--wait`, `--wait-timeout`) |
 
 #### Create a bucket
 
@@ -314,6 +317,115 @@ danube storage keys create --name "deploy-key"
 danube storage keys ls
 danube storage keys revoke <id>
 ```
+
+##### Where a key reaches
+
+```bash
+# Every bucket of the project (the default, and what a create with no --scope makes)
+danube storage keys create --name "deploy-key" --scope team
+
+# Only the buckets you name, each with a level: read, readwrite or full
+danube storage keys create --name "reports" --scope buckets \
+  --bucket reports:read --bucket exports:readwrite
+
+# No access of its own: it reaches only what a bucket policy allows it
+danube storage keys create --name "invoices-service" --scope none
+```
+
+- `--bucket <bucket>:<level>` is repeatable (1 to 50) and takes a bucket by its exact name or its
+  full id (never the beginning of an id: this decides which buckets the key reaches). It needs an
+  explicit `--scope buckets`: a key created without a scope reaches every bucket, so the CLI
+  refuses to guess one from a list of buckets. `--scope team` and `--scope none` take no
+  `--bucket`. A flag that takes one value, such as `--scope`, is refused when it is given twice.
+- The new key's scope and ARN are printed (`--json` carries `scope`, `arn` and
+  `bucket_permissions` next to the id and secret). The ARN is what a bucket policy names; it is
+  `null` for a team key, which signs as the team. `keys get <id>` shows it again, and `keys ls`
+  shows each key's id, which `keys get`, `keys revoke` and `storage policy grant --key` take.
+- A key with scope `none` reaches nothing until a policy allows it: the output ends with the
+  `danube storage policy grant` commands to run next.
+- A platform that does not support `--scope none` yet answers 422 ("The selected scope is
+  invalid."), and the CLI says so. If the platform ever answers with a key whose scope is not the
+  one you asked for, the CLI exits 1 **without printing the secret**, revokes the key it has just
+  created, and says whether that worked (when it did not, it gives the `keys revoke <id> --yes`
+  command to run). `--json` reports it as `storage.key_scope_not_applied`, with `revoked` and
+  `revoke_command`.
+- If the platform accepts the request but its answer cannot be read, the key may exist and its
+  secret is unknown: the CLI exits 1 and says to run `danube storage keys ls`
+  (`storage.key_answer_unreadable` under `--json`).
+- `keys ls` and `keys get` show a key past its expiry date as `expired`.
+
+#### Bucket policies
+
+A bucket's policy decides who can reach it. The **custom statements** are the ones you write;
+the **effective policy** is those merged with the statements the platform manages (public
+access, the buckets chosen for scoped keys, its own access).
+
+```bash
+danube storage policy get my-bucket                  # status + the custom statements
+danube storage policy get my-bucket --effective      # + the whole policy the gateway enforces
+
+# Give a key (its id, S3 access key id or name) a folder, or the whole bucket
+danube storage policy grant my-bucket --key invoices-service --folder invoices --level readwrite
+danube storage policy grant my-bucket --key invoices-service --whole-bucket --level read
+
+# Replace the custom statements
+danube storage policy set my-bucket --file policy.json
+cat policy.json | danube storage policy set my-bucket --file - --yes
+danube storage policy set my-bucket --statements '[{"Effect":"Deny","Principal":"*","Action":["s3:DeleteObject"]}]'
+danube storage policy set my-bucket --clear
+
+# Round trip: edit what is stored, send it back (an empty list is refused: use --clear)
+danube storage policy get my-bucket --json | jq '.data.custom_policy_statements' > policy.json
+```
+
+- **`set` replaces every custom statement.** The input is a list of statements or a full policy
+  document (`{"Version": ..., "Statement": [...]}`, of which only the list is sent). It is read
+  and checked before anything is sent: it must be UTF-8 (bytes that are not are refused, never
+  replaced; a UTF-8 byte order mark is fine), valid JSON, and at most 256 KiB. An empty list is
+  refused, because it would remove every statement: `--clear` does that on purpose. `set` asks for
+  confirmation first: `--yes` (or `--force`) skips the question, and a non-interactive run, or
+  `--json`, fails with exit 5 without it, before anything is read or sent. Statements from the
+  standard input (`--file -`) always need `--yes`, even at a terminal, because the question would
+  be read from the input that was just used up. What a statement may say is checked by the API,
+  which names a refused statement by its position.
+- **`grant` adds, it never replaces**, and asking twice changes nothing. Grants add up: a key that
+  holds `full` on a folder and is granted `read` there keeps `full`; to narrow access, replace the
+  custom statements (the CLI says so when the key already has other statements in the policy).
+  Name `--folder <path>` or `--whole-bucket`: the whole bucket is never inferred, and an empty
+  folder is refused. `--level` is `read` (get objects), `readwrite` (also add and overwrite) or
+  `full` (also delete). `<key>` must be a key with an identity of its own (scope `buckets` or
+  `none`); the API refuses a team key. Every warning the API returns is printed, for instance that a
+  key chosen for a bucket keeps its access to all of it.
+- **Names are exact.** A bucket is named by its exact name or full id, never by the beginning of an
+  id; two buckets with one name are refused, and so are two keys with one name (revoked and
+  expired keys do not count, so a rotated key keeps its name). `--json` carries the ids the names
+  resolved to in `meta.bucket_id` (and `meta.key_id` for `grant`).
+- **A change is saved at once and applied in the background**, so `set` and `grant` report
+  `Status: updating`. `active` means *no change is being applied any more*; it does **not** prove
+  the storage gateway holds the change, because a change the gateway refused ends as `active` too.
+  `danube storage policy get` shows what is stored. To be sure what the gateway holds, read the
+  policy with S3 `GetBucketPolicy`, or repeat the command, which sends the document again.
+- **`--wait`** polls every 2 seconds until the status is no longer `updating` (60 seconds by
+  default; `--wait-timeout 90`, `90s`, `2m`). The timeout is a ceiling: a poll still in flight is
+  cut when it passes, and the last look at the policy is given one more second, so a wait ends
+  within about its timeout plus a second. If the timeout comes first the change was accepted and
+  has not failed: the CLI says so and exits **75**. A bucket that ends in any status other than
+  `active` exits 1. Under `--json` the result is one envelope, with `meta.waited_ms` and
+  `meta.settled`. If a poll fails after the change was accepted, `--json` still prints one
+  envelope: the accepted document, `meta.accepted: true` and the error
+  `storage.policy_wait_failed` (with `status`, and `retry_after_seconds` when the API sent a
+  Retry-After), and the exit code is the one the same failure has elsewhere.
+- Policies can be edited on the buckets that have the policy editor in the console. For any other
+  bucket, or on a platform that does not offer the policy API yet, the API answers 404, and the CLI
+  says it is either no such bucket or the editor is not available for this bucket or platform. When
+  the bucket list already says the bucket is not on the endpoint that supports policies, the CLI
+  says exactly that.
+- Reading a policy needs the `storage:read` ability; changing one needs both `storage:read` and
+  `storage:write`, and a 403 from a token that lacks them says so (a 403 about the person's role
+  is shown as it is). A change made with a token emails its owner ("bucket policy changed"). If
+  the bucket's policy is still being applied, the API answers 409 and nothing is saved: try again
+  after the seconds it names. In `--json` mode an API error carries `retry_after_seconds` when the
+  API sent a Retry-After.
 
 ### Cache Instances (`danube cache`)
 

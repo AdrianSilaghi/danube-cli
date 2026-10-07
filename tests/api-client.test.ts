@@ -133,6 +133,22 @@ describe('ApiClient', () => {
     }));
   });
 
+  it('sends PATCH request with JSON body', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ data: 'patched' }),
+    });
+
+    const client = new ApiClient('my-token', 'https://api.test');
+    await client.patch('/api/v1/uptime/abc', { paused: true });
+
+    expect(fetch).toHaveBeenCalledWith('https://api.test/api/v1/uptime/abc', expect.objectContaining({
+      method: 'PATCH',
+      body: JSON.stringify({ paused: true }),
+    }));
+  });
+
   it('throws ApiError on 500', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: false,
@@ -206,6 +222,49 @@ describe('ApiClient', () => {
     await expect(client.get('/api/v1/slow')).rejects.toThrow(
       'Request timed out after 30000ms: GET /api/v1/slow',
     );
+  });
+
+  describe('a GET with its own timeout', () => {
+    // A fetch that never answers and gives up when it is aborted, as a hung server would.
+    const hungServer = () =>
+      vi.fn((_url: string, init: { signal: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          init.signal.addEventListener('abort', () => reject(new DOMException('The operation was aborted.', 'AbortError')));
+        }));
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('is cut at the time it was given, and says how long that was', async () => {
+      vi.useFakeTimers();
+      globalThis.fetch = hungServer() as never;
+      let outcome: unknown = 'pending';
+      const request = new ApiClient('my-token', 'https://api.test').get('/api/v1/slow', 2_000)
+        .catch((err: unknown) => { outcome = err; });
+
+      await vi.advanceTimersByTimeAsync(1_999);
+      expect(outcome).toBe('pending');
+
+      await vi.advanceTimersByTimeAsync(1);
+      await request;
+      expect((outcome as Error).message).toBe('Request timed out after 2000ms: GET /api/v1/slow');
+    });
+
+    it('keeps the 30 second default when no timeout is given', async () => {
+      vi.useFakeTimers();
+      globalThis.fetch = hungServer() as never;
+      let outcome: unknown = 'pending';
+      const request = new ApiClient('my-token', 'https://api.test').get('/api/v1/slow')
+        .catch((err: unknown) => { outcome = err; });
+
+      await vi.advanceTimersByTimeAsync(29_999);
+      expect(outcome).toBe('pending');
+
+      await vi.advanceTimersByTimeAsync(1);
+      await request;
+      expect((outcome as Error).message).toBe('Request timed out after 30000ms: GET /api/v1/slow');
+    });
   });
 
   it('passes abort signal to fetch', async () => {
@@ -286,6 +345,56 @@ describe('ApiClient', () => {
 
         expect(await teamHeader(await ApiClient.create({ teamId: null }))).toBe('20');
       });
+    });
+  });
+
+  describe('Retry-After', () => {
+    const failing = (headers?: Headers) =>
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 409,
+        headers,
+        json: () => Promise.resolve({ error: 'The bucket\'s policy is being applied. Try again in a moment.' }),
+      });
+
+    const retryAfterOf = async (headers?: Headers): Promise<number | undefined> => {
+      globalThis.fetch = failing(headers);
+      try {
+        await new ApiClient('my-token', 'https://api.test').put('/api/v1/storage/buckets/b/policy', {});
+      } catch (err) {
+        return (err as ApiError).retryAfterSeconds;
+      }
+      throw new Error('Should have thrown');
+    };
+
+    it('carries a Retry-After given in seconds on the ApiError', async () => {
+      expect(await retryAfterOf(new Headers({ 'Retry-After': '5' }))).toBe(5);
+    });
+
+    it('keeps a Retry-After of zero, which means "now"', async () => {
+      expect(await retryAfterOf(new Headers({ 'Retry-After': '0' }))).toBe(0);
+    });
+
+    it('leaves it undefined when the header is absent', async () => {
+      expect(await retryAfterOf(new Headers())).toBeUndefined();
+    });
+
+    it('leaves it undefined when the response carries no headers object at all', async () => {
+      expect(await retryAfterOf(undefined)).toBeUndefined();
+    });
+
+    it.each(['soon', 'Fri, 31 Dec 1999 23:59:59 GMT', '-3', '1.5', ''])(
+      'ignores a Retry-After it cannot read as whole seconds (%j)',
+      async (value) => {
+        expect(await retryAfterOf(new Headers({ 'Retry-After': value }))).toBeUndefined();
+      },
+    );
+
+    it('still reports the message and status of the failure', async () => {
+      globalThis.fetch = failing(new Headers({ 'Retry-After': '5' }));
+
+      await expect(new ApiClient('my-token', 'https://api.test').put('/api/v1/storage/buckets/b/policy', {}))
+        .rejects.toMatchObject({ statusCode: 409, message: expect.stringContaining('being applied') });
     });
   });
 

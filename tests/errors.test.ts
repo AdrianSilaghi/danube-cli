@@ -39,12 +39,40 @@ describe('MissingFlagsError', () => {
     expect(err.message).toContain('--name, --image');
     expect(err.name).toBe('MissingFlagsError');
   });
+
+  it('says "in non-interactive mode" by default: a person at a terminal would have been asked', () => {
+    expect(new MissingFlagsError(['--name']).message).toBe('Missing required flag in non-interactive mode: --name');
+    expect(new MissingFlagsError(['--name', '--image']).message)
+      .toBe('Missing required flags in non-interactive mode: --name, --image');
+  });
+
+  it('does not say it for a command that never asks', () => {
+    const err = new MissingFlagsError(['--key', '--level'], { promptable: false });
+
+    expect(err.message).toBe('Missing required flags: --key, --level');
+    expect(new MissingFlagsError(['--key'], { promptable: false }).message).toBe('Missing required flag: --key');
+    expect(err.flags).toEqual(['--key', '--level']);
+    expect(err.name).toBe('MissingFlagsError');
+  });
 });
 
 describe('ConfirmationRequiredError', () => {
   it('mentions --force', () => {
     const err = new ConfirmationRequiredError('VPS vps-1');
     expect(err.message).toContain('--force');
+    expect(err.name).toBe('ConfirmationRequiredError');
+  });
+
+  it('keeps its standard wording when only the thing to confirm is named', () => {
+    expect(new ConfirmationRequiredError('VPS vps-1').message)
+      .toBe('Refusing to proceed with VPS vps-1 without --force in non-interactive mode.');
+  });
+
+  it('takes the reason in place of "non-interactive mode" when that is not why nothing can be asked', () => {
+    const err = new ConfirmationRequiredError('replacing the statements of bucket b', 'the statements come from the standard input. Add --yes.');
+
+    expect(err.message).toBe('Refusing to proceed with replacing the statements of bucket b: the statements come from the standard input. Add --yes.');
+    expect(err.message).not.toContain('non-interactive');
     expect(err.name).toBe('ConfirmationRequiredError');
   });
 });

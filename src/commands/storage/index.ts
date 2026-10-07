@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import { bucketsCommand } from './buckets.js';
 import { createDiagnoseCommand } from '../../lib/diagnostics/commands.js';
 import { keysCommand } from './keys.js';
+import { policyCommand } from './policy.js';
 
 
 const diagnosticsTarget = { noun: 'bucket', kind: 'bucket', listPath: '/api/v1/storage/buckets', resourcePath: (id: string) => `/api/v1/storage/buckets/${id}` };
@@ -11,4 +12,5 @@ export const storageCommand = new Command('storage')
   .description('Manage object storage')
   .addCommand(bucketsCommand)
   .addCommand(keysCommand)
+  .addCommand(policyCommand)
   .addCommand(createDiagnoseCommand(diagnosticsTarget));
