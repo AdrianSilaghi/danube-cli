@@ -8,18 +8,7 @@ export interface ResolvableResource {
   slug?: string | null;
 }
 
-export async function resolveResource<T extends ResolvableResource>(
-  api: ApiClient,
-  listPath: string,
-  kind: string,
-  nameOrId: string,
-): Promise<T> {
-  if (!nameOrId.trim()) {
-    throw new Error('Empty name or ID given. Provide a resource name, slug, or ID.');
-  }
-
-  const { items, total } = await fetchAllPages<T>(api, listPath);
-
+function pick<T extends ResolvableResource>(items: T[], total: number, kind: string, nameOrId: string): T {
   const matches = items.filter(
     (r) => r.name === nameOrId || r.slug === nameOrId || r.id === nameOrId || r.id.startsWith(nameOrId),
   );
@@ -42,4 +31,38 @@ export async function resolveResource<T extends ResolvableResource>(
   }
 
   return matches[0]!;
+}
+
+/**
+ * Several references against ONE listing: a command that takes a list of
+ * buckets should not read the bucket list once per bucket. The answer keeps the
+ * order asked, and naming a resource twice returns it twice — whether that is
+ * a mistake is for the caller to say.
+ */
+export async function resolveResources<T extends ResolvableResource>(
+  api: ApiClient,
+  listPath: string,
+  kind: string,
+  refs: string[],
+): Promise<T[]> {
+  if (refs.some((ref) => !ref.trim())) {
+    throw new Error('Empty name or ID given. Provide a resource name, slug, or ID.');
+  }
+
+  if (refs.length === 0) return [];
+
+  const { items, total } = await fetchAllPages<T>(api, listPath);
+
+  return refs.map((ref) => pick(items, total, kind, ref));
+}
+
+export async function resolveResource<T extends ResolvableResource>(
+  api: ApiClient,
+  listPath: string,
+  kind: string,
+  nameOrId: string,
+): Promise<T> {
+  const [resource] = await resolveResources<T>(api, listPath, kind, [nameOrId]);
+
+  return resource!;
 }

@@ -155,12 +155,40 @@ export interface StorageBucket {
   updated_at: string;
 }
 
+/**
+ * Where an access key reaches. `team`: every bucket of the project (the key
+ * signs as the team). `buckets`: only the buckets it was limited to. `none`: no
+ * access of its own — only what a bucket policy allows it.
+ */
+export type StorageKeyScope = 'team' | 'buckets' | 'none';
+
+/** What a key may do in a bucket: get objects; also add and overwrite them; also delete them. */
+export type StorageKeyLevel = 'read' | 'readwrite' | 'full';
+
+export interface StorageKeyBucketPermission {
+  bucket_id: string;
+  /** `null` when the bucket is gone or the API could not name it. */
+  bucket_name: string | null;
+  /** One of `StorageKeyLevel`; the spec types it as a plain string. */
+  level: string;
+}
+
 export interface StorageAccessKey {
   id: string;
   team_id: number;
   name: string;
   access_key_id: string;
+  /**
+   * Names the key as the principal of a bucket policy statement. `null` for a
+   * key that signs as the team, which every team-wide key shares; absent on a
+   * server that predates the field. Optional like `scope` and
+   * `bucket_permissions`, which older servers do not report.
+   */
+  arn?: string | null;
+  scope?: StorageKeyScope;
+  bucket_permissions?: StorageKeyBucketPermission[];
   status: string;
+  is_expired?: boolean;
   expires_at: string | null;
   last_used_at: string | null;
   created_at: string;
@@ -172,8 +200,38 @@ export interface CreateAccessKeyResponse {
   name: string;
   access_key_id: string;
   secret_access_key: string;
+  arn?: string | null;
+  scope?: StorageKeyScope;
+  bucket_permissions?: Array<{ bucket_id: string; level: string }>;
   expires_at: string | null;
   message: string;
+}
+
+/** One statement of an S3 bucket policy, as the API stores and returns it. */
+export type BucketPolicyStatement = Record<string, unknown>;
+
+export interface BucketPolicyDocument {
+  Version: string;
+  Statement: BucketPolicyStatement[];
+}
+
+/**
+ * A bucket's policy. `status` is the bucket's: `updating` while a change is on
+ * its way to the storage gateway. `active` means none is being applied any
+ * more — and a change the gateway refused also ends there, so it does not prove
+ * the gateway holds the change.
+ */
+export interface BucketPolicy {
+  custom_policy_statements: BucketPolicyStatement[];
+  effective_policy: BucketPolicyDocument | null;
+  status: string;
+}
+
+/** What a folder grant answers with: the policy as it stands, and what the grant did. */
+export interface BucketPolicyGrant extends BucketPolicy {
+  /** The statements this request added: up to two, none when the policy held them already. */
+  added_statements: BucketPolicyStatement[];
+  warnings: string[];
 }
 
 export interface StorageMetrics {

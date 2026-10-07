@@ -3,6 +3,16 @@ import { ApiError, NotAuthenticatedError } from './errors.js';
 import { getProjectOverride } from './project-context.js';
 import { getCurrentVersion } from './version.js';
 
+/**
+ * The `Retry-After` of a failed response, in whole seconds. The platform sends
+ * delta-seconds (`Retry-After: 5`); the HTTP-date form is not read, so anything
+ * else is "no hint" rather than a guess.
+ */
+function parseRetryAfter(headers: Headers | undefined): number | undefined {
+  const raw = headers?.get('retry-after');
+  return raw !== null && raw !== undefined && /^\d+$/.test(raw) ? Number(raw) : undefined;
+}
+
 export class ApiClient {
   private token: string;
   private baseUrl: string;
@@ -96,7 +106,7 @@ export class ApiClient {
           (typeof envelopeError === 'string' ? envelopeError : undefined) ||
           `Request failed with status ${res.status}`;
 
-        throw new ApiError(res.status, message, json?.errors, structured, json?.meta);
+        throw new ApiError(res.status, message, json?.errors, structured, json?.meta, parseRetryAfter(res.headers));
       }
 
       return json as T;

@@ -41,6 +41,12 @@ export class ApiError extends Error {
      * `status` are unaffected by a field they never look at.
      */
     public meta?: Record<string, unknown>,
+    /**
+     * How long the server asked the client to wait before trying again — the
+     * `Retry-After` header, in whole seconds. Absent when the server did not
+     * send one, or sent a form this client does not read (an HTTP date).
+     */
+    public retryAfterSeconds?: number,
   ) {
     super(message);
     this.name = 'ApiError';

@@ -20,6 +20,62 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account-limits/increase-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Request an account limit increase
+         * @description Asks for higher limits on the current project. Nothing changes when the request arrives:
+         *     it is held for the account owner, who is emailed, and it is carried out only if they
+         *     approve it in the console within 24 hours. Then the request goes to the DanubeData team
+         *     for review, like one filed on the Account limits page.
+         *
+         *     Answers `202` with the pending approval. Poll `GET /api/v1/approvals/{id}` for its status
+         *     and stop when `terminal` is `true`; `review_url` is the console page the owner decides on.
+         *     Answers `409` while another approval for this action is waiting, or while a limit
+         *     increase request is already open for the project.
+         *
+         *     Send the same fields as the Account limits page. Only `reason` is required, and it must
+         *     say why the limits are needed: the owner reads it beside your numbers, in your words.
+         */
+        post: operations["v1.account-limits.increase-requests.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/approvals/{approval}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show an approval
+         * @description The status of an approval opened with an API token: `pending` while the owner has not
+         *     decided, then `approved`, `denied`, `expired`, or `failed` (approved, but the request could
+         *     no longer be carried out; `failure_reason` says why). `terminal` is the stop condition:
+         *     do not infer it from `status`, and do not poll faster than `poll_after_ms`.
+         *
+         *     Needs the same token ability as the request that opened it.
+         */
+        get: operations["v1.approvals.show"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/cache/{cacheInstance}/logs": {
         parameters: {
             query?: never;
@@ -127,7 +183,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Show a specific cache instance */
+        /**
+         * Show a specific cache instance
+         * @description `connection_info` is a connection URL, and a URL embeds the password, so
+         *     it is `null` unless the token also holds `cache:credentials`. Host, port
+         *     and everything else stay available to `cache:read`.
+         */
         get: operations["v1.cache.show"];
         /** Update a cache instance */
         put: operations["v1.cache.update"];
@@ -211,6 +272,10 @@ export interface paths {
          *     the shared load balancer, otherwise the in-cluster hostname and the
          *     engine port. They are not always equal to the instance's `port` field,
          *     which always reports the engine port.
+         *
+         *     `password` and `connection_info` (a URL, which embeds the password) are
+         *     `null` unless the token also holds `cache:credentials`; `cache:read`
+         *     alone still gets the host, port and username.
          */
         get: operations["v1.cache.connection-info"];
         put?: never;
@@ -230,10 +295,12 @@ export interface paths {
         };
         /**
          * Get cache instance credentials
-         * @description Compatibility alias for `GET /api/v1/cache/{id}/connection-info`, which
-         *     remains the canonical route. Named for symmetry with
-         *     `GET /api/v1/database/{id}/credentials`; returns an identical payload
-         *     under identical authorization, token-permission and rate-limit rules.
+         * @description Compatibility alias for `GET /api/v1/cache/{id}/connection-info`, named
+         *     for symmetry with `GET /api/v1/database/{id}/credentials`. It is the
+         *     route that hands out the secret: it needs the `cache:credentials`
+         *     ability instead of `cache:read`, and always includes `password` and
+         *     `connection_info`. Authorization and rate-limit rules are the canonical
+         *     route's.
          */
         get: operations["v1.cache.credentials"];
         put?: never;
@@ -475,7 +542,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Show a specific database instance */
+        /**
+         * Show a specific database instance
+         * @description `connection_info` is a connection URL, and a URL embeds the password, so
+         *     it is `null` unless the token also holds `database:credentials`. Host,
+         *     port and everything else stay available to `database:read`.
+         */
         get: operations["v1.database.show"];
         /** Update a database instance */
         put: operations["v1.database.update"];
@@ -571,6 +643,9 @@ export interface paths {
          *     dashboard shows and a password rotation changes. Its password is null
          *     while a rotation is pending or applying. `credential_rotation` describes
          *     the most recent rotation, or is null when none has run.
+         *
+         *     Needs the `database:credentials` ability: `database:read` alone is
+         *     refused with 403, because this returns the superuser password.
          */
         get: operations["v1.database.credentials"];
         put?: never;
@@ -595,12 +670,15 @@ export interface paths {
          * @description Starts an asynchronous rotation of the application user's password
          *     (managed PostgreSQL only). Poll `GET /database/{id}/credentials` until
          *     `credential_rotation.status` is `succeeded` or `failed`; the new password
-         *     is returned there as `application_user.password`.
+         *     is returned there as `application_user.password`. Polling needs the
+         *     `database:credentials` ability as well as `database:write`.
          *
          *     Once the rotation succeeds, clients using the previous password can no
          *     longer open new connections. Existing sessions stay open unless
          *     `disconnect_sessions` is true. If the new password cannot be confirmed,
          *     the previous one is restored and the rotation is marked `failed`.
+         *
+         *     The account is emailed when a rotation starts (never the password).
          */
         post: operations["v1.database.credentials.rotate"];
         delete?: never;
@@ -1594,6 +1672,73 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/storage/buckets/{bucket}/policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a bucket's policy
+         * @description Returns the custom statements stored for the bucket (an empty list when it has none), the
+         *     effective policy document that the storage gateway enforces, and the bucket's status, which is
+         *     `updating` while a change is on its way to the gateway. The effective policy is the custom
+         *     statements merged with the statements the platform manages: public access, the buckets chosen
+         *     for scoped access keys, and the platform's own access. Needs the `storage:read` ability.
+         */
+        get: operations["v1.storage.buckets.policy.show"];
+        /**
+         * Replace a bucket's custom policy statements
+         * @description Replaces every custom statement of the bucket's policy with the list sent. An empty list
+         *     removes them all. The change is saved at once and applied to the storage gateway in the
+         *     background, so the response is 202 with the bucket in the `updating` status. `active` means no
+         *     change is being applied any more, and a change the gateway refused ends there too: to be sure
+         *     what the gateway holds, read the bucket's policy with S3 GetBucketPolicy, or send the same
+         *     request again, which sends the document to the gateway again. When what is saved differs from
+         *     what was stored, a "bucket policy changed" security email goes to the person whose token made
+         *     the change, with a link to the bucket's Access tab. A change that arrives while the bucket's
+         *     policy is being applied waits up to five seconds, and is answered with 409 and `Retry-After: 5`
+         *     if the bucket is still busy. Needs the `storage:read` and `storage:write` abilities.
+         */
+        put: operations["v1.storage.buckets.policy.update"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/storage/buckets/{bucket}/policy/folder-grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Give an access key access to a folder
+         * @description Adds the statements that let one of the project's access keys work on the objects under a
+         *     folder, or on the whole bucket, and list that folder: the two statements of the grant that were
+         *     not stored yet, so up to two. They go after the custom statements already stored, and the whole
+         *     list that results must pass the checks of a replace, the limits on statements and size
+         *     included. Repeating a request changes nothing: `added_statements` comes back empty and no email
+         *     is sent. A key that was created for chosen buckets keeps its access to the whole of those
+         *     buckets, which the grant adds to and does not limit, and `warnings` says so. The change is
+         *     applied as for a replace (202 with the status `updating`, and 409 with `Retry-After: 5` while
+         *     the bucket's policy is being applied), and the person whose token made it gets the
+         *     "bucket policy changed" security email when something was added. Needs the `storage:read`
+         *     and `storage:write` abilities.
+         */
+        post: operations["v1.storage.buckets.policy.folder-grants.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/storage/buckets/{bucket}/diagnose": {
         parameters: {
             query?: never;
@@ -1634,7 +1779,8 @@ export interface paths {
          * Create a new storage access key
          * @description Creates a new S3 access key for the authenticated user's team.
          *     The secret access key is only returned once in this response.
-         *     Keys have full access to all team buckets.
+         *     By default a key reaches every bucket of the team. Set `scope` to limit it to chosen buckets,
+         *     or to create a key with no access of its own, which reaches only what a bucket policy allows it.
          */
         post: operations["v1.storage.access-keys.store"];
         delete?: never;
@@ -1957,6 +2103,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * Show a specific queue instance
+         * @description `connection_info` is an AMQP URL, and a URL embeds the password, so it is
+         *     `null` unless the token also holds `queue:credentials`. Everything else
+         *     stays available to `queue:read`.
+         */
         get: operations["v1.queue.show"];
         put: operations["v1.queue.update"];
         post?: never;
@@ -2005,6 +2157,14 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * Get queue instance connection information
+         * @description Returns the broker's endpoint, vhost and username.
+         *
+         *     `password` and `amqp_url` (a URL, which embeds the password) are `null`
+         *     unless the token also holds `queue:credentials`; `queue:read` alone
+         *     still gets the host, ports, vhost and username.
+         */
         get: operations["v1.queue.connection-info"];
         put?: never;
         post?: never;
@@ -3171,6 +3331,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/support-tickets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List support tickets
+         * @description Your tickets in the current project, newest first. `status` narrows the
+         *     list: `waiting_customer` is a ticket support has answered and is waiting on
+         *     you for.
+         */
+        get: operations["v1.support-tickets.index"];
+        put?: never;
+        /**
+         * Open a support ticket
+         * @description Takes the console's fields: `type`, `priority`, `subject` and `message`,
+         *     and optionally `resource_type` with `resource_id` to say which of the
+         *     project's resources it is about. A resource of another project is left off,
+         *     as in the console. Send JSON: a request that names `attachments` is refused.
+         *
+         *     The ticket is opened with this token and says so to support. Send an
+         *     `Idempotency-Key` header to retry safely: a retry with the same key and body
+         *     returns the first response, marked `Idempotent-Replay: true`, and opens
+         *     nothing twice. The key is yours alone.
+         */
+        post: operations["v1.support-tickets.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/support-tickets/{ticketNumber}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show a support ticket
+         * @description The ticket by its number, with the first message and every reply, oldest
+         *     first. Reading it changes nothing: it does not mark support's replies read
+         *     in the console.
+         */
+        get: operations["v1.support-tickets.show"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/support-tickets/{ticketNumber}/replies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reply to a support ticket
+         * @description Adds a message to a ticket. A ticket that was waiting on you, or was
+         *     resolved or closed, is open again, and support is told by email. The
+         *     ticket in the response shows its status now. Send an `Idempotency-Key`
+         *     header to retry safely, as when opening a ticket.
+         */
+        post: operations["v1.support-tickets.replies.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/support-tickets/{ticketNumber}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark a support ticket resolved
+         * @description For a ticket that is answered. A resolved ticket is open again when you
+         *     reply to it.
+         */
+        post: operations["v1.support-tickets.resolve"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/uptime-checks": {
         parameters: {
             query?: never;
@@ -3331,7 +3591,8 @@ export interface paths {
         /**
          * List Kubernetes events
          * @description Returns curated platform events for the VM, its instance, launcher pod
-         *     and disks.
+         *     and disks. Placement can fail before a VM exists; in that case the event
+         *     list can be empty. Use diagnose or status_details.error for the failure.
          */
         get: operations["v1.vps.events"];
         put?: never;
@@ -3352,7 +3613,8 @@ export interface paths {
         /**
          * Diagnose the instance
          * @description Correlates status and platform events into ranked findings with
-         *     remediation. Guest-side problems are out of scope.
+         *     remediation, including safe deployment failures recorded before a VM exists.
+         *     Guest-side problems are out of scope.
          */
         get: operations["v1.vps.diagnose"];
         put?: never;
@@ -3582,6 +3844,9 @@ export interface paths {
          * Get VPS console/SSH password
          * @description Returns the console master password for a VPS instance.
          *     This password is always set (auto-generated or matches the SSH password).
+         *
+         *     Needs the `vps:credentials` ability: `vps:read` alone is refused with
+         *     403, because this returns the root password.
          */
         get: operations["v1.vps.password"];
         put?: never;
@@ -3631,9 +3896,9 @@ export interface paths {
         put: operations["v1.vps.volumes.update"];
         post?: never;
         /**
-         * Detach and delete a volume
-         * @description Detaching destroys the volume and its data — there is no detached-but-kept
-         *     state in this product.
+         * Delete a volume
+         * @description Permanently deletes the volume and all its data. Non-destructive detach is
+         *     not supported. The legacy detaching status means deletion is in progress.
          */
         delete: operations["v1.vps.volumes.destroy"];
         options?: never;
@@ -3718,7 +3983,9 @@ export interface paths {
         get: operations["v1.webhooks.config.show"];
         /**
          * Update webhook configuration
-         * @description Updates the webhook URL and enabled status. A secret is automatically generated if not already set.
+         * @description Updates the webhook URL and enabled status. A secret is automatically generated if not already set,
+         *     and only the call that generates it returns it (`webhook_secret`): save it then, or regenerate it.
+         *     The account is emailed when the URL changes.
          */
         put: operations["v1.webhooks.config.update"];
         post?: never;
@@ -3740,6 +4007,7 @@ export interface paths {
         /**
          * Regenerate webhook secret
          * @description Generates a new webhook signing secret. The old secret will be invalidated immediately.
+         *     The account is emailed.
          */
         post: operations["v1.webhooks.config.regenerate-secret"];
         delete?: never;
@@ -4326,6 +4594,28 @@ export interface components {
             bytes_size: number;
             pushed_at: string | null;
         };
+        /**
+         * ReplySupportTicketApiRequest
+         * @description The console's rule for a reply's message, with the token ability checked
+         *     first and no files. A customer's reply is always public: an internal note is
+         *     support's own, so nothing here accepts one.
+         */
+        ReplySupportTicketApiRequest: {
+            message: string;
+        };
+        /** RequestAccountLimitIncreaseRequest */
+        RequestAccountLimitIncreaseRequest: {
+            reason: string;
+            requested_profiles?: ("nano" | "micro" | "small" | "medium" | "large" | "xlarge" | "nano_shared" | "micro_shared" | "small_shared" | "medium_shared" | "large_shared")[] | null;
+            requested_database_limit?: number | null;
+            requested_cache_limit?: number | null;
+            requested_vps_limit?: number | null;
+            requested_cpu_cores?: number | null;
+            requested_memory_gb?: number | null;
+            requested_storage_gb?: number | null;
+            requested_serverless_limit?: number | null;
+            requested_nextcloud_limit?: number | null;
+        };
         /** ResourceAlertEventResource */
         ResourceAlertEventResource: {
             id: string;
@@ -4901,6 +5191,7 @@ export interface components {
             name: string;
             access_key_id: string;
             access_key_id_masked: string;
+            arn: string | null;
             status: string;
             /** @enum {string} */
             status_label: "Active" | "Revoked" | "Error";
@@ -4908,10 +5199,10 @@ export interface components {
             access_type: "restricted" | "full";
             is_prefix_scoped: boolean;
             /** @enum {string} */
-            scope: "buckets" | "team";
+            scope: "buckets" | "none" | "team";
             bucket_permissions: {
                 bucket_id: string;
-                bucket_name: unknown;
+                bucket_name: string | null;
                 level: string;
             }[];
             expires_at: string | null;
@@ -4922,6 +5213,84 @@ export interface components {
             updated_at: string;
             team_id: number;
             user_id: number;
+        };
+        /** StorageBucketPolicyGrantResource */
+        StorageBucketPolicyGrantResource: {
+            /**
+             * @description The statements this request added to the policy: the ones of the grant that were not
+             *     stored yet, so up to two. Empty when the policy held them already and nothing was
+             *     added.
+             */
+            added_statements: {
+                [key: string]: unknown;
+            }[];
+            /**
+             * @description What the grant does not do, one sentence each, usually none. A key that was created
+             *     for chosen buckets keeps its access to the whole of those buckets, which a folder
+             *     grant adds to and does not limit: the warning says so for a key that already reaches
+             *     this bucket that way, and that to limit it to the folder the key has to be revoked and
+             *     a key with `scope` set to `none` created instead.
+             */
+            warnings: string[];
+            /**
+             * @description The custom statements stored for the bucket, in the order they were saved. An empty
+             *     list when it has none.
+             */
+            custom_policy_statements: {
+                [key: string]: unknown;
+            }[];
+            /**
+             * @description The policy document the storage gateway enforces: the custom statements merged with
+             *     the ones the platform manages (public access, the buckets chosen for scoped access
+             *     keys, its own access). Each custom statement carries a Sid of the form `Custom1`,
+             *     `Custom2` and so on, numbered in the order stored. DanubeData adds its own management
+             *     addresses to an IP allow-list (a `Deny` with `NotIpAddress`) at the gateway, and they
+             *     are not listed here: the list in such a statement is the one you saved.
+             */
+            effective_policy: {
+                Version: string;
+                Statement: {
+                    [key: string]: unknown;
+                }[];
+            } | null;
+            /**
+             * @description `updating` means a change is on its way to the storage gateway. `active` means none is
+             *     being applied any more, and a change the gateway refused ends there too. To be sure
+             *     what the gateway holds, read the bucket's policy with S3 GetBucketPolicy, or send the
+             *     same request again, which sends the document to the gateway again.
+             */
+            status: components["schemas"]["StorageBucketStatus"];
+        };
+        /** StorageBucketPolicyResource */
+        StorageBucketPolicyResource: {
+            /**
+             * @description The custom statements stored for the bucket, in the order they were saved. An empty
+             *     list when it has none.
+             */
+            custom_policy_statements: {
+                [key: string]: unknown;
+            }[];
+            /**
+             * @description The policy document the storage gateway enforces: the custom statements merged with
+             *     the ones the platform manages (public access, the buckets chosen for scoped access
+             *     keys, its own access). Each custom statement carries a Sid of the form `Custom1`,
+             *     `Custom2` and so on, numbered in the order stored. DanubeData adds its own management
+             *     addresses to an IP allow-list (a `Deny` with `NotIpAddress`) at the gateway, and they
+             *     are not listed here: the list in such a statement is the one you saved.
+             */
+            effective_policy: {
+                Version: string;
+                Statement: {
+                    [key: string]: unknown;
+                }[];
+            } | null;
+            /**
+             * @description `updating` means a change is on its way to the storage gateway. `active` means none is
+             *     being applied any more, and a change the gateway refused ends there too. To be sure
+             *     what the gateway holds, read the bucket's policy with S3 GetBucketPolicy, or send the
+             *     same request again, which sends the document to the gateway again.
+             */
+            status: components["schemas"]["StorageBucketStatus"];
         };
         /** StorageBucketResource */
         StorageBucketResource: {
@@ -5086,6 +5455,41 @@ export interface components {
             datacenter: "fsn1";
             admin_user?: string | null;
         };
+        /**
+         * StoreBucketPolicyFolderGrantApiRequest
+         * @description Which access key gets access, to which folder or to the whole bucket, and what it may do there.
+         */
+        StoreBucketPolicyFolderGrantApiRequest: {
+            /**
+             * Format: uuid
+             * @description The `id` of the access key to give access to, as the access key endpoints return it.
+             *     It is not the S3 `access_key_id`. The key has to belong to the bucket's project, be
+             *     active and not expired, and have an identity of its own: its `arn` is not null. A key
+             *     that signs as the team already reaches every bucket, so a grant for it is refused.
+             */
+            key_id: string;
+            /**
+             * @description The folder to give access to. The key can work on the objects under it, and list it
+             *     and the folders below it, but not the root of the bucket. The folder cannot contain
+             *     the wildcard characters asterisk and question mark, a dollar sign followed by an
+             *     opening brace (which starts a policy variable; a dollar sign alone is fine), control
+             *     characters or invisible formatting characters, and may be at most 1000 bytes long.
+             *     Send it or whole_bucket, not both and not neither.
+             * @example reports/2026
+             */
+            folder?: string | null;
+            /**
+             * @description Set to true, with no folder, to give access to the whole bucket. A missing or empty
+             *     folder is never taken for the whole bucket: it has to be asked for.
+             */
+            whole_bucket?: boolean | null;
+            /**
+             * @description What the key may do with the objects: `read` to get them, `readwrite` to get, add and
+             *     overwrite them, or `full` to also delete them.
+             * @enum {string}
+             */
+            level: "read" | "readwrite" | "full";
+        };
         /** StoreFirewallRequest */
         StoreFirewallRequest: {
             name: string;
@@ -5112,7 +5516,7 @@ export interface components {
                     /** Format: uuid */
                     id?: string;
                     /** @enum {string} */
-                    type?: "database" | "cache" | "vps" | "queue" | "serverless" | "private_network";
+                    type?: "database" | "cache" | "vps" | "queue" | "serverless" | "app" | "private_network";
                 }[] | null;
                 description?: string | null;
                 /** @enum {string|null} */
@@ -5312,6 +5716,24 @@ export interface components {
             tags?: string[] | null;
         };
         /**
+         * StoreSupportTicketApiRequest
+         * @description The console's rules for a new ticket, with the token ability checked first
+         *     and no files: the API takes JSON only, so a request that names any is refused
+         *     rather than having them dropped without a word.
+         */
+        StoreSupportTicketApiRequest: {
+            /** @enum {string} */
+            type: "general" | "technical" | "billing" | "sales";
+            /** @enum {string} */
+            priority: "low" | "normal" | "high" | "urgent";
+            subject: string;
+            message: string;
+            /** @enum {string|null} */
+            resource_type?: "cache" | "database" | "vps" | "storage" | "queue" | "serverless" | "static_site" | "app" | null;
+            /** Format: uuid */
+            resource_id?: string | null;
+        };
+        /**
          * StoreUptimeCheckApiRequest
          * @description The dashboard's create rules, with the token ability checked FIRST and the
          *     per-team cap enforced as validation rather than in the controller.
@@ -5371,6 +5793,66 @@ export interface components {
             windows_license_key?: string | null;
             password_confirmation?: string | null;
         };
+        /** SupportTicketDetailResource */
+        SupportTicketDetailResource: {
+            /** @description The identifier customers see and quote, and the one in every URL. */
+            number: string;
+            subject: string;
+            /** @description One of general, technical, billing or sales. */
+            type: string;
+            /** @description One of low, normal, high or urgent. */
+            priority: string;
+            /** @description One of open, in_progress, waiting_customer (support asked the customer something), resolved or closed. */
+            status: string;
+            /**
+             * @description What the ticket is about: `id` is the resource_id it was opened with,
+             *     and `name` is null once the resource is deleted.
+             */
+            resource: {
+                type: string;
+                id: string | null;
+                name: string | null;
+            } | null;
+            created_at: string | null;
+            updated_at: string | null;
+            message: string;
+            /** @description A ticket support opened itself: its first message is support's, not the customer's. */
+            opened_by_support: boolean;
+            /** @description Oldest first. */
+            replies?: components["schemas"]["SupportTicketReplyResource"][];
+        };
+        /** SupportTicketReplyResource */
+        SupportTicketReplyResource: {
+            id: number;
+            message: string;
+            from_support: boolean;
+            /** @description An agent's name for support ("DanubeData support" when none is named), as the console shows it. */
+            author: string;
+            created_at: string | null;
+        };
+        /** SupportTicketResource */
+        SupportTicketResource: {
+            /** @description The identifier customers see and quote, and the one in every URL. */
+            number: string;
+            subject: string;
+            /** @description One of general, technical, billing or sales. */
+            type: string;
+            /** @description One of low, normal, high or urgent. */
+            priority: string;
+            /** @description One of open, in_progress, waiting_customer (support asked the customer something), resolved or closed. */
+            status: string;
+            /**
+             * @description What the ticket is about: `id` is the resource_id it was opened with,
+             *     and `name` is null once the resource is deleted.
+             */
+            resource: {
+                type: string;
+                id: string | null;
+                name: string | null;
+            } | null;
+            created_at: string | null;
+            updated_at: string | null;
+        };
         /**
          * UpdateApiCacheInstanceRequest
          * @description API request for updating cache instances.
@@ -5380,6 +5862,10 @@ export interface components {
          *     instance, not user-chosen.
          */
         UpdateApiCacheInstanceRequest: {
+            /**
+             * @description A cache keeps the name it was created with. Send its current name or leave
+             *     the field out; any other name is refused.
+             */
             name?: string;
             configuration?: string[];
             resource_profile?: string;
@@ -5426,6 +5912,23 @@ export interface components {
             /** @enum {string} */
             resource_profile: "";
         };
+        /**
+         * UpdateBucketPolicyApiRequest
+         * @description The custom statements to store as the policy of a bucket.
+         */
+        UpdateBucketPolicyApiRequest: {
+            /**
+             * @description The custom statements of the bucket's policy, as a list of statement objects with the
+             *     keys Effect, Principal, Action, Resource and Condition, written as in an S3 bucket
+             *     policy. They replace the custom statements the bucket has now, and an empty list
+             *     removes them all. A Principal is "*" or the ARN of one of the project's own access
+             *     keys. At most 100 statements and 20 KB are accepted. A statement whose Sid is one the
+             *     platform sets itself, such as "PublicReadGetObject", is dropped.
+             */
+            custom_policy_statements: {
+                [key: string]: unknown;
+            }[];
+        };
         /** UpdateFirewallRequest */
         UpdateFirewallRequest: {
             name?: string;
@@ -5454,7 +5957,7 @@ export interface components {
                     /** Format: uuid */
                     id?: string;
                     /** @enum {string} */
-                    type?: "database" | "cache" | "vps" | "queue" | "serverless" | "private_network";
+                    type?: "database" | "cache" | "vps" | "queue" | "serverless" | "app" | "private_network";
                 }[] | null;
                 description?: string | null;
                 /** @enum {string|null} */
@@ -5504,7 +6007,10 @@ export interface components {
             cpu_limit?: string | null;
             memory_request?: string | null;
             memory_limit?: string | null;
-            environment_variables?: string[] | null;
+            /** @description Environment variables as NAME: value pairs, e.g. `{"API_KEY": "..."}`. */
+            environment_variables?: {
+                [key: string]: string;
+            } | null;
             concurrency_target?: number | null;
             /** @enum {string} */
             scaling_metric?: "rps" | "concurrency";
@@ -5925,6 +6431,178 @@ export interface operations {
             401: components["responses"]["AuthenticationException"];
         };
     };
+    "v1.account-limits.increase-requests.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RequestAccountLimitIncreaseRequest"];
+            };
+        };
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            approval: {
+                                id: string;
+                                status: string;
+                                terminal: boolean;
+                                /** @enum {integer|null} */
+                                poll_after_ms: 30000 | null;
+                                action: string;
+                                summary: string;
+                                requested_at: string | null;
+                                expires_at: string;
+                                decided_at: string | null;
+                                failure_reason: string | null;
+                                review_url: string;
+                            };
+                        };
+                        error: null;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
+                    };
+                };
+            };
+            /** @description An error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Error overview.
+                         * @example No project resolved for this token. Send X-Team-Id.
+                         */
+                        message: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: null;
+                        error: {
+                            code: string;
+                            message: string;
+                            retryable: boolean;
+                            approval_id: string | null;
+                            review_url: string | null;
+                        };
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
+                    };
+                };
+            };
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.approvals.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                approval: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            approval: {
+                                id: string;
+                                status: string;
+                                terminal: boolean;
+                                /** @enum {integer|null} */
+                                poll_after_ms: 30000 | null;
+                                action: string;
+                                summary: string;
+                                requested_at: string | null;
+                                expires_at: string;
+                                decided_at: string | null;
+                                failure_reason: string | null;
+                                review_url: string;
+                            };
+                        };
+                        error: null;
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            /**
+             * @description A 404 for another project's approval as much as for none at all:
+             *     whether an id exists is not something a token gets to learn.
+             */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: null;
+                        error: {
+                            /** @constant */
+                            code: "approval.not_found";
+                            /** @constant */
+                            message: "No such approval.";
+                            retryable: boolean;
+                        };
+                        /**
+                         * @description Free-form per endpoint. Cast to an object so an empty meta
+                         *     serialises as `{}` rather than `[]` — a client typing it as
+                         *     a map breaks on the array form. The `@var` is what the spec
+                         *     generator reads: it cannot infer through the cast, and
+                         *     without it publishes `meta` as `"type": "string"`.
+                         */
+                        meta: Record<string, never>;
+                    };
+                };
+            };
+        };
+    };
     "v1.cache.logs": {
         parameters: {
             query?: {
@@ -6296,7 +6974,11 @@ export interface operations {
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
-            /** @description An error */
+            /**
+             * @description An error
+             *
+             *     An error
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -6306,6 +6988,12 @@ export interface operations {
                         /**
                          * @description Error overview.
                          * @example Resolve the pending parameter change before editing this instance. Contact support if recovery is required.
+                         */
+                        message: string;
+                    } | {
+                        /**
+                         * @description Error overview.
+                         * @example The cache is moving to the operator. Wait until the migration is confirmed or rolled back.
                          */
                         message: string;
                     };
@@ -6351,6 +7039,10 @@ export interface operations {
                         /** @constant */
                         error: "Cache instance cannot be destroyed in its current state";
                         status: string;
+                    } | {
+                        /** @constant */
+                        error: "The cache is moving to the operator. Wait until the migration is confirmed or rolled back.";
+                        status: string;
                     };
                 };
             };
@@ -6392,6 +7084,10 @@ export interface operations {
                     "application/json": {
                         /** @constant */
                         error: "Cache instance cannot be started in its current state";
+                        status: string;
+                    } | {
+                        /** @constant */
+                        error: "The cache is moving to the operator. Wait until the migration is confirmed or rolled back.";
                         status: string;
                     };
                 };
@@ -6435,6 +7131,10 @@ export interface operations {
                         /** @constant */
                         error: "Cache instance cannot be stopped in its current state";
                         status: string;
+                    } | {
+                        /** @constant */
+                        error: "The cache is moving to the operator. Wait until the migration is confirmed or rolled back.";
+                        status: string;
                     };
                 };
             };
@@ -6477,6 +7177,10 @@ export interface operations {
                         /** @constant */
                         error: "Cache instance cannot be force stopped in its current state";
                         status: string;
+                    } | {
+                        /** @constant */
+                        error: "The cache is moving to the operator. Wait until the migration is confirmed or rolled back.";
+                        status: string;
                     };
                 };
             };
@@ -6509,7 +7213,7 @@ export interface operations {
                          */
                         username: "default";
                         password: string | null;
-                        connection_info: string;
+                        connection_info: string | null;
                     };
                 };
             };
@@ -6559,11 +7263,12 @@ export interface operations {
                          */
                         username: "default";
                         password: string | null;
-                        connection_info: string;
+                        connection_info: string | null;
                     };
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             /**
              * @description Already logged with structured identifiers by the model. Never
@@ -10214,6 +10919,113 @@ export interface operations {
             404: components["responses"]["ModelNotFoundException"];
         };
     };
+    "v1.storage.buckets.policy.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The bucket ID */
+                bucket: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `StorageBucketPolicyResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StorageBucketPolicyResource"];
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.storage.buckets.policy.update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The bucket ID */
+                bucket: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateBucketPolicyApiRequest"];
+            };
+        };
+        responses: {
+            /** @description `StorageBucketPolicyResource` */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StorageBucketPolicyResource"];
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            409: {
+                headers: {
+                    "Retry-After"?: 5;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: string;
+                    };
+                };
+            };
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.storage.buckets.policy.folder-grants.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The bucket ID */
+                bucket: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoreBucketPolicyFolderGrantApiRequest"];
+            };
+        };
+        responses: {
+            /** @description `StorageBucketPolicyGrantResource` */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StorageBucketPolicyGrantResource"];
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            409: {
+                headers: {
+                    "Retry-After"?: 5;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: string;
+                    };
+                };
+            };
+            422: components["responses"]["ValidationException"];
+        };
+    };
     "v1.storage.buckets.diagnose": {
         parameters: {
             query?: never;
@@ -10329,8 +11141,12 @@ export interface operations {
                     name: string;
                     /** Format: date-time */
                     expires_at?: string | null;
-                    /** @enum {string|null} */
-                    scope?: "team" | "buckets" | null;
+                    /**
+                     * @description Where the key reaches. `team` (the default): every bucket of the team. `buckets`: only the buckets in `bucket_permissions`. `none`: no access of its own, so it reaches only what a bucket policy allows it.
+                     * @enum {string|null}
+                     */
+                    scope?: "team" | "buckets" | "none" | null;
+                    /** @description The buckets the key reaches, each with a level. Required for the scope `buckets`, with 1 to 50 entries. For `team` and `none`, leave it out or send an empty list. Send it only together with a scope. */
                     bucket_permissions?: {
                         bucket_id?: string;
                         /** @enum {string} */
@@ -10351,7 +11167,9 @@ export interface operations {
                         name: string;
                         access_key_id: string;
                         secret_access_key: string;
-                        scope: string | "team";
+                        arn: string | null;
+                        /** @enum {string} */
+                        scope: "buckets" | "none" | "team";
                         bucket_permissions: {
                             bucket_id: string;
                             level: string;
@@ -11338,7 +12156,7 @@ export interface operations {
                 content: {
                     "application/json": {
                         instance: components["schemas"]["QueueInstance"];
-                        connection_info: string;
+                        connection_info: string | null;
                         management_url: string;
                         monthly_cost: number;
                         /**
@@ -11542,7 +12360,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        amqp_url: string;
+                        amqp_url: string | null;
                         management_url: string;
                         host: string | null;
                         port: number;
@@ -15017,6 +15835,224 @@ export interface operations {
             404: components["responses"]["ModelNotFoundException"];
         };
     };
+    "v1.support-tickets.index": {
+        parameters: {
+            query?: {
+                status?: "open" | "in_progress" | "waiting_customer" | "resolved" | "closed" | null;
+                per_page?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["SupportTicketResource"][];
+                        pagination: {
+                            current_page: number;
+                            last_page: number;
+                            per_page: number;
+                            total: number;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.support-tickets.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoreSupportTicketApiRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "Support ticket created";
+                        ticket: components["schemas"]["SupportTicketDetailResource"] & Record<string, never>;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
+            /** @description Too many new tickets this hour. `retry_after` is the seconds to wait, as in the `Retry-After` header. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                        retry_after: number;
+                    };
+                };
+            };
+        };
+    };
+    "v1.support-tickets.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticketNumber: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ticket: components["schemas"]["SupportTicketDetailResource"] & Record<string, never>;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            /** @description No such ticket among yours in the current project. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                        error: string;
+                    };
+                };
+            };
+        };
+    };
+    "v1.support-tickets.replies.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticketNumber: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplySupportTicketApiRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "Reply sent";
+                        reply: components["schemas"]["SupportTicketReplyResource"];
+                        ticket: components["schemas"]["SupportTicketResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            /** @description No such ticket among yours in the current project. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                        error: string;
+                    };
+                };
+            };
+            422: components["responses"]["ValidationException"];
+            /** @description Too many replies this hour. `retry_after` is the seconds to wait, as in the `Retry-After` header. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                        retry_after: number;
+                    };
+                };
+            };
+        };
+    };
+    "v1.support-tickets.resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticketNumber: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "Ticket marked as resolved";
+                        ticket: components["schemas"]["SupportTicketResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            /** @description No such ticket among yours in the current project. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                        error: string;
+                    };
+                };
+            };
+            /** @description The ticket is already resolved or closed. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                        error: string;
+                    };
+                };
+            };
+        };
+    };
     "v1.uptime-checks.index": {
         parameters: {
             query?: {
@@ -15789,6 +16825,9 @@ export interface operations {
                 content: {
                     "application/json": {
                         /** @constant */
+                        error: "Delete this VPS's volumes first. Volumes are billed separately and are not deleted with the VPS.";
+                    } | {
+                        /** @constant */
                         error: "VPS cannot be destroyed in its current state";
                         status: string;
                     };
@@ -16253,7 +17292,7 @@ export interface operations {
                 content: {
                     "application/json": {
                         /** @constant */
-                        message: "Volume detach initiated";
+                        message: "Volume deletion initiated";
                         /** @constant */
                         status: "detaching";
                     };
@@ -16268,7 +17307,7 @@ export interface operations {
                 content: {
                     "application/json": {
                         /** @constant */
-                        error: "Volume cannot be detached in its current state.";
+                        error: "Volume cannot be deleted in its current state.";
                         status: string;
                     };
                 };
@@ -16516,6 +17555,7 @@ export interface operations {
                         message: "Webhook configuration updated successfully";
                         webhook_url: string | null;
                         webhook_enabled: boolean;
+                        /** @description The signing secret, only in the response of the call that generated it (save it then); null otherwise. */
                         webhook_secret: string | null;
                     };
                 };
