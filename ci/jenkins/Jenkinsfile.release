@@ -5,13 +5,14 @@ pipeline {
         skipDefaultCheckout(true)
         timeout(time: 30, unit: 'MINUTES')
         timestamps()
+        disableConcurrentBuilds()
         buildDiscarder(logRotator(numToKeepStr: '30', artifactNumToKeepStr: '10'))
     }
 
     parameters {
         string(name: 'SOURCE_REF', defaultValue: '', description: 'Exact release ref, for example refs/tags/v1.2.3.')
-        string(name: 'SOURCE_SHA', defaultValue: '', description: 'Exact tag commit SHA from the trusted webhook.')
-        booleanParam(name: 'PUBLISH_TO_NPM', defaultValue: false, description: 'Reserved for a separately reviewed publish cutover; currently fails closed.')
+        string(name: 'SOURCE_SHA', defaultValue: '', description: 'Exact tag ref target or peeled commit SHA from the trusted webhook.')
+        booleanParam(name: 'PUBLISH_TO_NPM', defaultValue: false, description: 'Publish the exact verified tag after the Jenkins release cutover is enabled.')
     }
 
     environment {
@@ -69,18 +70,24 @@ pipeline {
                     ])
 
                     String checkedOutSha = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
-                    String tagSha = sh(
+                    String tagRefSha = sh(
+                        script: "git rev-parse '${env.VERIFIED_TAG_REF}'",
+                        returnStdout: true
+                    ).trim()
+                    String tagCommitSha = sh(
                         script: "git rev-parse '${env.VERIFIED_TAG_REF}^{commit}'",
                         returnStdout: true
                     ).trim()
-                    if (!checkedOutSha.equalsIgnoreCase(tagSha)) {
-                        error("HEAD ${checkedOutSha} does not match tag commit ${tagSha}")
+                    if (!checkedOutSha.equalsIgnoreCase(tagCommitSha)) {
+                        error("HEAD ${checkedOutSha} does not match tag commit ${tagCommitSha}")
                     }
-                    if (!tagSha.equalsIgnoreCase(env.EXPECTED_SOURCE_SHA)) {
-                        error("Tag commit ${tagSha} does not match SOURCE_SHA ${env.EXPECTED_SOURCE_SHA}")
+                    boolean sourceShaMatchesTagRef = tagRefSha.equalsIgnoreCase(env.EXPECTED_SOURCE_SHA)
+                    boolean sourceShaMatchesTagCommit = tagCommitSha.equalsIgnoreCase(env.EXPECTED_SOURCE_SHA)
+                    if (!sourceShaMatchesTagRef && !sourceShaMatchesTagCommit) {
+                        error('SOURCE_SHA matches neither the exact tag ref nor its peeled commit')
                     }
                     int trustedMainStatus = sh(
-                        script: "git merge-base --is-ancestor '${tagSha}' 'refs/remotes/origin/main'",
+                        script: "git merge-base --is-ancestor '${tagCommitSha}' 'refs/remotes/origin/main'",
                         returnStatus: true
                     )
                     if (trustedMainStatus != 0) {
@@ -106,6 +113,30 @@ pipeline {
                     if ("v${packageVersion}" != env.RELEASE_TAG) {
                         error("package.json version ${packageVersion} does not match tag ${env.RELEASE_TAG}")
                     }
+
+                    if (params.PUBLISH_TO_NPM) {
+                        int actionsPublisherStatus = sh(
+                            returnStatus: true,
+                            script: '''
+                                set +e
+                                git grep -Eq 'npm[[:space:]]+publish' \
+                                    refs/remotes/origin/main -- .github/workflows
+                                grep_status=$?
+                                set -e
+                                case "${grep_status}" in
+                                    0) exit 42 ;;
+                                    1) exit 0 ;;
+                                    *) exit "${grep_status}" ;;
+                                esac
+                            '''
+                        )
+                        if (actionsPublisherStatus == 42) {
+                            error('GitHub Actions npm publication is still active on protected main')
+                        }
+                        if (actionsPublisherStatus != 0) {
+                            error('Unable to verify that the GitHub Actions npm publisher is disabled')
+                        }
+                    }
                 }
             }
         }
@@ -113,7 +144,7 @@ pipeline {
         stage('Test and package dry run') {
             steps {
                 sh '''
-                    docker run --rm \
+                    docker run --rm --interactive \
                         --read-only \
                         --cap-drop ALL \
                         --security-opt no-new-privileges \
@@ -124,18 +155,319 @@ pipeline {
                         --volume "$WORKSPACE:/workspace" \
                         --workdir /workspace \
                         "$NODE_IMAGE" \
-                        bash scripts/jenkins/run-tests-and-pack.sh
+                        /bin/bash -seu -o pipefail <<'TEST_SCRIPT'
+set +x
+/usr/local/bin/npm ci
+/usr/local/bin/npm run build
+/usr/local/bin/npm test
+pack_json="$(/usr/bin/mktemp /tmp/npm-pack.XXXXXX)"
+pack_file=''
+release_tarball=/workspace/danube-cli-release.tgz
+[ ! -e "${release_tarball}" ] || {
+    printf 'Release tarball already exists\n' >&2
+    exit 1
+}
+cleanup() {
+    /usr/bin/rm -f -- "${pack_json}"
+    if [ -n "${pack_file}" ]; then
+        /usr/bin/rm -f -- "/workspace/${pack_file}"
+    fi
+}
+trap cleanup EXIT HUP INT TERM
+/usr/local/bin/npm pack --json --ignore-scripts >"${pack_json}"
+pack_file="$(/usr/local/bin/node -e '
+    const fs = require("node:fs")
+    const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8"))
+    const filename = Array.isArray(value) && value.length === 1 ? value[0]?.filename : null
+    if (typeof filename !== "string" || !/^[^/]+[.]tgz$/.test(filename)) process.exit(2)
+    process.stdout.write(filename)
+' "${pack_json}")"
+[ -s "/workspace/${pack_file}" ] || {
+    printf 'npm pack did not create the expected dry-run package\n' >&2
+    exit 1
+}
+archive_entries="$(/usr/bin/tar -tzf "/workspace/${pack_file}")"
+for required_entry in package/package.json package/bin/danube package/dist/index.js; do
+    printf '%s\n' "${archive_entries}" | /usr/bin/grep -Fxq "${required_entry}" || {
+        printf 'npm package is missing %s\n' "${required_entry}" >&2
+        exit 1
+    }
+done
+/usr/bin/mv -- "/workspace/${pack_file}" "${release_tarball}"
+pack_file=''
+printf 'Created exact tested npm release package\n'
+TEST_SCRIPT
                 '''
             }
         }
 
-        stage('Publish gate') {
+        stage('Credential-free release result') {
+            when {
+                expression { !params.PUBLISH_TO_NPM }
+            }
+            steps {
+                echo 'Credential-free npm release dry run passed; PUBLISH_TO_NPM is false.'
+            }
+        }
+
+        stage('Archive tested package') {
+            steps {
+                archiveArtifacts artifacts: 'danube-cli-release.tgz', fingerprint: true
+            }
+        }
+
+        stage('Credential-free npm registry preflight') {
             steps {
                 script {
-                    if (params.PUBLISH_TO_NPM) {
-                        error('Publishing is disabled during the Jenkins migration; this job supports credential-free dry runs only')
+                    String preflightResult = sh(
+                        returnStdout: true,
+                        script: '''
+                            docker run --rm --interactive \
+                                --read-only \
+                                --cap-drop ALL \
+                                --security-opt no-new-privileges \
+                                --user "$(id -u):$(id -g)" \
+                                --tmpfs /tmp:rw,exec,nosuid,nodev,size=64m \
+                                --env HOME=/tmp \
+                                --env RELEASE_TAG \
+                                --volume "$WORKSPACE:/workspace:ro" \
+                                --workdir /tmp \
+                                "$NODE_IMAGE" \
+                                /bin/bash -seu -o pipefail <<'PREFLIGHT_SCRIPT'
+set +x
+release_tarball=/workspace/danube-cli-release.tgz
+package_name=@danubedata/cli
+release_version="${RELEASE_TAG#v}"
+package_identity="$(
+    /usr/bin/tar -xOzf "${release_tarball}" package/package.json |
+        /usr/local/bin/node -e '
+            let input = ""
+            process.stdin.setEncoding("utf8")
+            process.stdin.on("data", chunk => { input += chunk })
+            process.stdin.on("end", () => {
+                const value = JSON.parse(input)
+                process.stdout.write(`${value.name} ${value.version}`)
+            })
+        '
+)"
+[ "${package_identity}" = "${package_name} ${release_version}" ] || {
+    printf 'Tested tarball identity does not match the verified release\n' >&2
+    exit 1
+}
+local_integrity="$(
+    /usr/local/bin/node -e '
+        const fs = require("node:fs")
+        const crypto = require("node:crypto")
+        const digest = crypto.createHash("sha512")
+            .update(fs.readFileSync(process.argv[1]))
+            .digest("base64")
+        process.stdout.write(`sha512-${digest}`)
+    ' "${release_tarball}"
+)"
+view_output="$(/usr/bin/mktemp /tmp/npm-view-output.XXXXXX)"
+view_error="$(/usr/bin/mktemp /tmp/npm-view-error.XXXXXX)"
+trap '/usr/bin/rm -f -- "${view_output}" "${view_error}"' EXIT HUP INT TERM
+if /usr/local/bin/npm view \
+        "${package_name}@${release_version}" \
+        dist.integrity \
+        --json \
+        --registry=https://registry.npmjs.org/ \
+        >"${view_output}" 2>"${view_error}"; then
+    remote_integrity="$(/usr/local/bin/node -e '
+        const fs = require("node:fs")
+        const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8"))
+        if (typeof value !== "string" || !value.startsWith("sha512-")) process.exit(2)
+        process.stdout.write(value)
+    ' "${view_output}")"
+    [ "${remote_integrity}" = "${local_integrity}" ] || {
+        printf 'npm version already exists with different integrity\n' >&2
+        exit 1
+    }
+    printf 'exact %s\n' "${local_integrity}"
+elif /usr/bin/grep -Eq '(^|[[:space:]])E404([[:space:]]|$)' "${view_error}"; then
+    printf 'new %s\n' "${local_integrity}"
+else
+    printf 'Unable to establish whether the npm version already exists\n' >&2
+    exit 1
+fi
+PREFLIGHT_SCRIPT
+                        '''
+                    ).trim()
+                    if (!(preflightResult ==~ /^(new|exact) (sha512-[A-Za-z0-9+/]+={0,2})$/)) {
+                        error('Invalid npm registry preflight result')
                     }
-                    echo 'Credential-free npm release dry run passed; publishing remains disabled.'
+                    List<String> preflightParts = preflightResult.split(' ', 2) as List<String>
+                    env.NPM_RELEASE_STATE = preflightParts[0]
+                    env.NPM_RELEASE_INTEGRITY = preflightParts[1]
+                    echo "npm registry preflight completed: ${env.NPM_RELEASE_STATE}"
+                }
+            }
+        }
+
+        stage('Exact npm package already published') {
+            when {
+                allOf {
+                    expression { params.PUBLISH_TO_NPM }
+                    environment name: 'NPM_RELEASE_STATE', value: 'exact'
+                }
+            }
+            steps {
+                echo 'npm already has the exact tested package; no publication needed.'
+            }
+        }
+
+        stage('Publish exact package to npm') {
+            when {
+                allOf {
+                    expression { params.PUBLISH_TO_NPM }
+                    environment name: 'NPM_RELEASE_STATE', value: 'new'
+                }
+            }
+            steps {
+                withCredentials([string(
+                    credentialsId: 'danube-cli-npm-publish-token',
+                    variable: 'NPM_TOKEN'
+                )]) {
+                    sh '''
+                        set +x
+                        case "${NPM_TOKEN}" in
+                            npm_*) ;;
+                            *) printf 'Invalid npm credential format\n' >&2; exit 1 ;;
+                        esac
+                        case "${NPM_TOKEN}" in
+                            *[!A-Za-z0-9_]*) printf 'Invalid npm credential format\n' >&2; exit 1 ;;
+                        esac
+                        [ "${#NPM_TOKEN}" -ge 20 ] || {
+                            printf 'Invalid npm credential format\n' >&2
+                            exit 1
+                        }
+                        npm_token="${NPM_TOKEN}"
+                        unset NPM_TOKEN
+                        {
+                            printf '%s\n' "${npm_token}"
+                            unset npm_token
+                            cat <<'PUBLISH_SCRIPT'
+set +x
+release_tarball=/workspace/danube-cli-release.tgz
+package_name=@danubedata/cli
+release_version="${RELEASE_TAG#v}"
+[ -s "${release_tarball}" ] || {
+    printf 'Tested npm tarball is missing\n' >&2
+    exit 1
+}
+
+local_integrity="$(
+    /usr/local/bin/node -e '
+        const fs = require("node:fs")
+        const crypto = require("node:crypto")
+        const digest = crypto.createHash("sha512")
+            .update(fs.readFileSync(process.argv[1]))
+            .digest("base64")
+        process.stdout.write(`sha512-${digest}`)
+    ' "${release_tarball}"
+)"
+[ "${local_integrity}" = "${NPM_RELEASE_INTEGRITY}" ] || {
+    printf 'Tested tarball changed after registry preflight\n' >&2
+    exit 1
+}
+npmrc="$(/usr/bin/mktemp /tmp/npmrc.XXXXXX)"
+npm_view_output="$(/usr/bin/mktemp /tmp/npm-view-output.XXXXXX)"
+npm_view_error="$(/usr/bin/mktemp /tmp/npm-view-error.XXXXXX)"
+cleanup() {
+    /usr/bin/rm -f -- "${npmrc}" "${npm_view_output}" "${npm_view_error}"
+}
+trap cleanup EXIT HUP INT TERM
+/usr/bin/chmod 600 "${npmrc}" "${npm_view_output}" "${npm_view_error}"
+printf '//registry.npmjs.org/:_authToken=%s\n' "${NPM_TOKEN}" >"${npmrc}"
+unset NPM_TOKEN
+export NPM_CONFIG_USERCONFIG="${npmrc}"
+
+query_remote_integrity() {
+    if ! /usr/local/bin/npm view \
+            "${package_name}@${release_version}" \
+            dist.integrity \
+            --json \
+            --registry=https://registry.npmjs.org/ \
+            >"${npm_view_output}" 2>"${npm_view_error}"; then
+        if /usr/bin/grep -Eq '(^|[[:space:]])E404([[:space:]]|$)' "${npm_view_error}"; then
+            return 44
+        fi
+        return 2
+    fi
+    /usr/local/bin/node -e '
+            let input = ""
+            process.stdin.setEncoding("utf8")
+            process.stdin.on("data", chunk => { input += chunk })
+            process.stdin.on("end", () => {
+                if (input.trim() === "") process.exit(2)
+                let value
+                try {
+                    value = JSON.parse(input)
+                } catch {
+                    process.exit(2)
+                }
+                if (typeof value !== "string" || !value.startsWith("sha512-")) {
+                    process.exit(2)
+                }
+                process.stdout.write(value)
+            })
+        ' <"${npm_view_output}"
+}
+
+if remote_integrity="$(query_remote_integrity)"; then
+    [ "${remote_integrity}" = "${local_integrity}" ] || {
+        printf 'npm version already exists with different integrity\n' >&2
+        exit 1
+    }
+    printf 'npm already has the exact tested package; no publication needed\n'
+    exit 0
+else
+    query_status=$?
+    [ "${query_status}" -eq 44 ] || {
+        printf 'Unable to establish whether the npm version already exists\n' >&2
+        exit 1
+    }
+fi
+
+publish_status=0
+/usr/local/bin/npm publish \
+    --access public \
+    --ignore-scripts \
+    --registry=https://registry.npmjs.org/ \
+    "${release_tarball}" || publish_status=$?
+
+attempts=0
+while [ "${attempts}" -lt 12 ]; do
+    if remote_integrity="$(query_remote_integrity)" && \
+        [ "${remote_integrity}" = "${local_integrity}" ]; then
+        printf 'Verified npm package integrity after publication\n'
+        exit 0
+    fi
+    attempts=$((attempts + 1))
+    /usr/bin/sleep 5
+done
+
+if [ "${publish_status}" -ne 0 ]; then
+    printf 'npm publish failed and exact-version reconciliation did not succeed\n' >&2
+else
+    printf 'Published npm package did not become verifiable with the expected integrity\n' >&2
+fi
+exit 1
+PUBLISH_SCRIPT
+                        } | docker run --rm --interactive \
+                            --read-only \
+                            --cap-drop ALL \
+                            --security-opt no-new-privileges \
+                            --user "$(id -u):$(id -g)" \
+                            --tmpfs /tmp:rw,exec,nosuid,nodev,size=1g \
+                            --env HOME=/tmp \
+                            --env RELEASE_TAG \
+                            --env NPM_RELEASE_INTEGRITY \
+                            --volume "$WORKSPACE:/workspace:ro" \
+                            --workdir /workspace \
+                            "$NODE_IMAGE" \
+                            /bin/bash -ceu 'set -o pipefail; IFS= read -r NPM_TOKEN; source /dev/stdin'
+                    '''
                 }
             }
         }

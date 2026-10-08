@@ -45,10 +45,22 @@ until Jenkins npm publication is separately enabled and proven.
 
 The release pipeline accepts `SOURCE_REF=refs/tags/v<semver>` only when the tag
 commit is reachable from protected `main` and `package.json` has the same
-version. It runs tests and a credential-free `npm pack` dry run. Publishing is
-deliberately disabled during this phase even when `PUBLISH_TO_NPM=true`.
+version. The protected Jenkinsfile runs the test/package commands itself so an
+older tag cannot replace or omit the release procedure. It performs a
+credential-free `npm pack` dry run, creates and fingerprints the exact release
+tarball, then binds the folder-scoped
+`danube-cli-npm-publish-token` only in the protected Jenkinsfile's fixed
+publisher. The tagged checkout is mounted read-only while the credential is
+bound, and no script from that checkout executes in the credential scope.
+Publishing uses a temporary npmrc and lifecycle scripts are disabled. A rerun
+accepts an existing version only when its registry integrity equals the tested
+tarball; a conflicting immutable version fails closed.
 
-A later cutover may add the folder-scoped
-`danube-cli-npm-publish-token` credential and bind it only after all validation
+The cutover must preserve a single publisher: keep `PUBLISH_TO_NPM=false` while
+the tag-only GitHub Actions publisher remains active. Disable the Actions
+publisher before enabling the Jenkins tag webhook and the first real Jenkins
+publication. The protected Jenkinsfile independently scans the fetched trusted
+`main` workflows and refuses publication while an Actions `npm publish` command
+remains. Bind the npm credential only after all validation
 and dry-run stages. Until that separately reviewed change, the release job must
 not expose an npm credential or execute `npm publish`.

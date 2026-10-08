@@ -29,16 +29,22 @@ git commit -qm 'release 1.2.3'
 git branch -M main
 release_sha="$(git rev-parse HEAD)"
 git tag -a v1.2.3 -m v1.2.3
-git tag -a v1.2.4 -m v1.2.4
+annotated_tag_sha="$(git rev-parse refs/tags/v1.2.3)"
+git tag v1.2.4
 git update-ref refs/remotes/origin/main "${release_sha}"
 git switch -q --detach "${release_sha}"
 
+bash "${VERIFY}" v1.2.3 "${annotated_tag_sha}" refs/remotes/origin/main package.json
 bash "${VERIFY}" v1.2.3 "${release_sha}" refs/remotes/origin/main package.json
 expect_failure bash "${VERIFY}" v1.2.4 "${release_sha}" refs/remotes/origin/main package.json
 expect_failure bash "${VERIFY}" v1.2.3 0000000000000000000000000000000000000000 refs/remotes/origin/main package.json
 expect_failure bash "${VERIFY}" v1.2 refs/remotes/origin/main package.json
 expect_failure bash "${VERIFY}" v01.2.3 "${release_sha}" refs/remotes/origin/main package.json
 expect_failure bash "${VERIFY}" v1.2.3-01 "${release_sha}" refs/remotes/origin/main package.json
+
+printf '{"name":"@wrong/cli","version":"1.2.3"}\n' > package.json
+expect_failure bash "${VERIFY}" v1.2.3 "${release_sha}" refs/remotes/origin/main package.json
+git restore package.json
 
 git switch -q --orphan outside-main
 printf '{"name":"@danubedata/cli","version":"9.9.9"}\n' > package.json
