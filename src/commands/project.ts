@@ -7,19 +7,21 @@ import { isJsonMode, jsonOutput } from '../lib/json-mode.js';
 import { canPrompt } from '../lib/interactive.js';
 import { parseProjectId, getProjectOverride } from '../lib/project-context.js';
 import { MissingFlagsError, UsageError } from '../lib/errors.js';
+import { assertTokenReaches, lockedTeamId } from '../lib/token-scope.js';
 import { teamsArray } from '../types/api.js';
 import type { TeamsResponse } from '../types/api.js';
 
 const lsCommand = new Command('ls')
   .description('List all projects (teams)')
   .action(async () => {
-    const api = await ApiClient.create();
+    const api = await ApiClient.create({ unscoped: true });
     const res = await api.get<TeamsResponse>('/api/v1/user/teams');
     const teams = teamsArray(res);
+    const locked = lockedTeamId(res);
     const config = await readConfig();
 
     if (isJsonMode()) {
-      jsonOutput(teams.map(t => ({ ...t, selected: config?.teamId === t.id })));
+      jsonOutput(teams.map(t => ({ ...t, selected: config?.teamId === t.id, token_reaches: locked === null || locked === t.id })));
       return;
     }
 
@@ -32,7 +34,8 @@ const lsCommand = new Command('ls')
       const isCurrent = config?.teamId === team.id;
       const marker = isCurrent ? chalk.green(' (selected)') : '';
       const personal = team.personal_team ? chalk.dim(' [personal]') : '';
-      console.log(`  ${chalk.bold(team.name)}${personal}${marker}  ${chalk.dim(`id: ${team.id}`)}`);
+      const unreachable = locked !== null && locked !== team.id ? chalk.dim(' [not for this token]') : '';
+      console.log(`  ${chalk.bold(team.name)}${personal}${marker}${unreachable}  ${chalk.dim(`id: ${team.id}`)}`);
     }
   });
 
@@ -40,9 +43,10 @@ const selectCommand = new Command('select')
   .description('Select a project to use for all commands')
   .option('--project <id>', 'Select this project id without prompting')
   .action(async (opts: { project?: string }) => {
-    const api = await ApiClient.create();
+    const api = await ApiClient.create({ unscoped: true });
     const res = await api.get<TeamsResponse>('/api/v1/user/teams');
     const teams = teamsArray(res);
+    const locked = lockedTeamId(res);
 
     if (teams.length === 0) {
       console.log('No projects found.');
@@ -63,6 +67,7 @@ const selectCommand = new Command('select')
           `Project ${requested} is not one of your projects. Run \`danube project ls\` to see the available ids.`,
         );
       }
+      assertTokenReaches(team.id, res, teams);
 
       const existing = await readConfig();
       if (existing) {
@@ -77,8 +82,11 @@ const selectCommand = new Command('select')
       return;
     }
 
-    if (teams.length === 1) {
-      const team = teams[0]!;
+    // A token locked to one project works nowhere else, so there is nothing to choose.
+    const only = locked !== null ? teams.find(t => t.id === locked) : (teams.length === 1 ? teams[0] : undefined);
+
+    if (only !== undefined) {
+      const team = only;
       const config = await readConfig();
       if (config) {
         await writeConfig({ ...config, teamId: team.id, teamName: team.name });
@@ -87,7 +95,7 @@ const selectCommand = new Command('select')
         jsonOutput({ id: team.id, name: team.name });
         return;
       }
-      console.log(`Selected project: ${chalk.bold(team.name)}`);
+      console.log(`Selected project: ${chalk.bold(team.name)}${locked !== null ? chalk.dim(' (the only project this token works in)') : ''}`);
       return;
     }
 

@@ -9,7 +9,7 @@ import { resolveResource } from '../../lib/resolve.js';
 import { formatTable, statusColor, formatDate, printDetails } from '../../lib/output.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import { canPrompt, promptOr, confirmDestruction } from '../../lib/interactive.js';
-import { MissingFlagsError } from '../../lib/errors.js';
+import { MissingFlagsError, UsageError } from '../../lib/errors.js';
 import { resolveAlias } from '../../lib/flag-alias.js';
 import type {
   VpsInstance,
@@ -18,12 +18,37 @@ import type {
   VpsImageGroup,
   VpsPlanInfo,
   PlansResponse,
+  SshKey,
 } from '../../types/api.js';
 
 function generatePassword(length = 24): string {
   const chars = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%&*';
   const bytes = randomBytes(length);
   return Array.from(bytes, b => chars[b % chars.length]).join('');
+}
+
+/**
+ * One of the account's SSH keys, chosen from a list: the default key first and
+ * already selected. An account with no key has nothing to choose, so it is told
+ * where to add one rather than asked for an ID it cannot have.
+ */
+async function chooseSshKey(api: ApiClient): Promise<string> {
+  const { items: keys } = await fetchAllPages<SshKey>(api, '/api/v1/ssh-keys');
+
+  if (keys.length === 0) {
+    throw new UsageError('Your account has no SSH keys yet. Add one in the console (Security, SSH keys), or choose Password.');
+  }
+
+  const ordered = [...keys].sort((a, b) => Number(b.is_default) - Number(a.is_default));
+
+  return select({
+    message: 'SSH key:',
+    choices: ordered.map(k => ({
+      name: `${k.name}${k.is_default ? ' (default)' : ''}  ${chalk.dim(k.fingerprint)}`,
+      value: String(k.id),
+    })),
+    default: String(ordered[0]!.id),
+  });
 }
 
 export const lsCommand = new Command('ls')
@@ -194,10 +219,7 @@ export const createCommand = new Command('create')
           });
         }
       } else {
-        sshKeyId = await input({
-          message: 'SSH key ID:',
-          validate: (v: string) => v.trim().length > 0 || 'SSH key ID is required',
-        });
+        sshKeyId = await chooseSshKey(api);
       }
     } else {
       authMethod = sshKeyId ? 'ssh_key' : 'password';

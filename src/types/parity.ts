@@ -42,6 +42,8 @@ import type {
   CreateAccessKeyResponse,
   BucketPolicy,
   BucketPolicyGrant,
+  Team,
+  SshKey,
 } from './api.js';
 
 type Json<T> = T extends { content: { 'application/json': infer B } } ? B : never;
@@ -450,3 +452,19 @@ type _policyGrant = Satisfies<BucketPolicyGrant, PolicyGrant>;
  */
 type _guardKeyArnIsNullable = AssertTrue<Exact<KeyShow['access_key']['arn'], string | null>>;
 type _guardCreatedKeyArnIsNullable = AssertTrue<Exact<KeyCreate['arn'], string | null>>;
+
+/**
+ * `GET /user/teams` (whoami, login, project, link, rapids create). `data` is a
+ * list sorted by name; it was an object keyed "0", "3", "1" for anyone in more
+ * than one project until the platform fixed it, which is why teamsArray() still
+ * reads both. `token_team_id` tells the CLI which project a locked token is
+ * held to, so `project select` can refuse one the token would be refused in.
+ */
+type UserTeams = Json<paths['/user/teams']['get']['responses'][200]>;
+
+type _userTeams = Satisfies<{ data: Team[]; current_team_id: number; token_team_id: number | null }, UserTeams>;
+
+/** `GET /ssh-keys`, the keys `vps create` offers, the default one first. */
+type SshKeyList = Json<paths['/ssh-keys']['get']['responses'][200]>;
+
+type _sshKeyList = Satisfies<{ data: SshKey[]; pagination: Pagination }, SshKeyList>;

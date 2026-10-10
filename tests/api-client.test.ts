@@ -345,6 +345,19 @@ describe('ApiClient', () => {
 
         expect(await teamHeader(await ApiClient.create({ teamId: null }))).toBe('20');
       });
+
+      /**
+       * Listing and selecting projects is about the account. A token locked to
+       * one project is refused with any other in X-Team-Id, so a stale saved
+       * selection must not block the command that replaces it.
+       */
+      it('sends no project at all when unscoped, whatever is saved or overridden', async () => {
+        const { setProjectOverride } = await import('../src/lib/project-context.js');
+        setProjectOverride(7);
+        mockReadConfig.mockResolvedValueOnce({ token: 't', teamId: 20 });
+
+        expect(await teamHeader(await ApiClient.create({ unscoped: true }))).toBeUndefined();
+      });
     });
   });
 

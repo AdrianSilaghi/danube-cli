@@ -28,8 +28,13 @@ export class ApiClient {
    * `teamId` pins the client to one project, for requests about a resource
    * whose project is already known — a linked static site belongs to exactly
    * one project, so scoping its requests to any other can only 404.
+   *
+   * `unscoped` sends no project at all, for requests about the account rather
+   * than one project: listing and selecting projects. A token locked to one
+   * project is refused with any other in X-Team-Id, so a stale selection would
+   * otherwise block the very command that replaces it.
    */
-  static async create(options: { teamId?: number | null } = {}): Promise<ApiClient> {
+  static async create(options: { teamId?: number | null; unscoped?: boolean } = {}): Promise<ApiClient> {
     const config = await readConfig();
     const token = getToken(config);
     if (!token) {
@@ -41,7 +46,7 @@ export class ApiClient {
     //
     // Project-locked tokens stay server-enforced: a header the token is not
     // permitted to use is rejected upstream, never silently honoured here.
-    const teamId = options.teamId ?? getProjectOverride() ?? getTeamId(config);
+    const teamId = options.unscoped ? null : (options.teamId ?? getProjectOverride() ?? getTeamId(config));
 
     return new ApiClient(token, config?.apiBase, teamId);
   }

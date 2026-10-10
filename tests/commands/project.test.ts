@@ -1,9 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const mockGet = vi.fn();
+const mockCreate = vi.fn();
 vi.mock('../../src/lib/api-client.js', () => ({
   ApiClient: {
-    create: () => Promise.resolve({ get: mockGet }),
+    create: (...args: unknown[]) => {
+      mockCreate(...args);
+      return Promise.resolve({ get: mockGet });
+    },
   },
 }));
 
@@ -29,6 +33,7 @@ describe('project select command', () => {
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
     mockGet.mockReset();
+    mockCreate.mockReset();
     mockReadConfig.mockReset();
     mockWriteConfig.mockReset();
     mockSelect.mockReset();
@@ -71,5 +76,78 @@ describe('project select command', () => {
     const printed = JSON.parse(consoleLogSpy.mock.calls.at(-1)![0] as string).data;
     expect(printed).toEqual({ id: 1, name: 'Solo Team' });
     setJsonMode(false);
+  });
+});
+
+describe('project commands with a token locked to one project', () => {
+  const originalIsTTY = process.stdin.isTTY;
+  let consoleLogSpy: ReturnType<typeof vi.spyOn>;
+
+  // Team B is the project the token was made for: the API refuses it in Team A.
+  const lockedToB = {
+    data: [
+      { id: 1, name: 'Team A', personal_team: true },
+      { id: 2, name: 'Team B', personal_team: false },
+    ],
+    current_team_id: 2,
+    token_team_id: 2,
+  };
+
+  beforeEach(() => {
+    consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+    mockGet.mockReset();
+    mockCreate.mockReset();
+    mockReadConfig.mockReset();
+    mockWriteConfig.mockReset();
+    mockSelect.mockReset();
+    mockReadConfig.mockResolvedValue({ token: 't', teamId: 1, teamName: 'Team A' });
+    mockWriteConfig.mockResolvedValue(undefined);
+    mockGet.mockResolvedValue(lockedToB);
+  });
+
+  afterEach(() => {
+    Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
+    vi.restoreAllMocks();
+  });
+
+  it('lists and selects without sending a project, so a stale selection cannot block them', async () => {
+    await projectCommand.parseAsync(['node', 'test', 'ls']);
+    await projectCommand.parseAsync(['node', 'test', 'select']);
+
+    expect(mockCreate.mock.calls).toEqual([[{ unscoped: true }], [{ unscoped: true }]]);
+  });
+
+  it('refuses a project the token is refused in, naming the one it works in', async () => {
+    await expect(projectCommand.parseAsync(['node', 'test', 'select', '--project', '1']))
+      .rejects.toThrow(/works in Team B \(id 2\) only.*All your projects/);
+
+    expect(mockWriteConfig).not.toHaveBeenCalled();
+  });
+
+  it('selects the locked project without asking, since it is the only one the token works in', async () => {
+    await projectCommand.parseAsync(['node', 'test', 'select']);
+
+    expect(mockSelect).not.toHaveBeenCalled();
+    expect(mockWriteConfig).toHaveBeenCalledWith({ token: 't', teamId: 2, teamName: 'Team B' });
+    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('the only project this token works in'));
+  });
+
+  it('marks the projects the token cannot be used in', async () => {
+    await projectCommand.parseAsync(['node', 'test', 'ls']);
+
+    const lines = consoleLogSpy.mock.calls.map(c => String(c[0]));
+    expect(lines.find(l => l.includes('Team A'))).toContain('[not for this token]');
+    expect(lines.find(l => l.includes('Team B'))).not.toContain('[not for this token]');
+  });
+
+  it('still lets an account-wide token pick any project', async () => {
+    mockGet.mockResolvedValue({ ...lockedToB, token_team_id: null });
+    mockSelect.mockResolvedValue(1);
+
+    await projectCommand.parseAsync(['node', 'test', 'select']);
+
+    expect(mockSelect).toHaveBeenCalled();
+    expect(mockWriteConfig).toHaveBeenCalledWith({ token: 't', teamId: 1, teamName: 'Team A' });
   });
 });

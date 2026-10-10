@@ -92,6 +92,13 @@ mutates saved config, so a script iterating over projects leaves nothing behind
 for the next process. `--team` is accepted as an alias; supplying both with
 different values is a usage error rather than a silent preference.
 
+A token made for **This project only** (the console's default) works in that
+project and is refused in every other. `danube login` selects that project for
+you, `danube whoami` says where the token works, `danube project ls` marks the
+projects it cannot be used in, and `danube project select` refuses one of them
+rather than leave every later command failing with a 403. Listing and selecting
+projects never send a project, so a stale selection cannot block fixing it.
+
 ### Structured API failures
 
 In JSON mode an API failure keeps its existing `{"code":"api_error",...}` shape
@@ -265,7 +272,9 @@ danube vps create \
   --ssh-key-id <key-id>
 ```
 
-Plans and prices in the interactive picker are fetched live from the API.
+Plans and prices in the interactive picker are fetched live from the API. With
+SSH key authentication it offers your account's keys, your default key first
+and already selected.
 
 #### Power management
 
