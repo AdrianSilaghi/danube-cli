@@ -9,7 +9,7 @@ import { resolveResource } from '../../lib/resolve.js';
 import { formatTable, statusColor, formatDate, printDetails } from '../../lib/output.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import { canPrompt, promptOr, confirmDestruction } from '../../lib/interactive.js';
-import { MissingFlagsError } from '../../lib/errors.js';
+import { ApiError, MissingFlagsError } from '../../lib/errors.js';
 import { resolveAlias } from '../../lib/flag-alias.js';
 import type {
   VpsInstance,
@@ -18,12 +18,81 @@ import type {
   VpsImageGroup,
   VpsPlanInfo,
   PlansResponse,
+  SshKey,
 } from '../../types/api.js';
 
 function generatePassword(length = 24): string {
   const chars = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%&*';
   const bytes = randomBytes(length);
   return Array.from(bytes, b => chars[b % chars.length]).join('');
+}
+
+/**
+ * One of the account's SSH keys, chosen from a list: the default key first and
+ * already selected. Null when the account has no key, so the caller can offer a
+ * password instead.
+ *
+ * Creating a VPS needs no SSH key ability, so a token that cannot list keys
+ * (without `ssh-key:read`, a 403) is asked for the key's ID, as before the list
+ * existed. Any other refusal falls back the same way: the list is a convenience.
+ */
+async function chooseSshKey(api: ApiClient): Promise<string | null> {
+  let keys: SshKey[];
+  try {
+    ({ items: keys } = await fetchAllPages<SshKey>(api, '/api/v1/ssh-keys'));
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+
+    console.error(chalk.dim(error.statusCode === 403
+      ? 'This token cannot list your SSH keys (it lacks ssh-key:read), so type the key\'s ID.'
+      : `Could not list your SSH keys (HTTP ${error.statusCode}), so type the key's ID.`));
+
+    return input({
+      message: 'SSH key ID:',
+      validate: (v: string) => v.trim().length > 0 || 'SSH key ID is required',
+    });
+  }
+
+  if (keys.length === 0) return null;
+
+  const ordered = [...keys].sort((a, b) => Number(b.is_default) - Number(a.is_default));
+
+  return select({
+    message: 'SSH key:',
+    choices: ordered.map(k => ({
+      name: `${k.name}${k.is_default ? ' (default)' : ''}  ${chalk.dim(k.fingerprint)}`,
+      value: String(k.id),
+    })),
+    default: String(ordered[0]!.id),
+  });
+}
+
+/** A root password: generated and shown once, or typed. */
+async function choosePassword(): Promise<string> {
+  const passwordChoice = await select({
+    message: 'Password:',
+    choices: [
+      { name: 'Generate a secure password', value: 'generate' },
+      { name: 'Enter manually', value: 'manual' },
+    ],
+  });
+
+  if (passwordChoice === 'manual') {
+    return passwordPrompt({
+      message: 'Root password (min 12 characters):',
+      mask: '*',
+      validate: (v: string) => v.length >= 12 || 'Password must be at least 12 characters',
+    });
+  }
+
+  const pass = generatePassword();
+  if (!isJsonMode()) {
+    console.log('');
+    console.log(`  Generated password: ${chalk.bold.yellow(pass)}`);
+    console.log(chalk.yellow('  Save this password now — it will not be shown again.'));
+    console.log('');
+  }
+  return pass;
 }
 
 export const lsCommand = new Command('ls')
@@ -169,35 +238,20 @@ export const createCommand = new Command('create')
         ],
       });
 
-      if (authMethod === 'password') {
-        const passwordChoice = await select({
-          message: 'Password:',
-          choices: [
-            { name: 'Generate a secure password', value: 'generate' },
-            { name: 'Enter manually', value: 'manual' },
-          ],
-        });
+      if (authMethod === 'ssh_key') {
+        const chosen = await chooseSshKey(api);
 
-        if (passwordChoice === 'generate') {
-          pass = generatePassword();
-          if (!isJsonMode()) {
-            console.log('');
-            console.log(`  Generated password: ${chalk.bold.yellow(pass)}`);
-            console.log(chalk.yellow('  Save this password now — it will not be shown again.'));
-            console.log('');
-          }
+        if (chosen === null) {
+          // Nothing to choose from: offer a password rather than end a run the user has answered so far.
+          console.error(chalk.yellow('Your account has no SSH keys yet, so this VPS gets a root password. Add a key in the console (Security, SSH keys) to use one next time.'));
+          authMethod = 'password';
         } else {
-          pass = await passwordPrompt({
-            message: 'Root password (min 12 characters):',
-            mask: '*',
-            validate: (v: string) => v.length >= 12 || 'Password must be at least 12 characters',
-          });
+          sshKeyId = chosen;
         }
-      } else {
-        sshKeyId = await input({
-          message: 'SSH key ID:',
-          validate: (v: string) => v.trim().length > 0 || 'SSH key ID is required',
-        });
+      }
+
+      if (authMethod === 'password') {
+        pass = await choosePassword();
       }
     } else {
       authMethod = sshKeyId ? 'ssh_key' : 'password';

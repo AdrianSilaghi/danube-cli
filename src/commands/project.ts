@@ -6,20 +6,40 @@ import { readConfig, writeConfig } from '../lib/config.js';
 import { isJsonMode, jsonOutput } from '../lib/json-mode.js';
 import { canPrompt } from '../lib/interactive.js';
 import { parseProjectId, getProjectOverride } from '../lib/project-context.js';
-import { MissingFlagsError, UsageError } from '../lib/errors.js';
+import { ApiError, MissingFlagsError, UsageError } from '../lib/errors.js';
+import { assertTokenReaches, lockedTeamId } from '../lib/token-scope.js';
 import { teamsArray } from '../types/api.js';
 import type { TeamsResponse } from '../types/api.js';
+
+/**
+ * Your projects, asked without naming one, so a stale selection (a project the
+ * token is refused in, or one you left) cannot block the command that replaces
+ * it. The server then checks your default project instead. If that one refuses
+ * the request (a blocked project, say), ask again in the selected project, as
+ * versions before 1.8 did, so this is never worse than it was.
+ */
+async function listProjects(): Promise<TeamsResponse> {
+  try {
+    return await (await ApiClient.create({ unscoped: true })).get<TeamsResponse>('/api/v1/user/teams');
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.statusCode !== 403) throw error;
+
+    return (await ApiClient.create()).get<TeamsResponse>('/api/v1/user/teams');
+  }
+}
 
 const lsCommand = new Command('ls')
   .description('List all projects (teams)')
   .action(async () => {
-    const api = await ApiClient.create();
-    const res = await api.get<TeamsResponse>('/api/v1/user/teams');
+    const res = await listProjects();
     const teams = teamsArray(res);
+    const locked = lockedTeamId(res);
     const config = await readConfig();
 
     if (isJsonMode()) {
-      jsonOutput(teams.map(t => ({ ...t, selected: config?.teamId === t.id })));
+      // Null when the server does not say what the token reaches (deployments before 2026-10).
+      const reaches = (id: number): boolean | null => (res.token_team_id === undefined ? null : locked === null || locked === id);
+      jsonOutput(teams.map(t => ({ ...t, selected: config?.teamId === t.id, token_reaches: reaches(t.id) })));
       return;
     }
 
@@ -32,7 +52,8 @@ const lsCommand = new Command('ls')
       const isCurrent = config?.teamId === team.id;
       const marker = isCurrent ? chalk.green(' (selected)') : '';
       const personal = team.personal_team ? chalk.dim(' [personal]') : '';
-      console.log(`  ${chalk.bold(team.name)}${personal}${marker}  ${chalk.dim(`id: ${team.id}`)}`);
+      const unreachable = locked !== null && locked !== team.id ? chalk.dim(' [not for this token]') : '';
+      console.log(`  ${chalk.bold(team.name)}${personal}${marker}${unreachable}  ${chalk.dim(`id: ${team.id}`)}`);
     }
   });
 
@@ -40,9 +61,9 @@ const selectCommand = new Command('select')
   .description('Select a project to use for all commands')
   .option('--project <id>', 'Select this project id without prompting')
   .action(async (opts: { project?: string }) => {
-    const api = await ApiClient.create();
-    const res = await api.get<TeamsResponse>('/api/v1/user/teams');
+    const res = await listProjects();
     const teams = teamsArray(res);
+    const locked = lockedTeamId(res);
 
     if (teams.length === 0) {
       console.log('No projects found.');
@@ -63,6 +84,7 @@ const selectCommand = new Command('select')
           `Project ${requested} is not one of your projects. Run \`danube project ls\` to see the available ids.`,
         );
       }
+      assertTokenReaches(team.id, res, teams);
 
       const existing = await readConfig();
       if (existing) {
@@ -77,8 +99,11 @@ const selectCommand = new Command('select')
       return;
     }
 
-    if (teams.length === 1) {
-      const team = teams[0]!;
+    // A token locked to one project works nowhere else, so there is nothing to choose.
+    const only = locked !== null ? teams.find(t => t.id === locked) : (teams.length === 1 ? teams[0] : undefined);
+
+    if (only !== undefined) {
+      const team = only;
       const config = await readConfig();
       if (config) {
         await writeConfig({ ...config, teamId: team.id, teamName: team.name });
@@ -87,7 +112,7 @@ const selectCommand = new Command('select')
         jsonOutput({ id: team.id, name: team.name });
         return;
       }
-      console.log(`Selected project: ${chalk.bold(team.name)}`);
+      console.log(`Selected project: ${chalk.bold(team.name)}${locked !== null ? chalk.dim(' (the only project this token works in)') : ''}`);
       return;
     }
 

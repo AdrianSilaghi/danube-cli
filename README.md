@@ -92,6 +92,14 @@ mutates saved config, so a script iterating over projects leaves nothing behind
 for the next process. `--team` is accepted as an alias; supplying both with
 different values is a usage error rather than a silent preference.
 
+A token made for **This project only** (the console's default) works in that
+project and is refused in every other. `danube login` selects that project for
+you, `danube whoami` says where the token works, `danube project ls` marks the
+projects it cannot be used in, and `danube project select` refuses one of them
+rather than leave every later command failing with a 403. Listing and selecting
+projects ask without naming a project first, so a stale selection cannot block
+fixing it.
+
 ### Structured API failures
 
 In JSON mode an API failure keeps its existing `{"code":"api_error",...}` shape
@@ -265,7 +273,10 @@ danube vps create \
   --ssh-key-id <key-id>
 ```
 
-Plans and prices in the interactive picker are fetched live from the API.
+Plans and prices in the interactive picker are fetched live from the API. With
+SSH key authentication it offers your account's keys, your default key first
+and already selected. A token without `ssh-key:read` is asked for the key's ID
+instead, and an account with no key is offered a password.
 
 #### Power management
 
@@ -578,7 +589,7 @@ Knative-based serverless containers with scale-to-zero.
 | `danube rapids probe [name]` | Reach the public URL from outside: DNS, TLS, status, cold vs warm latency |
 | `danube rapids preflight --image <ref>` | Check namespace, credential, manifest, digest and architecture before deploying |
 | `danube rapids run <name-or-id> [-- <command...>]` | **Preview.** Run the container's image ONCE, on demand, as a Kubernetes Job (`--tag`, `--env`, `--timeout`, `--wait`, `--wait-timeout`, `--no-logs`) |
-| `danube rapids runs ls <name-or-id>` | **Preview.** List runs for a container |
+| `danube rapids runs ls <name-or-id>` | **Preview.** List runs for a container, newest first, 20 to a page (`--limit` up to 200, `--page` for older runs) |
 | `danube rapids runs show <name-or-id> <run-id>` | **Preview.** Show one run's status, exit code and timing |
 | `danube rapids runs logs <name-or-id> <run-id>` | **Preview.** Fetch a run's logs (`--follow` to poll until terminal) |
 | `danube rapids runs cancel <name-or-id> <run-id>` | **Preview.** Cancel an active run |

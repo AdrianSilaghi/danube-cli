@@ -4,7 +4,37 @@ import chalk from 'chalk';
 import { writeConfig, getApiBase } from '../lib/config.js';
 import { ApiError } from '../lib/errors.js';
 import { canPrompt, promptOr } from '../lib/interactive.js';
-import type { User } from '../types/api.js';
+import { lockedTeamId } from '../lib/token-scope.js';
+import { teamsArray } from '../types/api.js';
+import type { Team, TeamsResponse, User } from '../types/api.js';
+
+/** How long the login waits to learn the token's project before carrying on without it. */
+const LOCKED_PROJECT_TIMEOUT_MS = 10_000;
+
+/**
+ * The project a token made for "This project only" is locked to: it works
+ * nowhere else, so it becomes the selected project at once. Undefined for a
+ * token that works in every project, and when the teams cannot be read in
+ * time: the login itself has already succeeded.
+ */
+async function lockedProject(apiBase: string, token: string): Promise<Team | undefined> {
+  try {
+    const res = await fetch(`${apiBase}/api/v1/user/teams`, {
+      headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${token}` },
+      signal: AbortSignal.timeout(LOCKED_PROJECT_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+      return undefined;
+    }
+
+    const teams = (await res.json()) as TeamsResponse;
+    const locked = lockedTeamId(teams);
+
+    return locked === null ? undefined : teamsArray(teams).find(t => t.id === locked);
+  } catch {
+    return undefined;
+  }
+}
 
 export const loginCommand = new Command('login')
   .description('Authenticate with DanubeData')
@@ -50,9 +80,13 @@ export const loginCommand = new Command('login')
       if (apiBase !== 'https://danubedata.ro') {
         config.apiBase = apiBase;
       }
-      await writeConfig(config);
+      const locked = await lockedProject(apiBase, token);
+      await writeConfig(locked ? { ...config, teamId: locked.id, teamName: locked.name } : config);
 
       console.log(chalk.green(`\nAuthenticated as ${chalk.bold(user.name)} (${user.email})`));
+      if (locked) {
+        console.log(`Selected project: ${chalk.bold(locked.name)} ${chalk.dim('(the only project this token works in)')}`);
+      }
     } catch (err) {
       if (err instanceof ApiError) throw err;
       console.error(chalk.red('Failed to connect to DanubeData API.'));

@@ -30,6 +30,7 @@ vi.mock('@inquirer/prompts', () => ({
 }));
 
 const { lsCommand, createCommand, getCommand, updateCommand, deleteCommand } = await import('../../../src/commands/vps/instances.js');
+const { ApiError } = await import('../../../src/lib/errors.js');
 
 class ExitError extends Error {
   constructor(public code: number) { super(`process.exit(${code})`); }
@@ -127,7 +128,13 @@ describe('vps instances', () => {
       }));
     });
 
-    it('fetches plans from the API for the interactive picker', async () => {
+    const sshKeys = (keys: Array<{ id: number; name: string; is_default: boolean }>) => ({
+      data: keys.map(k => ({ ...k, fingerprint: `SHA256:${k.name}`, public_key: 'ssh-ed25519 AAAA', created_at: '', updated_at: '', user_id: 1 })),
+      pagination: { current_page: 1, last_page: 1, per_page: 100, total: keys.length },
+    });
+
+    /** Answers every prompt up to the authentication method, which it answers with SSH key. */
+    const promptUpToTheSshKey = () => {
       mockGet
         .mockResolvedValueOnce({ groups: [{ label: 'Ubuntu', images: [{ id: 'ubuntu-24.04', label: 'Ubuntu 24.04', default_user: 'root' }] }] })
         .mockResolvedValueOnce({ plans: [{ slug: 'nano_shared', display_name: 'DD Litcov', type: 'shared', cpu_cores: 2, memory_gb: 2, storage_gb: 40, monthly_cost: 4.49 }] });
@@ -137,7 +144,12 @@ describe('vps instances', () => {
         .mockResolvedValueOnce('nano_shared')              // plan
         .mockResolvedValueOnce('intel')                    // processor
         .mockResolvedValueOnce('ssh_key');                 // auth method
-      mockInput.mockResolvedValueOnce('key-1');            // ssh key id
+    };
+
+    it('fetches plans from the API for the interactive picker', async () => {
+      promptUpToTheSshKey();
+      mockGet.mockResolvedValueOnce(sshKeys([{ id: 7, name: 'laptop', is_default: true }]));
+      mockSelect.mockResolvedValueOnce('7');               // ssh key
       mockPost.mockResolvedValue({ message: 'ok', instance: makeVps() });
 
       await createCommand.parseAsync(['node', 'test']);
@@ -148,7 +160,72 @@ describe('vps instances', () => {
       expect(planChoices.choices[0]!.value).toBe('nano_shared');
       const processorChoices = mockSelect.mock.calls.find(c => (c[0] as { message: string }).message === 'Processor:')![0] as { choices: Array<{ name: string; value: string }> };
       expect(processorChoices.choices.map(c => c.value)).toEqual(['amd', 'intel']);
-      expect(mockPost).toHaveBeenCalledWith('/api/v1/vps', expect.objectContaining({ cpu_platform: 'intel' }));
+      expect(mockPost).toHaveBeenCalledWith('/api/v1/vps', expect.objectContaining({ cpu_platform: 'intel', ssh_key_id: '7' }));
+    });
+
+    it("offers the account's SSH keys with the default first and already selected", async () => {
+      promptUpToTheSshKey();
+      mockGet.mockResolvedValueOnce(sshKeys([
+        { id: 7, name: 'laptop', is_default: false },
+        { id: 9, name: 'work', is_default: true },
+      ]));
+      mockSelect.mockResolvedValueOnce('9');
+      mockPost.mockResolvedValue({ message: 'ok', instance: makeVps() });
+
+      await createCommand.parseAsync(['node', 'test']);
+
+      expect(mockGet).toHaveBeenCalledWith('/api/v1/ssh-keys?per_page=100&page=1');
+      const keyPrompt = mockSelect.mock.calls.find(c => (c[0] as { message: string }).message === 'SSH key:')![0] as {
+        choices: Array<{ name: string; value: string }>;
+        default: string;
+      };
+      expect(keyPrompt.choices.map(c => c.value)).toEqual(['9', '7']);
+      expect(keyPrompt.choices[0]!.name).toContain('work (default)');
+      expect(keyPrompt.default).toBe('9');
+      expect(mockInput).toHaveBeenCalledTimes(1);          // the name only: no key ID to type
+      expect(mockPost).toHaveBeenCalledWith('/api/v1/vps', expect.objectContaining({ auth_method: 'ssh_key', ssh_key_id: '9' }));
+    });
+
+    it('offers a password when the account has no key, and says where to add one', async () => {
+      promptUpToTheSshKey();
+      mockGet.mockResolvedValueOnce(sshKeys([]));
+      mockSelect.mockResolvedValueOnce('manual');          // password choice
+      mockPassword.mockResolvedValueOnce('MyStr0ngP@ssw0rd!');
+      mockPost.mockResolvedValue({ message: 'ok', instance: makeVps() });
+
+      await createCommand.parseAsync(['node', 'test']);
+
+      expect(consoleErrorSpy.mock.calls.flat().join('\n')).toMatch(/no SSH keys yet.*Security, SSH keys/);
+      expect(mockPost).toHaveBeenCalledWith('/api/v1/vps', expect.objectContaining({
+        auth_method: 'password', password: 'MyStr0ngP@ssw0rd!', password_confirmation: 'MyStr0ngP@ssw0rd!',
+      }));
+      expect(mockPost.mock.calls[0]![1]).not.toHaveProperty('ssh_key_id');
+    });
+
+    it('asks for the key ID, as before, when the token cannot list keys', async () => {
+      // Creating a VPS needs no SSH key ability, so a token without ssh-key:read must still get through.
+      promptUpToTheSshKey();
+      mockGet.mockRejectedValueOnce(new ApiError(403, 'Insufficient permissions'));
+      mockInput.mockResolvedValueOnce('key-42');           // typed key ID
+      mockPost.mockResolvedValue({ message: 'ok', instance: makeVps() });
+
+      await createCommand.parseAsync(['node', 'test']);
+
+      expect(consoleErrorSpy.mock.calls.flat().join('\n')).toContain('lacks ssh-key:read');
+      expect(mockInput).toHaveBeenLastCalledWith(expect.objectContaining({ message: 'SSH key ID:' }));
+      expect(mockPost).toHaveBeenCalledWith('/api/v1/vps', expect.objectContaining({ auth_method: 'ssh_key', ssh_key_id: 'key-42' }));
+    });
+
+    it('asks for the key ID when the key list fails for another reason', async () => {
+      promptUpToTheSshKey();
+      mockGet.mockRejectedValueOnce(new ApiError(500, 'Server Error'));
+      mockInput.mockResolvedValueOnce('key-42');
+      mockPost.mockResolvedValue({ message: 'ok', instance: makeVps() });
+
+      await createCommand.parseAsync(['node', 'test']);
+
+      expect(consoleErrorSpy.mock.calls.flat().join('\n')).toContain('HTTP 500');
+      expect(mockPost).toHaveBeenCalledWith('/api/v1/vps', expect.objectContaining({ ssh_key_id: 'key-42' }));
     });
 
     it('requires --cpu-platform when it cannot prompt', async () => {

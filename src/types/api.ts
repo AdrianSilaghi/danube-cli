@@ -16,18 +16,43 @@ export interface Team {
    * `safi4`, because the slug is uniquified when assigned. Guessing it produces
    * an opaque authorization failure from the registry.
    *
-   * Optional because older deployments do not return it yet.
+   * Null for a team that has no tenant yet. Optional because older deployments
+   * do not return it.
    */
-  registry_namespace?: string;
+  registry_namespace?: string | null;
 }
 
 export interface TeamsResponse {
+  /**
+   * A list sorted by name. Older deployments sent an object keyed "0", "3",
+   * "1"... to anyone in more than one project; teamsArray() reads both.
+   */
   data: Team[] | Record<string, Team>;
+  /** The project this request acts on: the token's, else `X-Team-Id`'s, else the current one. */
   current_team_id: number;
+  /**
+   * The project the token is locked to, or null for a token that works in
+   * every project of the account. Such a lock refuses any other project, so a
+   * locked token must not be pointed at one. Undefined from older deployments.
+   */
+  token_team_id?: number | null;
 }
 
 export function teamsArray(res: TeamsResponse): Team[] {
   return Array.isArray(res.data) ? res.data : Object.values(res.data);
+}
+
+/** `SshKeyResource`. An SSH key belongs to the user, not to a project. */
+export interface SshKey {
+  id: number;
+  name: string;
+  fingerprint: string;
+  public_key: string;
+  /** The account's default key, which `vps create` offers first. */
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+  user_id: number;
 }
 
 /**

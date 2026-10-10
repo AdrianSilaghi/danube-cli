@@ -11,6 +11,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * List your projects
+         * @description Every project your account belongs to, sorted by name. `current_team_id` is the project this request acts on: the one the token is locked to, else the one an `X-Team-Id` header names, else your current project. `token_team_id` is the project the token is locked to, or null for a token that acts in every project of yours. A token locked to one project is refused for any other.
+         */
         get: operations["v1.user.teams"];
         put?: never;
         post?: never;
@@ -104,7 +108,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Kubernetes events
+         * List a cache instance's events
          * @description Returns curated platform events for the instance's pods, workloads and
          *     volumes.
          */
@@ -125,7 +129,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Diagnose the instance
+         * Diagnose a cache instance
          * @description Correlates status, events and log availability into ranked findings
          *     with remediation.
          */
@@ -245,10 +249,9 @@ export interface paths {
         put?: never;
         /**
          * Force-stop a cache instance
-         * @description Recovery path for an instance stuck in a transitional state. Unlike stop(),
-         *     which requires Running, this accepts any status except Stopped and
-         *     Destroying. It writes the status directly rather than queueing work,
-         *     matching CacheInstanceController::forceStop().
+         * @description For an instance stuck in a transitional state. Unlike the stop endpoint, which needs a `running`
+         *     instance, this accepts any status except `stopped` and `destroying`. It sets the status to
+         *     `stopped` directly and queues no work, as the console's force-stop does.
          */
         post: operations["v1.cache.force-stop"];
         delete?: never;
@@ -463,7 +466,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Kubernetes events
+         * List a database instance's events
          * @description Returns curated platform events for the instance's pods, workloads and
          *     volumes.
          */
@@ -484,7 +487,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Diagnose the instance
+         * Diagnose a database instance
          * @description Correlates status, events and log availability into ranked findings
          *     with remediation.
          */
@@ -604,10 +607,9 @@ export interface paths {
         put?: never;
         /**
          * Force-stop a database instance
-         * @description Recovery path for an instance stuck in a transitional state. Unlike stop(),
-         *     which requires Running or Starting, this accepts any status except
-         *     Stopped, Destroying and Stopping. It writes the status directly rather
-         *     than queueing work, matching DatabaseInstanceController::forceStop().
+         * @description For an instance stuck in a transitional state. Unlike the stop endpoint, which needs a `running`
+         *     or `starting` instance, this accepts any status except `stopped`, `destroying` and `stopping`.
+         *     It sets the status to `stopped` directly and queues no work, as the console's force-stop does.
          */
         post: operations["v1.database.force-stop"];
         delete?: never;
@@ -772,6 +774,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * Show replication status
+         * @description Each read replica of the database with its readiness and how far it lags behind the primary, in
+         *     `seconds_behind_master`.
+         */
         get: operations["v1.database.replicas.status"];
         put?: never;
         post?: never;
@@ -900,10 +907,31 @@ export interface paths {
         };
         /** Show a specific firewall */
         get: operations["v1.firewalls.show"];
-        /** Update a firewall */
+        /**
+         * Update a firewall
+         * @description `rules` is declarative: when present it replaces the firewall's whole rule set, when
+         *     absent the rules are left alone. Send each rule back as listed: its `id`, its `port` or
+         *     port range, and its `source_ips` and `source_instance_ids`. A rule with `"port": null`
+         *     and no range applies to every port, and one with no `source_instance_ids` admits
+         *     traffic from any resource. A rule sent back with its `id` and without a `port` or
+         *     `source_instance_ids` field keeps the one it had. A source whose resource no longer
+         *     exists in your team is refused with a 422 until you remove it from the rule; one saved
+         *     without a type is listed with a `null` `type` in that case.
+         *
+         *     Locked rules (`is_locked`: the default firewall's outbound SMTP blocks) are always
+         *     kept. Leave them out or send them back, either way they stay as they are. A rule that
+         *     would allow what a locked rule blocks (its port, or a range containing it) is rejected
+         *     with a 422 naming the rule, and nothing is changed; open a support ticket to lift the
+         *     block.
+         */
         put: operations["v1.firewalls.update"];
         post?: never;
-        /** Delete a firewall */
+        /**
+         * Delete a firewall
+         * @description A system firewall (the default firewall created with an instance, `is_system`) cannot
+         *     be deleted: the response is a 422. A firewall still attached to an instance cannot be
+         *     deleted either.
+         */
         delete: operations["v1.firewalls.destroy"];
         options?: never;
         head?: never;
@@ -922,6 +950,8 @@ export interface paths {
         /**
          * Attach firewall to an instance
          * @description Attaches the firewall to a VPS, cache, or database instance. The firewall rules will be deployed asynchronously.
+         *     A system firewall (`is_system`) belongs to the instance it was created with and cannot
+         *     be attached to another one: the response is a 422.
          */
         post: operations["v1.firewalls.attach"];
         delete?: never;
@@ -941,7 +971,9 @@ export interface paths {
         put?: never;
         /**
          * Detach firewall from an instance
-         * @description Removes the firewall from a VPS, cache, or database instance.
+         * @description Removes the firewall from a VPS, cache, or database instance. A system firewall
+         *     (`is_system`) cannot be detached from its instance: it carries the outbound SMTP block
+         *     and the inbound filtering, and the response is a 422.
          */
         post: operations["v1.firewalls.detach"];
         delete?: never;
@@ -1140,7 +1172,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Kubernetes events
+         * List an app instance's events
          * @description Returns platform events for the app's StatefulSet, pod and volumes.
          */
         get: operations["v1.apps.events"];
@@ -1180,8 +1212,17 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * List Kubernetes clusters
+         * @description Newest first, each with its node pools. Paginated: `per_page` takes 1 to 200 and defaults to 15.
+         */
         get: operations["v1.kubernetes.index"];
         put?: never;
+        /**
+         * Create a Kubernetes cluster
+         * @description The cluster is built in the background with its first node pool, and any further pools are added
+         *     once it is running. Poll the cluster until its `status` is `running`, or `error` if the build failed.
+         */
         post: operations["v1.kubernetes.store"];
         delete?: never;
         options?: never;
@@ -1196,9 +1237,17 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * Show a Kubernetes cluster
+         * @description With its node pools.
+         */
         get: operations["v1.kubernetes.show"];
         put?: never;
         post?: never;
+        /**
+         * Delete a Kubernetes cluster
+         * @description Deletion runs in the background and removes every node pool and worker node with the cluster.
+         */
         delete: operations["v1.kubernetes.destroy"];
         options?: never;
         head?: never;
@@ -1214,6 +1263,11 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /**
+         * Scale a node pool
+         * @description Sets the number of worker nodes in one pool. The cluster must be running, and the worker limit
+         *     applies to all of its pools together.
+         */
         post: operations["v1.kubernetes.scale"];
         delete?: never;
         options?: never;
@@ -1230,6 +1284,11 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /**
+         * Add a node pool
+         * @description The cluster must be running. A cluster has a limit on node pools and on worker nodes across all of
+         *     its pools.
+         */
         post: operations["v1.kubernetes.pools.store"];
         delete?: never;
         options?: never;
@@ -1247,6 +1306,11 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
+        /**
+         * Remove a node pool
+         * @description Its nodes are drained and removed in the background. A cluster keeps at least one pool: to remove
+         *     the last one, delete the cluster.
+         */
         delete: operations["v1.kubernetes.pools.destroy"];
         options?: never;
         head?: never;
@@ -1847,6 +1911,11 @@ export interface paths {
          */
         get: operations["v1.parameter-groups.index"];
         put?: never;
+        /**
+         * Create a parameter group
+         * @description A named set of engine settings that cache, database and queue instances can use. For PostgreSQL,
+         *     each setting is checked against the settings a managed database allows.
+         */
         post: operations["v1.parameter-groups.store"];
         delete?: never;
         options?: never;
@@ -1861,6 +1930,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * Show a parameter group
+         * @description One of your groups or a system group.
+         */
         get: operations["v1.parameter-groups.show"];
         /**
          * Update a team parameter group
@@ -1871,6 +1944,10 @@ export interface paths {
          */
         put: operations["v1.parameter-groups.update"];
         post?: never;
+        /**
+         * Delete a parameter group
+         * @description Only a group of yours that no instance uses. System groups cannot be deleted.
+         */
         delete: operations["v1.parameter-groups.destroy"];
         options?: never;
         head?: never;
@@ -1886,6 +1963,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /**
+         * Clone a parameter group
+         * @description Copies a group, a system group included, into a new group of yours that you can then edit.
+         */
         post: operations["v1.parameter-groups.clone"];
         delete?: never;
         options?: never;
@@ -2046,7 +2127,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Kubernetes events
+         * List a queue instance's events
          * @description Returns curated platform events for the broker's pods, workload and
          *     volumes.
          */
@@ -2067,7 +2148,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Diagnose the instance
+         * Diagnose a queue instance
          * @description Correlates status, events and log availability into ranked findings
          *     with remediation.
          */
@@ -2087,8 +2168,17 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * List queue instances
+         * @description Your managed RabbitMQ brokers, newest first. Paginated: `per_page` defaults to 15.
+         */
         get: operations["v1.queue.index"];
         put?: never;
+        /**
+         * Create a queue instance
+         * @description A managed RabbitMQ broker, built in the background. Poll `GET /api/v1/queue/{queueInstance}` and watch
+         *     `status_details.operation.terminal` rather than the `status` string.
+         */
         post: operations["v1.queue.store"];
         delete?: never;
         options?: never;
@@ -2110,8 +2200,16 @@ export interface paths {
          *     stays available to `queue:read`.
          */
         get: operations["v1.queue.show"];
+        /**
+         * Update a queue instance
+         * @description The change is applied to the broker in the background.
+         */
         put: operations["v1.queue.update"];
         post?: never;
+        /**
+         * Delete a queue instance
+         * @description Only a `stopped` broker, or one in `error`, can be deleted. Deletion runs in the background.
+         */
         delete: operations["v1.queue.destroy"];
         options?: never;
         head?: never;
@@ -2127,6 +2225,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /**
+         * Start a queue instance
+         * @description Starts a stopped broker in the background.
+         */
         post: operations["v1.queue.start"];
         delete?: never;
         options?: never;
@@ -2143,6 +2245,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /**
+         * Stop a queue instance
+         * @description Stops the broker in the background. Start it again with the start endpoint.
+         */
         post: operations["v1.queue.stop"];
         delete?: never;
         options?: never;
@@ -2273,22 +2379,6 @@ export interface paths {
         get: operations["v1.registry.preflight"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/registry/events": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["v1.registryEvent"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2483,6 +2573,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * Search your resources
+         * @description Matches `q` against the names of the project's resources, and against the IP addresses of its VPS
+         *     instances. Returns at most three matches per resource type and ten in all, filled in a fixed order of
+         *     types, so a type late in that order can be missing when earlier ones match. VPS instances come back
+         *     with the type `pod` and their address in `ip`.
+         */
         get: operations["v1.resources.search"];
         put?: never;
         post?: never;
@@ -2606,7 +2703,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Kubernetes events
+         * List a serverless container's events
          * @description Returns curated platform events for the container's Service, revisions
          *     and pods.
          */
@@ -2918,6 +3015,234 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/serverless/{serverlessContainer}/volumes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the container's volumes
+         * @description The volume the container mounts first, then any that is on its way out
+         *     or never came up, newest first. `meta.offer` says whether volumes are
+         *     offered to the account, the least and the most a volume may be in GB,
+         *     what a GB costs a month in cents (null when the price is unknown), and
+         *     how much storage the account may still add.
+         */
+        get: operations["v1.serverless.volumes.index"];
+        put?: never;
+        /**
+         * Add a volume to the container
+         * @description Creates a persistent volume and mounts it into every instance of the
+         *     container and into its runs. The container is rolled out to mount it, so
+         *     it has to have been deployed and not be in the middle of another change.
+         *     A container has one volume for now.
+         *
+         *     The volume is billed per GB of its full size from the moment it is
+         *     provisioned, also while the container is scaled to zero. The answer is
+         *     202: the volume is `pending` until it has been provisioned, and `active`
+         *     after. Follow it at `meta.poll_url`.
+         */
+        post: operations["v1.serverless.volumes.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/serverless/{serverlessContainer}/volumes/{volume}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show one volume
+         * @description Also while it is being deleted, with the status `deleting`, until the
+         *     platform has removed it: the volume a delete answered with is followed
+         *     here until it is not found any more.
+         */
+        get: operations["v1.serverless.volumes.show"];
+        /**
+         * Make a volume larger, or mount it somewhere else
+         * @description One of the two per request. A larger size takes effect on the volume
+         *     without rolling the container out, and is billed from now. A new mount
+         *     path rolls the container out; the data does not move. Asked for the size
+         *     or the path the volume has already, nothing happens and the answer is
+         *     200: a request that is repeated has the same answer.
+         *
+         *     The answer is 202 with the volume as it is now: `resizing` while the
+         *     larger size is being applied, and `active` after.
+         */
+        put: operations["v1.serverless.volumes.update"];
+        post?: never;
+        /**
+         * Delete a serverless volume
+         * @description Deletes the volume and every file on it. The container is rolled out
+         *     without the mount, and the volume is removed once nothing mounts it.
+         *     Its backups are kept, and billed, until they are deleted.
+         *
+         *     Allowed whether or not volumes are still offered to the account. Asked
+         *     again for a volume that is being deleted, the answer is the same 202.
+         *     The volume stays at `meta.poll_url`, as `deleting`, until it is removed;
+         *     then that address answers 404.
+         */
+        delete: operations["v1.serverless.volumes.destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/serverless/{serverlessContainer}/volume-backups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the container's backups
+         * @description Newest first: the ones being made, the ones kept, the ones on their way
+         *     out until the store has finished removing them, and the ones that failed
+         *     for as long as they are kept with their reason. A team that is no longer
+         *     offered backups still sees, and can delete, the ones it has.
+         *
+         *     `meta.offer` says whether backups are offered to the account, how many a
+         *     container may keep, what a GB held in the backup store costs a month (in
+         *     cents, null when the price is unknown), and what the container's backups
+         *     occupy now and what that costs a month.
+         */
+        get: operations["v1.serverless.volume-backups.index"];
+        put?: never;
+        /**
+         * Take a backup of the container's volume
+         * @description One backup is made at a time, a container keeps a limited number of them
+         *     (see `meta.offer.max_per_container` of the list), and a minimum interval
+         *     and a daily limit apply. The backup is billed for the space it takes in
+         *     the backup store, also after the volume has been deleted, until it is
+         *     deleted.
+         *
+         *     The answer is 202: the backup is `pending` and then `creating` while it
+         *     is made, and `ready` once it can be restored. Follow it at
+         *     `meta.poll_url`.
+         */
+        post: operations["v1.serverless.volume-backups.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/serverless/{serverlessContainer}/volume-backups/{backup}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Show one backup */
+        get: operations["v1.serverless.volume-backups.show"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete a backup
+         * @description Deletes the only copy of those files. A backup that is still being made
+         *     is stopped and discarded. The backup stays in the list, as `deleting`,
+         *     until the backup store has finished removing its data; it is billed
+         *     until then. Asked again, the answer is the same 202.
+         *
+         *     Allowed whether or not backups are still offered to the account. Refused
+         *     while a restore is under way, which reads the backup store
+         *     (`serverless.volume_backup_being_restored`).
+         */
+        delete: operations["v1.serverless.volume-backups.destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/serverless/{serverlessContainer}/volume-restores": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the container's restores
+         * @description Newest first, the last twenty, whatever became of them: under way,
+         *     `completed` or `failed`. `meta.total` is how many the container has had.
+         */
+        get: operations["v1.serverless.volume-restores.index"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/serverless/{serverlessContainer}/volume-restores/{restore}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show one restore
+         * @description Whatever became of it: under way, `completed` or `failed`. Follow a
+         *     restore here until `terminal` is true. `completed` means the container
+         *     serves the restored data; `failed` says why not.
+         */
+        get: operations["v1.serverless.volume-restores.show"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/serverless/{serverlessContainer}/volume-backups/{backup}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore a backup into the container's volume
+         * @description The backup has to be `ready`, and not of a larger volume than the
+         *     container's: make the volume larger first. One restore is made at a
+         *     time, and the volume cannot be changed meanwhile. While it runs, the
+         *     volume keeps working as it is, and what is written to it meanwhile is
+         *     lost when the container switches to the restored copy.
+         *
+         *     The answer is 202 with the restore: follow it at `meta.poll_url` until
+         *     `terminal` is true.
+         *
+         *     A restore replaces what has been written since the backup, so a request
+         *     that is repeated (a retry after an answer that was lost) must not start
+         *     a second one. Send an `Idempotency-Key`: the same key answers with the
+         *     restore it started. Without one, a restore under way is refused with
+         *     `serverless.volume_restore_in_progress`, which is not retryable and says
+         *     in `meta` which restore it is (`restore_id`, `poll_url`): follow that
+         *     one. A restore that failed holds the place until its leftovers are
+         *     gone, and is refused with `serverless.volume_restore_cleaning_up`
+         *     (retryable: nothing was restored) and named the same way.
+         */
+        post: operations["v1.serverless.volume-backups.restore"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/snapshots/vps": {
         parameters: {
             query?: never;
@@ -2927,7 +3252,8 @@ export interface paths {
         };
         /**
          * List VPS snapshots
-         * @description Retrieves a paginated list of all VPS snapshots for the authenticated user's team.
+         * @description Retrieves a paginated list of all VPS snapshots for the authenticated user's team. The manual
+         *     snapshots of a deleted VPS stay listed until they expire: see `expires_at` and `vps_instance.deleted_at`.
          */
         get: operations["v1.snapshots.vps.index"];
         put?: never;
@@ -3589,7 +3915,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Kubernetes events
+         * List a VPS instance's events
          * @description Returns curated platform events for the VM, its instance, launcher pod
          *     and disks. Placement can fail before a VM exists; in that case the event
          *     list can be empty. Use diagnose or status_details.error for the failure.
@@ -3611,7 +3937,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Diagnose the instance
+         * Diagnose a VPS instance
          * @description Correlates status and platform events into ranked findings with
          *     remediation, including safe deployment failures recorded before a VM exists.
          *     Guest-side problems are out of scope.
@@ -3718,7 +4044,10 @@ export interface paths {
         };
         /** Show a specific VPS instance */
         get: operations["v1.vps.show"];
-        /** Update a VPS instance */
+        /**
+         * Update a VPS instance
+         * @description The VPS must be stopped: any update to a running VPS is refused.
+         */
         put: operations["v1.vps.update"];
         post?: never;
         /** Delete a VPS instance */
@@ -3896,7 +4225,7 @@ export interface paths {
         put: operations["v1.vps.volumes.update"];
         post?: never;
         /**
-         * Delete a volume
+         * Delete a VPS volume
          * @description Permanently deletes the volume and all its data. Non-destructive detach is
          *     not supported. The legacy detaching status means deletion is in progress.
          */
@@ -3914,7 +4243,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Kubernetes events
+         * List a VPS volume's events
          * @description Returns platform events for the volume's PersistentVolumeClaim —
          *     provisioning, binding and expansion.
          */
@@ -4339,10 +4668,16 @@ export interface components {
             size_basis: string | null;
             size_gb: string | null;
             database_instance_id: string;
+            /** @description A kept backup outlives its database: then `deleted`, under the name it had. */
             database_instance?: {
                 id: string;
                 name: string;
-            };
+                deleted: boolean;
+            } | null;
+            /** @description pending | kept | failed; null when the backup is not kept */
+            kept_status: string | null;
+            kept_size_bytes: number | null;
+            kept_at: string | null;
             created_at: string;
             updated_at: string;
         };
@@ -4395,14 +4730,34 @@ export interface components {
                 action: string;
                 direction: string;
                 protocol: string;
+                /**
+                 * @description The rule's single port. Null when it uses a port range (the two
+                 *     fields below) or applies to every port. Send it back unchanged
+                 *     when you update the firewall.
+                 */
+                port: number | null;
                 port_range_start: number | null;
                 port_range_end: number | null;
                 source_ips: unknown[] | null;
+                /**
+                 * @description The resources this rule admits traffic from, as `{id, type}`
+                 *     pairs, or null. Send them back unchanged when you update the
+                 *     firewall: a rule written back without them admits traffic from
+                 *     anywhere. A source saved before pairs existed is listed with the
+                 *     type it resolves to; `type` is null when no resource of your team
+                 *     has that id any more, and the update asks you to remove it.
+                 */
+                source_instance_ids: unknown[] | null;
                 /**
                  * @description Was `priority`, which is not a column on firewall_rules
                  *     and therefore always serialized as null.
                  */
                 order: number;
+                /**
+                 * @description True for platform policy such as the default firewall's outbound
+                 *     SMTP blocks. An update keeps a locked rule whatever it sends.
+                 */
+                is_locked: boolean;
             }[];
             created_at: string;
             updated_at: string;
@@ -4819,6 +5174,8 @@ export interface components {
             avg_response_time_ms: number | null;
             error_rate: number | null;
             metrics_updated_at: string | null;
+            /** @description The persistent volume mounted into the container, or null when it has none. */
+            volume: components["schemas"]["ServerlessVolumeResource"] | null;
             /** @description --- billing ----------------------------------------------- */
             current_month_requests: number;
             current_month_compute_seconds: number;
@@ -4865,10 +5222,7 @@ export interface components {
             target_concurrency: number;
             resource_profile: string;
             status: string;
-            /**
-             * @description Same documentation wrapper the container resource already uses.
-             *     Unwrapped, a plain array publishes as `"type": "string"`.
-             */
+            /** @description Poll `operation.terminal`, never the `status` string. */
             status_details: components["schemas"]["ServerlessStatusDetailsResource"];
             is_current: boolean;
             traffic_percent: number;
@@ -5050,15 +5404,94 @@ export interface components {
             vcpu_seconds: number;
             memory_gib_seconds: number;
         };
+        /** ServerlessVolumeBackupResource */
+        ServerlessVolumeBackupResource: {
+            id: string;
+            /** @description What the backup is called: the name given when it was taken, or the time it was taken. */
+            name: string;
+            /** @description One of `pending` (saved, not started yet), `creating` (being uploaded), `ready` (it can be restored), `failed`, `deleting` (on its way out; it disappears once the store has finished removing it). */
+            status: string;
+            /** @description Whether polling can stop: the backup is `ready` or `failed`. A backup that is `deleting` is not over until it is gone. */
+            terminal: boolean;
+            /** @description How far the upload has got, 0 to 100, while the backup is `creating` and the figure is known; otherwise null. */
+            progress: number | null;
+            /** @description What the backup occupies in the backup store, in bytes: the space it is billed for. Null until it is known. It can be larger than the files on the volume. */
+            size_bytes: number | null;
+            /** @description The volume the backup was taken from, or null. A backup outlives its volume, so the volume may have been deleted since. */
+            volume_id: string | null;
+            /** @description The size of the volume when the backup was taken, in GB. */
+            volume_size_gb: number;
+            /** @description Where the volume was mounted when the backup was taken. */
+            mount_path: string;
+            /** @description Why the backup failed, or null. */
+            failure: {
+                message: string;
+            } | null;
+            created_at: string | null;
+            /** @description When the backup became ready, or null. */
+            ready_at: string | null;
+            /** @description When its deletion was asked for, or null. */
+            deleting_since: string | null;
+        };
+        /** ServerlessVolumeResource */
+        ServerlessVolumeResource: {
+            id: string;
+            /** @description Provisioned size in GB. A volume can be made larger, never smaller. */
+            size_gb: number;
+            /** @description Where the volume is mounted in every instance of the container, and in its runs. */
+            mount_path: string;
+            /** @description One of `pending` (not provisioned yet), `active`, `resizing`, `restoring`, `deleting` (on its way out: it stays at its own address until the platform has removed it) or `failed` (it never came up). The volume a container shows is the one it mounts, so it is never `deleting` or `failed` there. */
+            status: string;
+            /** @description Whether the volume is being charged for right now. It is not before it has provisioned. */
+            billed: boolean;
+            /** @description The price of a full month at the size it has, in cents, or null when the price cannot be found. Billed hourly, also while the container is scaled to zero. */
+            monthly_cost_cents: number | null;
+            /** @description What last went wrong with the volume, or null. */
+            failure: {
+                /** @description One of `provision`, `resize`, `delete`, `restore`. */
+                operation: string;
+                message: string;
+            } | null;
+            created_at: string | null;
+            updated_at: string | null;
+        };
+        /** ServerlessVolumeRestoreResource */
+        ServerlessVolumeRestoreResource: {
+            id: string;
+            /** @description The backup that is being restored. */
+            backup_id: string;
+            /** @description The backup's name. It stays when the backup has been deleted since. */
+            backup_name: string;
+            /** @description One of `pending`, `downloading` (the backup is being copied back), `growing` (the copy is being made as large as the volume), `ready`, `switched` (the container is being rolled out onto the restored data), `completed`, `failed`. */
+            status: string;
+            /** @description Whether polling can stop: the restore is `completed` or `failed`. */
+            terminal: boolean;
+            /** @description True once the container serves the restored data. What is left is the removal of the copy it replaced. */
+            landed: boolean;
+            /** @description True when the container had no volume, so that the restore makes one. A failed restore of this kind has made none. */
+            creates_volume: boolean;
+            /** @description The size the volume has once the restore is done, in GB. */
+            target_size_gb: number;
+            /** @description Why the restore failed, or null. A restore into an existing volume that failed has left the volume as it was. */
+            failure: {
+                message: string;
+            } | null;
+            started_at: string | null;
+            /** @description When the restore completed or failed, or null while it is under way. */
+            finished_at: string | null;
+        };
         /** SshKeyResource */
         SshKeyResource: {
             id: number;
             name: string;
             fingerprint: string;
             public_key: string;
+            /** @description Your default key, marked Default when you choose keys for a new VPS in the console. */
+            is_default: boolean;
             created_at: string;
             updated_at: string;
-            team_id: string;
+            /** @description Always null: an SSH key belongs to your user, not to a project, so X-Team-Id does not change which keys you see. */
+            team_id: null;
             user_id: number;
         };
         /** StaticSiteBuildResource */
@@ -5365,94 +5798,138 @@ export interface components {
         StorageBucketStatus: "pending" | "creating" | "active" | "updating" | "error" | "destroying";
         /**
          * StoreApiCacheInstanceRequest
-         * @description API request for creating cache instances.
-         *
-         *     Resources and cost are derived from the resource_profile, looked up against
-         *     the DB-backed CachePlan via PricingReader.
+         * @description A new cache instance. Its CPU, memory, storage and price come from the plan in `resource_profile`.
          */
         StoreApiCacheInstanceRequest: {
+            /** @description Lowercase letters, digits and hyphens, unique among the cache instances of the project. */
             name: string;
-            /** @enum {string} */
+            /**
+             * @description The engine. Send this or `cache_provider_id`.
+             * @enum {string}
+             */
             provider?: "redis" | "valkey" | "dragonfly";
+            /** @description The engine by numeric ID. Prefer `provider`. */
             cache_provider_id?: number;
+            /** @description The engine version. Omit it for the default; a version that is not offered is refused with the list of the ones that are. */
             version?: string | null;
-            configuration?: string[] | null;
+            /**
+             * @description Engine settings, as an object of setting names and values. They override the parameter
+             *     group's settings; a setting the group locks is refused.
+             */
+            configuration?: {
+                [key: string]: unknown;
+            } | null;
+            /** @description An `id` from `GET /api/v1/parameter-groups?type=cache`, for the same engine and version family. */
             parameter_group_id?: number | null;
             /** @enum {string} */
             datacenter: "ash" | "fsn1" | "nbg1" | "hel1";
+            /**
+             * @description The network tier: `standard` when omitted or null, or `10g`. `10g` is refused unless your
+             *     account is enrolled in 10 Gb networking and it is available for this product and location;
+             *     the refusal says why.
+             */
             network_tier?: components["schemas"]["NetworkTier"] | null;
+            /** @description The plan: a `slug` from `GET /api/v1/cache/plans?provider=` with the chosen engine, since each engine has its own plans. */
             resource_profile: string;
         };
         /**
          * StoreApiDatabaseInstanceRequest
-         * @description API request for creating database instances.
-         *
-         *     Resources and cost are derived from the resource_profile, looked up against
-         *     the DB-backed DatabasePlan via PricingReader.
+         * @description A new database instance. Its CPU, memory, storage and price come from the plan in `resource_profile`.
          */
         StoreApiDatabaseInstanceRequest: {
+            /** @description Unique among the database instances of the project. */
             name: string;
-            /** @enum {string} */
+            /**
+             * @description The engine. Send this or `database_provider_id`.
+             * @enum {string}
+             */
             provider?: "mysql" | "postgresql" | "mariadb";
+            /** @description The engine by numeric ID. Prefer `provider`. */
             database_provider_id?: number;
+            /** @description The database created inside the instance. It starts with a letter, and a few names are reserved. */
             database_name?: string | null;
+            /** @description The engine version. Omit it for the default; a version that is not offered is refused with the list of the ones that are. */
             version?: string | null;
-            configuration?: string[] | null;
+            /**
+             * @description Engine settings, as an object of setting names and values. They override the parameter
+             *     group's settings; a setting the group locks is refused. For PostgreSQL, each setting is
+             *     checked against the ones a managed database allows.
+             */
+            configuration?: {
+                [key: string]: unknown;
+            } | null;
+            /** @description An `id` from `GET /api/v1/parameter-groups?type=database`, for the same engine and version family. */
             parameter_group_id?: number | null;
             /** @enum {string} */
             datacenter: "fsn1" | "nbg1" | "hel1";
+            /** @description The plan: a `slug` from `GET /api/v1/database/plans`. */
             resource_profile: string;
+            /**
+             * @description The network tier: `standard` when omitted or null, or `10g`. `10g` is refused unless your
+             *     account is enrolled in 10 Gb networking and it is available for this product and location;
+             *     the refusal says why.
+             */
             network_tier?: components["schemas"]["NetworkTier"] | null;
+            /** @description Grow the storage automatically as it fills up. Refused for a database type that cannot grow its storage on its own. */
             storage_autoscaling_enabled?: boolean | null;
+            /** @description How full the storage gets, in percent, before it grows. */
             storage_autoscale_threshold_percent?: number | null;
+            /** @description How much storage each automatic step adds, in GiB. */
             storage_autoscale_increment_gib?: number | null;
         };
         /**
          * StoreApiQueueInstanceRequest
-         * @description API request for creating queue instances.
-         *
-         *     Resources and cost are derived from the resource_profile via PricingReader
-         *     against the DB-backed QueuePlan.
+         * @description A new queue instance, a managed RabbitMQ broker. Its CPU, memory, storage and price come from the plan in `resource_profile`.
          */
         StoreApiQueueInstanceRequest: {
             name: string;
+            /** @description The plan's slug, such as `micro`, `small`, `medium` or `large`. */
             resource_profile: string;
+            /** @description The RabbitMQ version. Omit it for the default. */
             version?: string | null;
-            /** @enum {string|null} */
+            /**
+             * @description `fsn1` (Falkenstein, Germany), the only location today and the default.
+             * @enum {string|null}
+             */
             datacenter?: "fsn1" | null;
         };
         /**
          * StoreApiStaticSiteRequest
-         * @description API request for creating static sites (both team-scoped and currentTeam paths).
-         *
-         *     Plan enum is validated against the DB-backed StaticSitePlan via PricingReader
-         *     so retired plans are rejected even if they remain as enum cases.
+         * @description A new static site. It is covered by the project's Static Sites plan.
          */
         StoreApiStaticSiteRequest: {
             name: string;
+            /**
+             * @deprecated
+             * @description No longer used: every site is covered by the project's Static Sites plan, whatever this says.
+             *     Leave it out; a value that is not a current plan is still refused.
+             */
             plan?: components["schemas"]["StaticSitePlan"] | null;
         };
         /**
          * StoreAppInstanceApiRequest
-         * @description The dashboard's create rules, with the token ability checked FIRST.
-         *
-         *     A FormRequest validates before the controller body runs, so checking
-         *     `app:write` in the controller would let an under-scoped token receive a 422
-         *     instead of a 403 — and subdomain uniqueness is enforced globally, so those
-         *     validation messages would let it probe whether an arbitrary subdomain is
-         *     taken anywhere on the platform. Overriding authorize() moves the check in
-         *     front of the rules; every rule is inherited unchanged, so the two surfaces
-         *     cannot validate differently.
+         * @description A new app instance, created from the app catalog.
          */
         StoreAppInstanceApiRequest: {
-            /** @enum {string} */
+            /**
+             * @description The app to run: an `app_type` from `GET /api/v1/apps/catalog`.
+             * @enum {string}
+             */
             app_type: "n8n" | "wordpress" | "ghost";
+            /** @description Lowercase letters, digits and hyphens, unique among the apps of the project. */
             name: string;
+            /** @description The app is served at `{subdomain}.apps.danubedata.ro`, so the subdomain must be unique across the platform. */
             subdomain: string;
+            /** @description The size: a `slug` from the `resource_profiles` of the chosen `app_type` in `GET /api/v1/apps/catalog`. */
             resource_profile: string;
+            /** @description A key of the `versions` object of the chosen `app_type` in `GET /api/v1/apps/catalog`. Omit it for the default. */
             version?: string | null;
-            /** @enum {string} */
+            /**
+             * @description The location. `fsn1` (Falkenstein, Germany) is the only one today.
+             * @enum {string}
+             */
             datacenter: "fsn1";
+            /** @description The username of the app's first administrator account. */
             admin_user?: string | null;
         };
         /**
@@ -5526,29 +6003,26 @@ export interface components {
         };
         /** StoreKubernetesClusterRequest */
         StoreKubernetesClusterRequest: {
+            /** @description Lowercase letters, digits and hyphens, unique among the Kubernetes clusters of the project. */
             name: string;
-            /** @enum {string} */
+            /**
+             * @description The Kubernetes version of the cluster.
+             * @enum {string}
+             */
             k8s_version: "1.35";
-            /**
-             * @description AWS model (#216): the IP family is chosen at creation and
-             *     immutable. `ipv6` is offered only behind the feature flag; the
-             *     service range is platform-assigned either way — there is
-             *     deliberately no CIDR input.
-             */
+            /** @description The IP family of the cluster's network: `ipv4`, the default. IPv6 clusters (`ipv6`) are not available yet and are refused. The family is fixed once the cluster is created, and the platform assigns the address ranges. */
             ip_family?: string;
-            /**
-             * @description Legacy single-pool shape, kept for the API and older clients:
-             *     equivalent to pools = [{name: default, plan, count: nodes}].
-             */
+            /** @description For a cluster with one node pool, sent with `nodes` instead of `pools`: the plan of its worker nodes. It must be a dedicated plan, one with `type` `dedicated` in `GET /api/v1/vps/plans`. */
             plan?: string;
+            /** @description For a cluster with one node pool, sent with `plan` instead of `pools`: the number of worker nodes. */
             nodes?: number;
-            /**
-             * @description First-class node pools (#215). The first pool bootstraps the
-             *     cluster; the rest are brought up once the cluster is Running.
-             */
+            /** @description The node pools, each with a `name`, a `plan` and a `count`. The first pool is created with the cluster, the others once it is running. */
             pools?: {
+                /** @description The pool's name, unique within the cluster. */
                 name?: string;
+                /** @description The plan of the pool's worker nodes. It must be a dedicated plan, one with `type` `dedicated` in `GET /api/v1/vps/plans`. */
                 plan?: string;
+                /** @description The number of worker nodes in the pool. The worker limit applies to all pools together. */
                 count?: number;
             }[];
         };
@@ -5564,15 +6038,21 @@ export interface components {
          */
         StoreMetricAlertApiRequest: {
             /**
-             * @description Only types with a registered query resolver. The metric
-             *     catalogue lists more, but an alert on one of those would be
-             *     stored and then never evaluated.
+             * @description The kind of resource the alert watches.
              * @enum {string}
              */
             resource_type: "vps" | "kubernetes";
+            /** @description The `id` of that resource in the project. */
             resource_id: string;
-            /** @enum {string} */
-            metric_type: "";
+            /**
+             * @description The metric to watch. A `vps` takes any of the seven. A `kubernetes` cluster takes
+             *     `cpu_usage`, `memory_usage`, `disk_usage`, `cpu_steal` and `load_ratio`, measured on
+             *     its busiest node. `threshold_value` is in percent for the usage metrics and
+             *     `cpu_steal`, in bytes per second for the network rates, and a plain ratio for
+             *     `load_ratio`.
+             * @enum {string}
+             */
+            metric_type: "cpu_usage" | "memory_usage" | "disk_usage" | "network_receive_rate" | "network_transmit_rate" | "cpu_steal" | "load_ratio";
             /** @enum {string} */
             comparison_operator: "gt" | "gte" | "lt" | "lte";
             threshold_value: number;
@@ -5606,47 +6086,31 @@ export interface components {
         StoreServerlessContainerRequest: Record<string, never>;
         /**
          * StoreServerlessRunRequest
-         * @description Validation for `POST /api/v1/serverless/{id}/runs`.
-         *
-         *     Authorization is intentionally NOT done here — the controller runs the
-         *     token ability check and the `update` policy before touching the service,
-         *     matching every other serverless write endpoint.
+         * @description A one-off run of the container: its own image, optionally at another tag, with an optional
+         *     command, environment variables and time limit.
          */
         StoreServerlessRunRequest: {
             command?: string[] | null;
-            /**
-             * @description Runs `<the container's own image repository>:<image_tag>` — the
-             *     repository itself can never be changed by a run.
-             */
+            /** @description A tag of the container's own image repository to run. A run cannot use another repository. */
             image_tag?: string | null;
             /**
-             * @description Values are read from $this->input('env') for the service to
-             *     pass to Kubernetes; only the KEYS are ever persisted.
+             * @description Environment variables for this run only, as an object of names and values: at most 50, each
+             *     value up to 10,000 characters. Only the names are kept with the run; the values are never stored.
              */
-            env?: string[];
+            env?: {
+                [key: string]: string;
+            };
             timeout_seconds?: number;
         };
         /**
          * StoreServerlessRunScheduleRequest
-         * @description Validation for `POST /api/v1/serverless/{id}/schedules`.
-         *
-         *     Authorization is intentionally NOT done here — the controller runs the token
-         *     ability check and the policy before touching the model, matching every other
-         *     serverless write endpoint.
-         *
-         *     Note what is absent: `env`. A schedule carries no environment override
-         *     values. A run may take them for the length of one dispatch, but a schedule
-         *     is by definition at rest, and storing them would turn "we never hold your
-         *      * secrets" into "we hold them indefinitely". A scheduled run gets the
-         *     container's own environment.
+         * @description A schedule that starts runs of the container on a cron expression. A schedule takes no environment
+         *     variables: a scheduled run uses the container's own environment.
          */
         StoreServerlessRunScheduleRequest: {
             name: string;
             cron_expression: string;
-            /**
-             * @description Anything DateTimeZone knows. Stored so "0 3* *" keeps meaning
-             *     3am to the customer across a DST change.
-             */
+            /** @description The time zone the cron expression is read in, such as `Europe/Bucharest`. A new schedule without one uses UTC. A daily 3am schedule stays at 3am local time across daylight-saving changes. */
             timezone?: string;
             command?: string[] | null;
             image_tag?: string | null;
@@ -5655,33 +6119,57 @@ export interface components {
         };
         /** StoreSshKeyRequest */
         StoreSshKeyRequest: {
+            /** @description A name to tell the key apart by, unique among your SSH keys. */
             name: string;
+            /**
+             * @description The public key on one line, such as the contents of `~/.ssh/id_ed25519.pub`: its type
+             *     (`ssh-ed25519`, `ssh-rsa`, `ssh-dss`, `ecdsa-sha2-nistp256`, `-nistp384` or `-nistp521`,
+             *     `sk-ssh-ed25519@openssh.com` or `sk-ecdsa-sha2-nistp256@openssh.com`), the key and an
+             *     optional comment. A key that is already registered is refused.
+             */
             public_key: string;
+            /**
+             * @description Make it your default key, which the console marks Default when you choose keys for a
+             *     new VPS. It takes the mark from your previous default. False when left out.
+             */
             is_default?: boolean;
         };
         /** StoreStorageBucketRequest */
         StoreStorageBucketRequest: {
+            /** @description Lowercase letters, digits and hyphens, unique in the project. The bucket's S3 name carries a project prefix, so a project's longest name is a little under 63 characters; a longer one is refused with the project's limit. */
             name: string;
+            /** @description A label shown instead of the name. */
             display_name?: string | null;
-            /** @enum {string} */
-            region: "fsn1";
-            versioning_enabled?: boolean;
-            public_access?: boolean;
-            encryption_enabled?: boolean;
-            /** @enum {string|null} */
-            encryption_type?: "none" | "sse-s3" | "sse-kms" | null;
-            encryption_kms_key_id?: string | null;
-            /** @description Object Lock (WORM) configuration */
-            object_lock_enabled?: boolean;
-            /** @enum {string|null} */
-            object_lock_default_retention_mode?: "GOVERNANCE" | "COMPLIANCE" | null;
-            object_lock_default_retention_days?: number | null;
-            /** @description Size limit validation (quota) */
-            size_limit_bytes?: number | null;
             /**
-             * @description Min 1 GB
-             *     CORS Configuration validation
+             * @description `fsn1` (Falkenstein, Germany) is the only region today.
+             * @enum {string}
              */
+            region: "fsn1";
+            /** @description Keep every version of each object, so an overwritten or deleted object can be recovered. */
+            versioning_enabled?: boolean;
+            /** @description Let anyone list the bucket and read its objects without credentials. */
+            public_access?: boolean;
+            /** @description Server-side encryption of the objects at rest. On unless you send false. */
+            encryption_enabled?: boolean;
+            /**
+             * @description The server-side encryption: `sse-s3` uses keys the platform manages, and `sse-kms` needs `encryption_kms_key_id`.
+             * @enum {string|null}
+             */
+            encryption_type?: "none" | "sse-s3" | "sse-kms" | null;
+            /** @description The key for `sse-kms` encryption. */
+            encryption_kms_key_id?: string | null;
+            /** @description Object Lock (write once, read many): a locked object cannot be overwritten or deleted until its retention ends. */
+            object_lock_enabled?: boolean;
+            /**
+             * @description The default lock for new objects: `GOVERNANCE` can be lifted by users with the right permission, `COMPLIANCE` by nobody. Needs `object_lock_enabled` and `object_lock_default_retention_days`.
+             * @enum {string|null}
+             */
+            object_lock_default_retention_mode?: "GOVERNANCE" | "COMPLIANCE" | null;
+            /** @description How many days the default lock holds a new object. Sent with `object_lock_default_retention_mode`. */
+            object_lock_default_retention_days?: number | null;
+            /** @description Through the API, a size quota is not applied when the bucket is created: set it with `PUT /api/v1/storage/buckets/{bucket}` once the bucket is `active`. A quota is in bytes, at least 1 GiB (1073741824). */
+            size_limit_bytes?: number | null;
+            /** @description CORS rules in the S3 shape: `CORSRules`, each with `AllowedOrigins`, `AllowedMethods`, and optionally `AllowedHeaders`, `ExposeHeaders` and `MaxAgeSeconds`. */
             cors_configuration?: {
                 CORSRules?: {
                     AllowedOrigins?: string[];
@@ -5691,7 +6179,7 @@ export interface components {
                     MaxAgeSeconds?: number | null;
                 }[] | null;
             };
-            /** @description Lifecycle Rules validation */
+            /** @description Lifecycle rules in the S3 shape, each with an `ID`, a `Status` (`Enabled` or `Disabled`), an optional `Filter.Prefix`, and the actions `Expiration`, `NoncurrentVersionExpiration` or `AbortIncompleteMultipartUpload`. */
             lifecycle_rules?: {
                 ID?: string;
                 /** @enum {string} */
@@ -5712,8 +6200,10 @@ export interface components {
                     DaysAfterInitiation?: number | null;
                 } | null;
             }[] | null;
-            /** @description Tags validation */
-            tags?: string[] | null;
+            /** @description Up to 50 tags, as an object of tag names and values of at most 256 characters each. */
+            tags?: {
+                [key: string]: string;
+            } | null;
         };
         /**
          * StoreSupportTicketApiRequest
@@ -5735,14 +6225,7 @@ export interface components {
         };
         /**
          * StoreUptimeCheckApiRequest
-         * @description The dashboard's create rules, with the token ability checked FIRST and the
-         *     per-team cap enforced as validation rather than in the controller.
-         *
-         *     Checking the ability first matters more here than anywhere else in the
-         *     program: StoreUptimeCheckRequest::after() runs the SSRF validator, which
-         *     performs a LIVE DNS RESOLVE of the submitted URL. Leaving that behind a
-         *     controller-body permission check would let a token without `uptime:write`
-         *     make the platform resolve arbitrary hostnames on its behalf.
+         * @description A new uptime check. The project's limit on uptime checks applies.
          */
         StoreUptimeCheckApiRequest: {
             name: string;
@@ -5765,29 +6248,58 @@ export interface components {
         };
         /** StoreVpsInstanceRequest */
         StoreVpsInstanceRequest: {
+            /** @description Lowercase letters, digits and hyphens, unique among the VPS instances of the project. */
             name: string;
-            /** @enum {string} */
-            resource_profile: "";
-            /** @enum {string|null} */
+            /**
+             * @description The plan: a `slug` from `GET /api/v1/vps/plans`. Its `available_by_cpu_platform`
+             *     says whether a new VPS on that plan fits on the processor platform you choose.
+             */
+            resource_profile: string;
+            /**
+             * @description Defaults to `shared`. Send `dedicated` for a dedicated plan: when sent, it must match the plan's `type` in `GET /api/v1/vps/plans`.
+             * @enum {string|null}
+             */
             cpu_allocation_type?: "shared" | "dedicated" | null;
-            /** @description A customer promise honored by placement: no default, no fallback. */
+            /** @description The processor platform. There is no default and no fallback: the VPS is created only on the platform you choose. */
             cpu_platform: components["schemas"]["CpuPlatform"];
-            /** @enum {string} */
-            image: "";
-            /** @enum {string|null} */
+            /**
+             * @description The operating system: an `id` from `GET /api/v1/vps/images`, such as `ubuntu-24.04`.
+             *     The full `image` value from that list is accepted too. At most 500 characters.
+             */
+            image: string;
+            /**
+             * @description Which IP versions the VPS gets. Defaults to `dual_stack` (IPv4 and IPv6).
+             * @enum {string|null}
+             */
             network_stack?: "ipv4_only" | "ipv6_only" | "dual_stack" | null;
+            /**
+             * @description The network tier: `standard` when omitted or null, or `10g`. `10g` is refused unless your
+             *     account is enrolled in 10 Gb networking and it is available for this product, location and
+             *     processor platform; the refusal says why.
+             */
             network_tier?: components["schemas"]["NetworkTier"] | null;
-            /** @enum {string} */
+            /**
+             * @description The location. `fsn1` (Falkenstein, Germany) is the only one today.
+             * @enum {string}
+             */
             datacenter: "fsn1";
-            /** @enum {string} */
+            /**
+             * @description How you sign in: with one of your SSH keys, or with a password.
+             * @default ssh_key
+             * @enum {string}
+             */
             auth_method: "ssh_key" | "password";
+            /** @description Required when `auth_method` is `ssh_key`: an `id` from `GET /api/v1/ssh-keys`. The key must be one of yours. */
             ssh_key_id?: number | null;
+            /** @description Required when `auth_method` is `password`: at least 12 characters with an uppercase letter, a lowercase letter, a digit and a special character. Repeat it in `password_confirmation`. */
             password?: string | null;
+            /** @description Optional switches, each true unless you send false: `auto_start`, `backup_enabled`, `monitoring_enabled`. */
             configuration?: {
                 auto_start?: boolean;
                 backup_enabled?: boolean;
                 monitoring_enabled?: boolean;
             };
+            /** @description A cloud-init user-data script run on the first boot. */
             custom_cloud_init?: string | null;
             marketplace_app_id?: number | null;
             windows_license_key?: string | null;
@@ -5855,11 +6367,7 @@ export interface components {
         };
         /**
          * UpdateApiCacheInstanceRequest
-         * @description API request for updating cache instances.
-         *
-         *     Resources and cost are derived from the resource_profile, looked up against
-         *     the DB-backed CachePlan via PricingReader. Provider is fixed by the existing
-         *     instance, not user-chosen.
+         * @description Changes to a cache instance. Its engine cannot change; a new plan in `resource_profile` sets its size and price.
          */
         UpdateApiCacheInstanceRequest: {
             /**
@@ -5867,9 +6375,18 @@ export interface components {
              *     the field out; any other name is refused.
              */
             name?: string;
-            configuration?: string[];
+            /**
+             * @description Engine settings, as an object of setting names and values. They override the parameter
+             *     group's settings, except the ones the group locks.
+             */
+            configuration?: {
+                [key: string]: unknown;
+            };
+            /** @description The plan to move to: a `slug` from `GET /api/v1/cache/plans?provider=` with the instance's engine. */
             resource_profile?: string;
+            /** @description An `id` from `GET /api/v1/parameter-groups?type=cache`, for the instance's engine and version family. */
             parameter_group_id?: number | null;
+            /** @description Turns the instance's automated snapshots on or off. */
             automated_snapshots_enabled?: boolean;
         };
         /** UpdateApiDatabaseHighAvailabilityRequest */
@@ -5879,38 +6396,59 @@ export interface components {
         };
         /**
          * UpdateApiDatabaseInstanceRequest
-         * @description API request for updating database instances.
-         *
-         *     Resources and cost are derived from the resource_profile, looked up against
-         *     the DB-backed DatabasePlan via PricingReader.
+         * @description Changes to a database instance. A new plan in `resource_profile` sets its size and price.
          */
         UpdateApiDatabaseInstanceRequest: {
+            /** @description A database keeps the name it was created with. Send its current name or leave the field out; any other name is refused. */
             name?: string;
-            configuration?: string[];
+            /**
+             * @description Engine settings, as an object of setting names and values. They override the parameter
+             *     group's settings, except the ones the group locks. Refused for a database type that
+             *     cannot apply configuration changes yet.
+             */
+            configuration?: {
+                [key: string]: unknown;
+            };
+            /** @description The storage size, in GiB. It can only grow, and only on a database type that supports growing storage. */
             storage_size_gb?: number;
+            /** @description The plan to move to: a `slug` from `GET /api/v1/database/plans`. Refused for a database type that cannot change plans yet. */
             resource_profile?: string;
+            /** @description An `id` from `GET /api/v1/parameter-groups?type=database`, for the instance's engine and version family. */
             parameter_group_id?: number | null;
+            /** @description Turns the instance's automated backups on or off. */
             automated_snapshots_enabled?: boolean;
+            /** @description Grow the storage automatically as it fills up. Refused for a database type that cannot grow its storage on its own. */
             storage_autoscaling_enabled?: boolean;
+            /** @description How full the storage gets, in percent, before it grows. */
             storage_autoscale_threshold_percent?: number;
+            /** @description How much storage each automatic step adds, in GiB. */
             storage_autoscale_increment_gib?: number;
         };
         /**
          * UpdateApiQueueInstanceRequest
-         * @description API request for updating queue instances.
-         *
-         *     Resources and cost are derived from the resource_profile via PricingReader
-         *     against the DB-backed QueuePlan.
+         * @description Changes to a queue instance. A new plan in `resource_profile` sets its size and price.
          */
         UpdateApiQueueInstanceRequest: {
+            /** @description The plan to move to, such as `micro`, `small`, `medium` or `large`. */
             resource_profile?: string;
-            configuration?: string[];
+            /**
+             * @description Broker settings, as an object of setting names and values. They override the parameter
+             *     group's settings, except the ones the group locks.
+             */
+            configuration?: {
+                [key: string]: unknown;
+            };
+            /** @description Turns the broker's automated snapshots on or off. */
             automated_snapshots_enabled?: boolean;
         };
         /** UpdateAppInstanceRequest */
         UpdateAppInstanceRequest: {
-            /** @enum {string} */
-            resource_profile: "";
+            /**
+             * @description The profile to move to: a `slug` from the `resource_profiles` of this app's `app_type`
+             *     in `GET /api/v1/apps/catalog`. A smaller profile than the current one is refused,
+             *     because the app's storage cannot shrink.
+             */
+            resource_profile: string;
         };
         /**
          * UpdateBucketPolicyApiRequest
@@ -5944,6 +6482,12 @@ export interface components {
                 type?: "database" | "cache" | "vps" | "queue" | "serverless";
             }[];
             rules?: {
+                /**
+                 * Format: uuid
+                 * @description The id a listing returned. It says which rule this is, so a rule written
+                 *     back is recognised by identity and not guessed from its label.
+                 */
+                id?: string | null;
                 name?: string | null;
                 /** @enum {string} */
                 direction: "inbound" | "outbound";
@@ -5985,65 +6529,80 @@ export interface components {
         };
         /** UpdateServerlessContainerRequest */
         UpdateServerlessContainerRequest: {
+            /** @description Display name. */
             name?: string;
+            /** @description The slug cannot change after creation: send the current one or leave it out. */
             slug?: string;
-            /** @enum {string} */
-            deployment_type?: "docker_image" | "git_repository" | "zip_upload";
-            description?: string | null;
-            image?: string;
-            image_tag?: string;
             /**
-             * @description Container port is editable post-creation: changing it is just a
-             *     Knative revision bump (containerPort + queue-proxy target), not a
-             *     rebuild. Mirrors the StoreServerlessContainerRequest rule but with
-             *     `sometimes`, and rejects ports bound by the queue-proxy sidecar.
+             * @description Where the code comes from. The image fields apply to `docker_image`, the Git fields to `git_repository`, and the build fields to `git_repository` and `zip_upload`.
+             * @enum {string}
              */
+            deployment_type?: "docker_image" | "git_repository" | "zip_upload";
+            /** @description Free-text description. */
+            description?: string | null;
+            /** @description Image reference for `docker_image`, such as `cr.danubedata.ro/{registry_namespace}/api` (the namespace is in `GET /api/v1/user/teams`). Must be built for amd64. */
+            image?: string;
+            /** @description The tag to deploy, for `docker_image`. Prefer an immutable tag over `latest`. */
+            image_tag?: string;
+            /** @description The port your process listens on. A few ports are reserved by the platform and refused. */
             port?: number;
-            /** @enum {string} */
+            /**
+             * @description The CPU and memory profile. It also caps `min_scale` and `max_scale`.
+             * @enum {string}
+             */
             resource_profile?: "free" | "micro" | "small" | "medium" | "large";
+            /** @description The fewest instances kept running. 0 lets the container scale to zero. */
             min_scale?: number;
+            /** @description The most instances, at least `min_scale`. */
             max_scale?: number;
+            /** @description Overrides the CPU request, as a Kubernetes quantity such as `250m`, up to the profile's CPU limit. Null leaves the current value. A change of `resource_profile` sets the resource values to the new profile's, except overrides sent in the same request. */
             cpu_request?: string | null;
+            /** @description Overrides the CPU limit, as a Kubernetes quantity such as `1`, up to the profile's CPU limit. Null leaves the current value. A change of `resource_profile` sets the resource values to the new profile's, except overrides sent in the same request. */
             cpu_limit?: string | null;
+            /** @description Overrides the memory request, such as `256Mi`, up to the profile's memory limit. Null leaves the current value. A change of `resource_profile` sets the resource values to the new profile's, except overrides sent in the same request. */
             memory_request?: string | null;
+            /** @description Overrides the memory limit, such as `1Gi`, up to the profile's memory limit. Null leaves the current value. A change of `resource_profile` sets the resource values to the new profile's, except overrides sent in the same request. */
             memory_limit?: string | null;
             /** @description Environment variables as NAME: value pairs, e.g. `{"API_KEY": "..."}`. */
             environment_variables?: {
                 [key: string]: string;
             } | null;
+            /** @description Requests each instance handles at once before another instance starts. */
             concurrency_target?: number | null;
-            /** @enum {string} */
+            /**
+             * @description What autoscaling follows: requests per second (`rps`) or requests in flight (`concurrency`).
+             * @enum {string}
+             */
             scaling_metric?: "rps" | "concurrency";
+            /** @description The target value of `scaling_metric` per instance. */
             scaling_target?: number;
+            /** @description How long a request may run, in seconds, before it is cut off. */
             timeout_seconds?: number | null;
-            /**
-             * @description Null keeps the default tcpSocket readiness probe; a path opts the
-             *     container into an httpGet probe on that path.
-             */
+            /** @description An absolute path probed for readiness, such as `/healthz`. Null checks only that the port accepts connections. */
             health_check_path?: string | null;
+            /** @description How long a rollout may take, in seconds, before it is failed. */
             progress_deadline_seconds?: number | null;
-            /**
-             * @description Instances a new revision starts with before it counts Ready.
-             *     The upper bound is the EFFECTIVE max_scale (payload value when
-             *     present, else the stored one) — checked in withValidator()
-             *     below, since max_scale is `sometimes` here and may be absent
-             *     from this request entirely.
-             */
+            /** @description Instances a new revision starts with before it counts as ready, from 0 to `max_scale`. Null uses the default of 1. */
             initial_scale?: number | null;
+            /** @description How long a revision keeps its instances after it stops receiving traffic, in seconds. Null uses 300 (5 minutes). */
             scale_down_delay_seconds?: number | null;
-            /** Format: uuid */
-            registry_credential_id?: string | null;
             /**
-             * @description Git deployment source — editable post-deploy so customers can fix a
-             *     typo in the repo URL or rotate credentials without recreating the
-             *     container. Validation only fires for git_repository deployments;
-             *     validateChangesSupportedByUpdate() rejects these for other types.
+             * Format: uuid
+             * @description The UUID of a registry credential, for an image outside your own registry namespace. Images in your namespace sign in by themselves.
              */
+            registry_credential_id?: string | null;
+            /** @description The Git remote, over HTTPS or SSH, for `git_repository`. */
             repository_url?: string;
+            /** @description The branch to build. Null builds the repository's default branch. */
             repository_branch?: string | null;
-            /** @enum {string} */
+            /**
+             * @description How the build signs in to the repository.
+             * @enum {string}
+             */
             git_auth_type?: "none" | "ssh_key" | "access_token";
+            /** @description The deploy key or token, for `ssh_key` or `access_token`. Write-only: never returned. */
             git_credentials?: string | null;
+            /** @description Rebuild automatically on a push to the tracked branch. */
             auto_build_on_push?: boolean;
             /**
              * @description Keep the build cache between Dockerfile builds so later builds
@@ -6051,35 +6610,31 @@ export interface components {
              *     not start one.
              */
             build_cache_enabled?: boolean;
-            /**
-             * @description Redeploy automatically when this image:tag is re-pushed to the
-             *     DanubeData registry — docker_image analog of auto_build_on_push.
-             */
+            /** @description Redeploy automatically when this image and tag are pushed again to the DanubeData registry, for `docker_image`. */
             auto_deploy?: boolean;
             /**
-             * @description Build configuration (only valid for source deployments — git_repository / zip_upload)
+             * @description How a `git_repository` or `zip_upload` source is built: from a Dockerfile, or with a buildpack.
              * @enum {string}
              */
             source_type?: "dockerfile" | "buildpack";
+            /** @description The Dockerfile's path in the source, for `source_type` `dockerfile`. */
             dockerfile_path?: string | null;
+            /** @description The build context within the source. */
             build_context_path?: string | null;
-            /** @enum {string|null} */
+            /**
+             * @description The buildpack builder, for `source_type` `buildpack`.
+             * @enum {string|null}
+             */
             buildpack_builder?: "paketobuildpacks/builder-jammy-base" | "paketobuildpacks/builder-jammy-full" | "paketobuildpacks/builder-jammy-tiny" | "gcr.io/buildpacks/builder:v1" | "heroku/builder:22" | null;
         };
         /**
          * UpdateServerlessRunScheduleRequest
-         * @description Validation for `PUT/PATCH /api/v1/serverless/{id}/schedules/{schedule}`.
-         *
-         *     Every field optional; the rules and the cron check are the store request's,
-         *     which keeps "what a valid schedule looks like" in one place.
+         * @description Changes to a schedule. Every field is optional, and each one sent is checked as when the schedule was created.
          */
         UpdateServerlessRunScheduleRequest: {
             name?: string;
             cron_expression?: string;
-            /**
-             * @description Anything DateTimeZone knows. Stored so "0 3* *" keeps meaning
-             *     3am to the customer across a DST change.
-             */
+            /** @description The time zone the cron expression is read in, such as `Europe/Bucharest`. A new schedule without one uses UTC. A daily 3am schedule stays at 3am local time across daylight-saving changes. */
             timezone?: string;
             command?: string[] | null;
             image_tag?: string | null;
@@ -6088,25 +6643,31 @@ export interface components {
         };
         /** UpdateStorageBucketRequest */
         UpdateStorageBucketRequest: {
+            /** @description A label shown instead of the name. */
             display_name?: string | null;
+            /** @description Keep every version of each object, so an overwritten or deleted object can be recovered. */
             versioning_enabled?: boolean;
+            /** @description Let anyone list the bucket and read its objects without credentials. */
             public_access?: boolean;
+            /** @description Server-side encryption of the objects at rest. */
             encryption_enabled?: boolean;
-            /** @enum {string} */
+            /**
+             * @description The server-side encryption: `sse-s3` uses keys the platform manages, and `sse-kms` needs `encryption_kms_key_id`.
+             * @enum {string}
+             */
             encryption_type?: "none" | "sse-s3" | "sse-kms";
+            /** @description The key for `sse-kms` encryption. */
             encryption_kms_key_id?: string | null;
             /**
-             * @description Object Lock default retention update (only if Object Lock is already enabled)
+             * @description The default lock for new objects, on a bucket created with Object Lock: `GOVERNANCE` can be lifted by users with the right permission, `COMPLIANCE` by nobody.
              * @enum {string|null}
              */
             object_lock_default_retention_mode?: "GOVERNANCE" | "COMPLIANCE" | null;
+            /** @description How many days the default lock holds a new object. */
             object_lock_default_retention_days?: number | null;
-            /** @description Size limit validation (quota) */
+            /** @description A quota on the bucket's size, in bytes: at least 1 GiB (1073741824). Send null to remove the quota. */
             size_limit_bytes?: number | null;
-            /**
-             * @description Min 1 GB
-             *     CORS Configuration validation
-             */
+            /** @description CORS rules in the S3 shape: `CORSRules`, each with `AllowedOrigins`, `AllowedMethods`, and optionally `AllowedHeaders`, `ExposeHeaders` and `MaxAgeSeconds`. */
             cors_configuration?: {
                 CORSRules?: {
                     AllowedOrigins?: string[];
@@ -6116,7 +6677,7 @@ export interface components {
                     MaxAgeSeconds?: number | null;
                 }[] | null;
             };
-            /** @description Lifecycle Rules validation */
+            /** @description Lifecycle rules in the S3 shape, each with an `ID`, a `Status` (`Enabled` or `Disabled`), an optional `Filter.Prefix`, and the actions `Expiration`, `NoncurrentVersionExpiration` or `AbortIncompleteMultipartUpload`. */
             lifecycle_rules?: {
                 ID?: string;
                 /** @enum {string} */
@@ -6137,8 +6698,13 @@ export interface components {
                     DaysAfterInitiation?: number | null;
                 } | null;
             }[] | null;
-            /** @description Tags validation */
-            tags?: string[] | null;
+            /**
+             * @description Up to 50 tags, as an object of tag names and values of at most 256 characters each.
+             *     They replace the bucket's current tags; an empty object removes them all.
+             */
+            tags?: {
+                [key: string]: string;
+            } | null;
         };
         /** UpdateUptimeCheckRequest */
         UpdateUptimeCheckRequest: {
@@ -6160,17 +6726,28 @@ export interface components {
             notify_on_recovery?: boolean;
             notification_channels?: ("database" | "mail" | "webhook")[] | null;
         };
-        /** UpdateVpsInstanceRequest */
+        /**
+         * UpdateVpsInstanceRequest
+         * @description Changes to a VPS. The VPS must be stopped: an update to a running VPS is refused.
+         */
         UpdateVpsInstanceRequest: {
-            /** @enum {string} */
+            /**
+             * @description `shared` or `dedicated` vCPUs. Sent together with `resource_profile`, it must match that plan's `type` in `GET /api/v1/vps/plans`.
+             * @enum {string}
+             */
             cpu_allocation_type?: "shared" | "dedicated";
-            /** @enum {string|null} */
+            /**
+             * @description The plan to move to: a `slug` from `GET /api/v1/vps/plans`. A plan with less storage than the current one is refused, because a disk cannot shrink.
+             * @enum {string|null}
+             */
             resource_profile?: "large" | "large_shared" | "medium" | "medium_shared" | "micro" | "micro_shared" | "nano" | "nano_shared" | "pico_shared" | "small" | "small_shared" | "xlarge" | null;
+            /** @description Switches to change: `auto_start`, `backup_enabled`, `monitoring_enabled`. */
             configuration?: {
                 auto_start?: boolean;
                 backup_enabled?: boolean;
                 monitoring_enabled?: boolean;
             };
+            /** @description Turns the VPS's automated snapshots on or off. */
             automated_snapshots_enabled?: boolean;
         };
         /** UptimeCheckResource */
@@ -6210,6 +6787,21 @@ export interface components {
          * @enum {string}
          */
         UptimeCheckStatus: "up" | "down" | "unknown" | "paused";
+        /** UserTeamResource */
+        UserTeamResource: {
+            id: number;
+            name: string;
+            personal_team: boolean;
+            /**
+             * @description The registry path segment, and the Kubernetes tenant slug.
+             *     It is NOT derivable from `name`: a team called "Safi" can own
+             *     the namespace `safi4`, because the slug is uniquified at
+             *     assignment. Without this field a client has to guess the
+             *     first segment of `cr.danubedata.ro/{ns}/...`, and a wrong
+             *     guess fails as an opaque authorization error.
+             */
+            registry_namespace: string | null;
+        };
         /** VpsInstanceResource */
         VpsInstanceResource: {
             id: string;
@@ -6272,7 +6864,11 @@ export interface components {
             vps_instance?: {
                 id: string;
                 name: string;
+                /** @description When the VPS was deleted; null while it exists. */
+                deleted_at: string | null;
             };
+            /** @description When this snapshot is deleted automatically: a manual snapshot of a deleted VPS is kept for 30 days. Null while it is kept until you delete it. */
+            expires_at: string | null;
             created_at: string;
             updated_at: string;
         };
@@ -6410,21 +7006,9 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        data: {
-                            id: number;
-                            name: string;
-                            personal_team: boolean;
-                            /**
-                             * @description The registry path segment, and the Kubernetes tenant slug.
-                             *     It is NOT derivable from `name`: a team called "Safi" can own
-                             *     the namespace `safi4`, because the slug is uniquified at
-                             *     assignment. Without this field a client has to guess the
-                             *     first segment of `cr.danubedata.ro/{ns}/...`, and a wrong
-                             *     guess fails as an opaque authorization error.
-                             */
-                            registry_namespace: string | null;
-                        }[];
+                        data: components["schemas"]["UserTeamResource"][];
                         current_team_id: number;
+                        token_team_id: number | null;
                     };
                 };
             };
@@ -6828,7 +7412,10 @@ export interface operations {
     "v1.cache.index": {
         parameters: {
             query?: {
-                per_page?: string;
+                /** @description How many items a page holds. */
+                per_page?: number;
+                /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
+                page?: number;
             };
             header?: never;
             path?: never;
@@ -7373,7 +7960,10 @@ export interface operations {
     "v1.registry.repositories.index": {
         parameters: {
             query?: {
+                /** @description How many items a page holds. */
                 per_page?: number;
+                /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
+                page?: number;
             };
             header?: never;
             path?: never;
@@ -7786,7 +8376,10 @@ export interface operations {
     "v1.database.index": {
         parameters: {
             query?: {
-                per_page?: string;
+                /** @description How many items a page holds. */
+                per_page?: number;
+                /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
+                page?: number;
             };
             header?: never;
             path?: never;
@@ -7981,6 +8574,9 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
+                        /** @constant */
+                        error: "A backup of this database is still being taken. Delete the database once it has completed, so that the backup is kept.";
+                    } | {
                         /** @constant */
                         error: "Database instance cannot be destroyed in its current state";
                         status: string;
@@ -8838,7 +9434,12 @@ export interface operations {
     };
     "v1.firewalls.index": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description How many items a page holds. */
+                per_page?: number;
+                /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
+                page?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -9186,7 +9787,10 @@ export interface operations {
     "v1.apps.index": {
         parameters: {
             query?: {
+                /** @description How many items a page holds. */
                 per_page?: number;
+                /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
+                page?: number;
             };
             header?: never;
             path?: never;
@@ -9697,7 +10301,10 @@ export interface operations {
     "v1.kubernetes.index": {
         parameters: {
             query?: {
+                /** @description How many items a page holds. */
                 per_page?: number;
+                /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
+                page?: number;
             };
             header?: never;
             path?: never;
@@ -9819,11 +10426,9 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
+                    /** @description The number of worker nodes the pool should have. */
                     count: number;
-                    /**
-                     * @description Optional pool name; omitted → the cluster's first pool, which
-                     *     keeps pre-#215 single-pool API clients working unchanged.
-                     */
+                    /** @description The node pool to scale, by name. Omit it to scale the cluster's first pool. */
                     pool?: string;
                 };
             };
@@ -9885,9 +10490,14 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
+                    /** @description Unique among the cluster's node pools. */
                     name: string;
-                    /** @enum {string} */
+                    /**
+                     * @description The plan of every worker node in the pool. It must be a dedicated plan, one with `type` `dedicated` in `GET /api/v1/vps/plans`, which also gives each plan's specs and price.
+                     * @enum {string}
+                     */
                     plan: "nano" | "micro" | "small" | "medium" | "large" | "xlarge";
+                    /** @description The number of worker nodes. */
                     count: number;
                 };
             };
@@ -9993,7 +10603,10 @@ export interface operations {
     "v1.metric-alerts.index": {
         parameters: {
             query?: {
+                /** @description How many items a page holds. */
                 per_page?: number;
+                /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
+                page?: number;
             };
             header?: never;
             path?: never;
@@ -10394,7 +11007,10 @@ export interface operations {
             query?: {
                 category?: string;
                 unread?: "0" | "1" | "true" | "false";
+                /** @description How many items a page holds. */
                 per_page?: number;
+                /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
+                page?: number;
             };
             header?: never;
             path?: never;
@@ -10522,7 +11138,10 @@ export interface operations {
     "v1.storage.buckets.index": {
         parameters: {
             query?: {
-                per_page?: string;
+                /** @description How many items a page holds. */
+                per_page?: number;
+                /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
+                page?: number;
             };
             header?: never;
             path?: never;
@@ -11101,7 +11720,10 @@ export interface operations {
     "v1.storage.access-keys.index": {
         parameters: {
             query?: {
-                per_page?: string;
+                /** @description How many items a page holds. */
+                per_page?: number;
+                /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
+                page?: number;
             };
             header?: never;
             path?: never;
@@ -11398,7 +12020,10 @@ export interface operations {
     "v1.parameter-groups.index": {
         parameters: {
             query?: {
+                /** @description How many items a page holds. */
                 per_page?: number;
+                /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
+                page?: number;
             };
             header?: never;
             path?: never;
@@ -11438,10 +12063,16 @@ export interface operations {
                     name: string;
                     /** @enum {string} */
                     type: "cache" | "database" | "queue";
+                    /** @description The engine the group is for, such as `redis`, `valkey`, `postgresql`, `mysql` or `mariadb`. */
                     provider_type: string;
+                    /** @description The engine version family, such as `postgres16` or `redis7.x`. */
                     family?: string | null;
                     description?: string | null;
-                    parameters: string[];
+                    /** @description The settings, as an object of setting names and values, with at least one setting. */
+                    parameters: {
+                        [key: string]: unknown;
+                    };
+                    /** @description Names of settings in `parameters` that instances using the group cannot override. */
                     locked_parameters?: string[] | null;
                     is_default?: boolean;
                 };
@@ -11505,7 +12136,10 @@ export interface operations {
                 "application/json": {
                     name?: string;
                     description?: string | null;
-                    parameters?: string[];
+                    /** @description The settings, as an object of setting names and values. */
+                    parameters?: {
+                        [key: string]: unknown;
+                    };
                     locked_parameters?: string[] | null;
                     is_default?: boolean;
                     is_active?: boolean;
@@ -11587,6 +12221,7 @@ export interface operations {
         requestBody?: {
             content: {
                 "application/json": {
+                    /** @description The new group's name. Defaults to the source name followed by "(Copy)". */
                     name?: string | null;
                 };
             };
@@ -12080,7 +12715,10 @@ export interface operations {
     "v1.queue.index": {
         parameters: {
             query?: {
-                per_page?: string;
+                /** @description How many items a page holds. */
+                per_page?: number;
+                /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
+                page?: number;
             };
             header?: never;
             path?: never;
@@ -12159,11 +12797,7 @@ export interface operations {
                         connection_info: string | null;
                         management_url: string;
                         monthly_cost: number;
-                        /**
-                         * @description Poll operation.terminal, never the status string. Wrapped in the
-                         *     shared resources so the generated spec describes the shape —
-                         *     a bare array publishes as `"type": "string"`.
-                         */
+                        /** @description Poll `operation.terminal`, never the `status` string. */
                         status_details: components["schemas"]["StatusDetailsResource"];
                         capabilities: components["schemas"]["CapabilitiesResource"];
                     };
@@ -12808,49 +13442,6 @@ export interface operations {
             422: components["responses"]["ValidationException"];
         };
     };
-    "v1.registryEvent": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        accepted: number;
-                    };
-                };
-            };
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** @constant */
-                        error: "invalid envelope";
-                    };
-                };
-            };
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** @constant */
-                        error: "unauthorized";
-                    };
-                };
-            };
-        };
-    };
     "v1.resource-alerts.incidents.index": {
         parameters: {
             query?: {
@@ -12863,6 +13454,7 @@ export interface operations {
                 since?: string | null;
                 until?: string | null;
                 cursor?: string | null;
+                /** @description How many items a page holds. */
                 per_page?: number | null;
             };
             header?: never;
@@ -13013,6 +13605,7 @@ export interface operations {
                 resource_id?: string | null;
                 signal_key?: string | null;
                 cursor?: string | null;
+                /** @description How many items a page holds. */
                 per_page?: number | null;
             };
             header?: never;
@@ -13235,7 +13828,10 @@ export interface operations {
     "v1.ssh-keys.index": {
         parameters: {
             query?: {
-                per_page?: string;
+                /** @description How many items a page holds. */
+                per_page?: number;
+                /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
+                page?: number;
             };
             header?: never;
             path?: never;
@@ -13649,7 +14245,10 @@ export interface operations {
     "v1.serverless.index": {
         parameters: {
             query?: {
-                per_page?: string;
+                /** @description How many items a page holds. */
+                per_page?: number;
+                /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
+                page?: number;
             };
             header?: never;
             path?: never;
@@ -13752,6 +14351,13 @@ export interface operations {
                     memory_request?: string;
                     /** @description Memory limit override. */
                     memory_limit?: string;
+                    /** @description A persistent volume to create with the container, mounted into every instance of it and into its runs. Omit it for a container without one. Billed per GB for its full size while it exists, also while the container is scaled to zero. */
+                    volume?: {
+                        /** @description Size of the volume in GB. It can be made larger later, never smaller. Required with `volume`. */
+                        size_gb?: number;
+                        /** @description Absolute path the volume is mounted at inside the container, for example `/data`. Whatever the image has at that path is hidden while the volume is mounted. Required with `volume`. */
+                        mount_path?: string;
+                    };
                 };
             };
         };
@@ -13806,6 +14412,7 @@ export interface operations {
                         container: components["schemas"]["ServerlessContainerResource"] & Record<string, never>;
                         metrics: unknown[];
                         url: string;
+                        /** @description What the container has cost this month so far, in the currency's units, with its volume's and its backups': the container's own `current_month_cost_cents` holds none of it. */
                         monthly_cost: string;
                     };
                 };
@@ -13883,7 +14490,10 @@ export interface operations {
     "v1.serverless.deployments": {
         parameters: {
             query?: {
-                per_page?: string;
+                /** @description How many items a page holds. */
+                per_page?: number;
+                /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
+                page?: number;
             };
             header?: never;
             path: {
@@ -14169,7 +14779,12 @@ export interface operations {
     };
     "v1.serverless.runs.index": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description How many items a page holds. */
+                per_page?: number;
+                /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
+                page?: number;
+            };
             header?: never;
             path: {
                 /** @description The serverless container ID */
@@ -14444,10 +15059,1073 @@ export interface operations {
             404: components["responses"]["ModelNotFoundException"];
         };
     };
+    "v1.serverless.volumes.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The serverless container ID */
+                serverlessContainer: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: components["schemas"]["ServerlessVolumeResource"][];
+                        error: null;
+                        meta: {
+                            total: number;
+                            offer: {
+                                available: boolean;
+                                min_size_gb: number;
+                                max_size_gb: number;
+                                cents_per_gb_month: number | null;
+                                team_limit_gb: number;
+                                team_remaining_gb: number;
+                            };
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.serverless.volumes.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The serverless container ID */
+                serverlessContainer: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Size of the volume in GB. It can be made larger later, never smaller. */
+                    size_gb: number;
+                    /** @description Absolute path the volume is mounted at inside the container, for example `/data`. Whatever the image has at that path is hidden while the volume is mounted. */
+                    mount_path: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The volume was saved and is being provisioned. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: components["schemas"]["ServerlessVolumeResource"];
+                        error: null;
+                        meta: {
+                            poll_url: string;
+                            poll_after_ms: number;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            /** @description Volumes are not offered to this account (`serverless.volume_not_available`), or its approval, budget or limits do not allow this one (`serverless.volume_manual_approval_required`, `serverless.volume_budget_exceeded`, `serverless.volume_team_limit_reached`). */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: null;
+                        error: {
+                            code: string;
+                            message: string;
+                            retryable: boolean;
+                            field: string | null;
+                        };
+                        meta: {
+                            [key: string]: unknown;
+                        };
+                    } | {
+                        message: string;
+                        error: string;
+                    };
+                };
+            };
+            404: components["responses"]["ModelNotFoundException"];
+            /** @description The container has a volume already (`serverless.volume_already_exists`), is not deployed (`serverless.volume_container_not_deployed`) or is changing (`serverless.volume_container_busy`), is on a tier that cannot have one (`serverless.volume_tier_unsupported`), or a restore is under way (`serverless.volume_restore_in_progress`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: null;
+                        error: {
+                            code: string;
+                            message: string;
+                            retryable: boolean;
+                            field: string | null;
+                        };
+                        meta: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+            /** @description The body is malformed: a size outside what a volume may be, or a path the container cannot mount. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                        errors: {
+                            [key: string]: string[];
+                        };
+                    };
+                };
+            };
+            /** @description More than 20 changes in a minute to the volumes and backups of this container by one person (`serverless-volumes`). `Retry-After` says how many seconds to wait. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                        retry_after: number;
+                    };
+                };
+            };
+            /** @description The platform has no room for it (`serverless.volume_capacity_unavailable`), or could not work out where it would be placed (`serverless.volume_placement_unknown`). Retryable. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: null;
+                        error: {
+                            code: string;
+                            message: string;
+                            retryable: boolean;
+                            field: string | null;
+                        };
+                        meta: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    "v1.serverless.volumes.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The serverless container ID */
+                serverlessContainer: string;
+                volume: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: components["schemas"]["ServerlessVolumeResource"];
+                        error: null;
+                        meta: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            /** @description The container has no such volume (`serverless.volume_not_found`). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: null;
+                        error: {
+                            code: string;
+                            message: string;
+                            retryable: boolean;
+                            field: string | null;
+                        };
+                        meta: {
+                            [key: string]: unknown;
+                        };
+                    } | {
+                        message: string;
+                        error: string;
+                    };
+                };
+            };
+        };
+    };
+    "v1.serverless.volumes.update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The serverless container ID */
+                serverlessContainer: string;
+                volume: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /** @description The new size in GB. Not smaller than the current one. Not together with `mount_path`. */
+                    size_gb?: number;
+                    /** @description The new absolute mount path. Not together with `size_gb`. */
+                    mount_path?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The volume has that size or path already: nothing was changed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: components["schemas"]["ServerlessVolumeResource"];
+                        error: null;
+                        meta: {
+                            changed: boolean;
+                        };
+                    };
+                };
+            };
+            /** @description The change was taken. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: components["schemas"]["ServerlessVolumeResource"];
+                        error: null;
+                        meta: {
+                            poll_url: string;
+                            poll_after_ms: number;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            /** @description A larger size is not offered to this account or is beyond its approval, budget or limits (`serverless.volume_not_available`, `serverless.volume_manual_approval_required`, `serverless.volume_budget_exceeded`, `serverless.volume_team_limit_reached`). */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: null;
+                        error: {
+                            code: string;
+                            message: string;
+                            retryable: boolean;
+                            field: string | null;
+                        };
+                        meta: {
+                            [key: string]: unknown;
+                        };
+                    } | {
+                        message: string;
+                        error: string;
+                    };
+                };
+            };
+            /** @description The container has no such volume (`serverless.volume_not_found`). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: null;
+                        error: {
+                            code: string;
+                            message: string;
+                            retryable: boolean;
+                            field: string | null;
+                        };
+                        meta: {
+                            [key: string]: unknown;
+                        };
+                    } | {
+                        message: string;
+                        error: string;
+                    };
+                };
+            };
+            /** @description The volume cannot take the change now (`serverless.volume_cannot_resize_now`, `serverless.volume_not_mounted`, `serverless.volume_being_restored`, `serverless.volume_container_busy`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: null;
+                        error: {
+                            code: string;
+                            message: string;
+                            retryable: boolean;
+                            field: string | null;
+                        };
+                        meta: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+            /** @description The size is smaller than the current one (`serverless.volume_cannot_shrink`), is out of range, or the path cannot be mounted (`field` says which); or the body is malformed. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: null;
+                        error: {
+                            code: string;
+                            message: string;
+                            retryable: boolean;
+                            field: string | null;
+                        };
+                        meta: {
+                            [key: string]: unknown;
+                        };
+                    } | {
+                        message: string;
+                        errors: {
+                            [key: string]: string[];
+                        };
+                    };
+                };
+            };
+            /** @description More than 20 changes in a minute to the volumes and backups of this container by one person (`serverless-volumes`). `Retry-After` says how many seconds to wait. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                        retry_after: number;
+                    };
+                };
+            };
+            /** @description The platform has no room for the larger size (`serverless.volume_capacity_unavailable`). Retryable. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: null;
+                        error: {
+                            code: string;
+                            message: string;
+                            retryable: boolean;
+                            field: string | null;
+                        };
+                        meta: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    "v1.serverless.volumes.destroy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The serverless container ID */
+                serverlessContainer: string;
+                volume: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The volume is being deleted. Its status is `deleting`. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: components["schemas"]["ServerlessVolumeResource"];
+                        error: null;
+                        meta: {
+                            poll_url: string;
+                            poll_after_ms: number;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            /** @description The container has no such volume (`serverless.volume_not_found`). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: null;
+                        error: {
+                            code: string;
+                            message: string;
+                            retryable: boolean;
+                            field: string | null;
+                        };
+                        meta: {
+                            [key: string]: unknown;
+                        };
+                    } | {
+                        message: string;
+                        error: string;
+                    };
+                };
+            };
+            /** @description A restore is under way (`serverless.volume_being_restored`), or the container is changing (`serverless.volume_container_busy`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: null;
+                        error: {
+                            code: string;
+                            message: string;
+                            retryable: boolean;
+                            field: string | null;
+                        };
+                        meta: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+            /** @description More than 20 changes in a minute to the volumes and backups of this container by one person (`serverless-volumes`). `Retry-After` says how many seconds to wait. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                        retry_after: number;
+                    };
+                };
+            };
+        };
+    };
+    "v1.serverless.volume-backups.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The serverless container ID */
+                serverlessContainer: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: components["schemas"]["ServerlessVolumeBackupResource"][];
+                        error: null;
+                        meta: {
+                            total: number;
+                            offer: {
+                                available: boolean;
+                                max_per_container: number;
+                                cents_per_gb_month: number | null;
+                                monthly_cost_cents: number | null;
+                                stored_bytes: number | null;
+                            };
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.serverless.volume-backups.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The serverless container ID */
+                serverlessContainer: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /** @description What to call the backup, up to 100 characters. Left out, the backup is named after the time it is taken. */
+                    name?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The backup was saved and is being made. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: components["schemas"]["ServerlessVolumeBackupResource"];
+                        error: null;
+                        meta: {
+                            poll_url: string;
+                            poll_after_ms: number;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            /** @description Backups are not offered to this account (`serverless.volume_not_available`), or its budget or limits do not allow this one. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: null;
+                        error: {
+                            code: string;
+                            message: string;
+                            retryable: boolean;
+                            field: string | null;
+                        };
+                        meta: {
+                            [key: string]: unknown;
+                        };
+                    } | {
+                        message: string;
+                        error: string;
+                    };
+                };
+            };
+            404: components["responses"]["ModelNotFoundException"];
+            /** @description There is no volume to back up (`serverless.volume_backup_no_volume`), it is not ready (`serverless.volume_backup_volume_not_ready`), a backup is being made (`serverless.volume_backup_in_progress`), the limit is reached (`serverless.volume_backup_limit_reached`), the last one was taken too recently (`serverless.volume_backup_too_soon`), the day's limit is reached (`serverless.volume_backup_daily_limit_reached`), or a backup is being deleted (`serverless.volume_backup_deletion_pending`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: null;
+                        error: {
+                            code: string;
+                            message: string;
+                            retryable: boolean;
+                            field: string | null;
+                        };
+                        meta: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+            /** @description The name is too long or not text. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                        errors: {
+                            [key: string]: string[];
+                        };
+                    };
+                };
+            };
+            /** @description More than 20 changes in a minute to the volumes and backups of this container by one person (`serverless-volumes`). `Retry-After` says how many seconds to wait. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                        retry_after: number;
+                    };
+                };
+            };
+        };
+    };
+    "v1.serverless.volume-backups.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The serverless container ID */
+                serverlessContainer: string;
+                backup: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: components["schemas"]["ServerlessVolumeBackupResource"];
+                        error: null;
+                        meta: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            /** @description The container has no such backup (`serverless.volume_backup_not_found`). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: null;
+                        error: {
+                            code: string;
+                            message: string;
+                            retryable: boolean;
+                            field: string | null;
+                        };
+                        meta: {
+                            [key: string]: unknown;
+                        };
+                    } | {
+                        message: string;
+                        error: string;
+                    };
+                };
+            };
+        };
+    };
+    "v1.serverless.volume-backups.destroy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The serverless container ID */
+                serverlessContainer: string;
+                backup: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The backup is being deleted. Its status is `deleting`. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: components["schemas"]["ServerlessVolumeBackupResource"];
+                        error: null;
+                        meta: {
+                            poll_url: string;
+                            poll_after_ms: number;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            /** @description The container has no such backup (`serverless.volume_backup_not_found`). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: null;
+                        error: {
+                            code: string;
+                            message: string;
+                            retryable: boolean;
+                            field: string | null;
+                        };
+                        meta: {
+                            [key: string]: unknown;
+                        };
+                    } | {
+                        message: string;
+                        error: string;
+                    };
+                };
+            };
+            /** @description A restore is under way (`serverless.volume_backup_being_restored`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: null;
+                        error: {
+                            code: string;
+                            message: string;
+                            retryable: boolean;
+                            field: string | null;
+                        };
+                        meta: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+            /** @description More than 20 changes in a minute to the volumes and backups of this container by one person (`serverless-volumes`). `Retry-After` says how many seconds to wait. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                        retry_after: number;
+                    };
+                };
+            };
+        };
+    };
+    "v1.serverless.volume-restores.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The serverless container ID */
+                serverlessContainer: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: components["schemas"]["ServerlessVolumeRestoreResource"][];
+                        error: null;
+                        meta: {
+                            total: number;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.serverless.volume-restores.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The serverless container ID */
+                serverlessContainer: string;
+                restore: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: components["schemas"]["ServerlessVolumeRestoreResource"];
+                        error: null;
+                        meta: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            /** @description The container has no such restore (`serverless.volume_restore_not_found`). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: null;
+                        error: {
+                            code: string;
+                            message: string;
+                            retryable: boolean;
+                            field: string | null;
+                        };
+                        meta: {
+                            [key: string]: unknown;
+                        };
+                    } | {
+                        message: string;
+                        error: string;
+                    };
+                };
+            };
+        };
+    };
+    "v1.serverless.volume-backups.restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The serverless container ID */
+                serverlessContainer: string;
+                backup: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /** @description Where to mount the volume the restore makes. Only for a container that has no volume: one that has keeps its own path, and the field is ignored. Left out, the path the backup was taken at is used, if the container can still mount it. */
+                    mount_path?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The restore was taken. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: components["schemas"]["ServerlessVolumeRestoreResource"];
+                        error: null;
+                        meta: {
+                            poll_url: string;
+                            poll_after_ms: number;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            /** @description Restores are not offered to this account (`serverless.volume_not_available`), or its budget or limits do not allow the copy. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: null;
+                        error: {
+                            code: string;
+                            message: string;
+                            retryable: boolean;
+                            field: string | null;
+                        };
+                        meta: {
+                            [key: string]: unknown;
+                        };
+                    } | {
+                        message: string;
+                        error: string;
+                    };
+                };
+            };
+            /** @description The container has no such backup (`serverless.volume_backup_not_found`). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: null;
+                        error: {
+                            code: string;
+                            message: string;
+                            retryable: boolean;
+                            field: string | null;
+                        };
+                        meta: {
+                            [key: string]: unknown;
+                        };
+                    } | {
+                        message: string;
+                        error: string;
+                    };
+                };
+            };
+            /** @description The backup is not ready (`serverless.volume_restore_backup_not_ready`) or is of a larger volume than the container's (`serverless.volume_restore_backup_too_large`), a restore is under way (`serverless.volume_restore_in_progress`: not retryable, and `meta.restore_id` and `meta.poll_url` name the restore to follow; or one that failed is being cleaned up after, `serverless.volume_restore_cleaning_up`: retryable), the volume or a backup is changing, or the day's limit is reached (`serverless.volume_restore_daily_limit_reached`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: null;
+                        error: {
+                            code: string;
+                            message: string;
+                            retryable: boolean;
+                            field: string | null;
+                        };
+                        meta: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+            /** @description The path is not one the container can mount (`serverless.volume_invalid_mount_path`, or the field in `errors`). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                        errors: {
+                            [key: string]: string[];
+                        };
+                    } | {
+                        success: boolean;
+                        data: null;
+                        error: {
+                            code: string;
+                            message: string;
+                            retryable: boolean;
+                            field: string | null;
+                        };
+                        meta: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+            /** @description More than 20 changes in a minute to the volumes and backups of this container by one person (`serverless-volumes`). `Retry-After` says how many seconds to wait. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                        retry_after: number;
+                    };
+                };
+            };
+            /** @description The platform has no room for the copy (`serverless.volume_capacity_unavailable`). Retryable. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: null;
+                        error: {
+                            code: string;
+                            message: string;
+                            retryable: boolean;
+                            field: string | null;
+                        };
+                        meta: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
     "v1.snapshots.vps.index": {
         parameters: {
             query?: {
+                /** @description How many items a page holds. */
                 per_page?: number;
+                /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
+                page?: number;
             };
             header?: never;
             path?: never;
@@ -14675,7 +16353,10 @@ export interface operations {
     "v1.snapshots.cache.index": {
         parameters: {
             query?: {
+                /** @description How many items a page holds. */
                 per_page?: number;
+                /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
+                page?: number;
             };
             header?: never;
             path?: never;
@@ -14966,7 +16647,10 @@ export interface operations {
     "v1.snapshots.database.index": {
         parameters: {
             query?: {
+                /** @description How many items a page holds. */
                 per_page?: number;
+                /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
+                page?: number;
             };
             header?: never;
             path?: never;
@@ -15341,7 +17025,10 @@ export interface operations {
     "v1.teams.static-sites.index": {
         parameters: {
             query?: {
-                per_page?: string;
+                /** @description How many items a page holds. */
+                per_page?: number;
+                /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
+                page?: number;
             };
             header?: never;
             path: {
@@ -15409,7 +17096,10 @@ export interface operations {
     "v1.static-sites.index": {
         parameters: {
             query?: {
-                per_page?: string;
+                /** @description How many items a page holds. */
+                per_page?: number;
+                /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
+                page?: number;
             };
             header?: never;
             path?: never;
@@ -15643,7 +17333,10 @@ export interface operations {
     "v1.static-sites.deployments": {
         parameters: {
             query?: {
-                per_page?: string;
+                /** @description How many items a page holds. */
+                per_page?: number;
+                /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
+                page?: number;
             };
             header?: never;
             path: {
@@ -15839,7 +17532,10 @@ export interface operations {
         parameters: {
             query?: {
                 status?: "open" | "in_progress" | "waiting_customer" | "resolved" | "closed" | null;
+                /** @description How many items a page holds. */
                 per_page?: number | null;
+                /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
+                page?: number;
             };
             header?: never;
             path?: never;
@@ -16056,7 +17752,10 @@ export interface operations {
     "v1.uptime-checks.index": {
         parameters: {
             query?: {
+                /** @description How many items a page holds. */
                 per_page?: number;
+                /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
+                page?: number;
             };
             header?: never;
             path?: never;
@@ -16560,7 +18259,10 @@ export interface operations {
     "v1.vps.index": {
         parameters: {
             query?: {
+                /** @description How many items a page holds. */
                 per_page?: number;
+                /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
+                page?: number;
             };
             header?: never;
             path?: never;
@@ -17140,7 +18842,12 @@ export interface operations {
     };
     "v1.vps.volumes.index": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description How many items a page holds. */
+                per_page?: number;
+                /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
+                page?: number;
+            };
             header?: never;
             path: {
                 /** @description The vps instance ID */
@@ -17463,7 +19170,12 @@ export interface operations {
     };
     "v1.volumes.index": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description How many items a page holds. */
+                per_page?: number;
+                /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
+                page?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -17620,7 +19332,12 @@ export interface operations {
     };
     "v1.webhooks.deliveries": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description How many items a page holds. */
+                per_page?: number;
+                /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
+                page?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;

@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { ApiClient } from '../lib/api-client.js';
 import { isJsonMode, jsonOutput } from '../lib/json-mode.js';
+import { tokenReach } from '../lib/token-scope.js';
 import { teamsArray } from '../types/api.js';
 import type { User, TeamsResponse } from '../types/api.js';
 
@@ -18,13 +19,18 @@ export const whoamiCommand = new Command('whoami')
     const teams = teamsArray(teamsRes);
 
     if (isJsonMode()) {
-      jsonOutput({ user, teams, current_team_id: teamsRes.current_team_id });
+      jsonOutput({ user, teams, current_team_id: teamsRes.current_team_id, token_team_id: teamsRes.token_team_id });
       return;
     }
 
     console.log(chalk.bold(user.name));
     console.log(`Email: ${user.email}`);
     console.log(`Teams: ${teams.map(t => t.name).join(', ')}`);
+
+    const reach = tokenReach(teamsRes, teams);
+    if (reach !== null) {
+      console.log(`Token works in: ${reach}`);
+    }
 
     // The registry namespace is printed here because it cannot be derived from
     // anything else the user can see: a team named "Safi" owns `safi4`. Without

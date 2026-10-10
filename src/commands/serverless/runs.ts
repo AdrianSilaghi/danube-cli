@@ -16,7 +16,7 @@ import {
 import { isJsonMode, jsonOutput, jsonEnvelope } from '../../lib/json-mode.js';
 import { formatTable, formatDate, statusColor, printDetails } from '../../lib/output.js';
 import { sanitize } from '../../lib/log-text.js';
-import { ApiError } from '../../lib/errors.js';
+import { ApiError, UsageError } from '../../lib/errors.js';
 import type { Envelope, ServerlessRun, ServerlessRunLogs } from '../../types/api.js';
 
 const runsPath = (containerId: string): string => `/api/v1/serverless/${containerId}/runs`;
@@ -30,22 +30,70 @@ function formatCommand(command: string[] | null): string {
 
 const formatSeconds = (n: number | null): string => (n === null ? '-' : `${n}s`);
 
+/** The largest page the API answers; it clamps a larger `per_page` to this. */
+const MAX_RUNS_PER_PAGE = 200;
+
+/** A whole number from `min` (to `max`), or a UsageError naming the flag: `--page 2x` is a typo, not page 2. */
+function parseWholeNumber(flag: string, raw: string, min: number, max?: number): number {
+  const n = Number(raw.trim());
+  if (!/^\d+$/.test(raw.trim()) || !Number.isSafeInteger(n) || n < min || (max !== undefined && n > max)) {
+    throw new UsageError(`Invalid ${flag} "${raw}". Expected a whole number ${max === undefined ? `of at least ${min}` : `from ${min} to ${max}`}.`);
+  }
+  return n;
+}
+
+/**
+ * The line under a page of runs: how many there are in all and, when older ones
+ * remain, the flags that show the next page. Without `current_page` and
+ * `last_page` in the answer, it gives the count alone.
+ */
+function pageNote(meta: Record<string, unknown> | undefined, shown: number, limit: number | undefined): string | null {
+  const total = meta?.total;
+  if (typeof total !== 'number' || total <= shown) return null;
+
+  const current = meta?.current_page;
+  const last = meta?.last_page;
+  if (typeof current !== 'number' || typeof last !== 'number') return `Showing ${shown} of ${total}.`;
+
+  const next = current < last ? ` Older runs: --page ${current + 1}${limit === undefined ? '' : ` --limit ${limit}`}.` : '';
+  return `Showing ${shown} of ${total}, page ${current} of ${last}.${next}`;
+}
+
 export const lsCommand = new Command('ls')
-  .description('List runs for a rapids container')
+  .description('List runs for a rapids container, newest first')
   .argument('<name-or-id>', 'Container name or ID')
-  .action(async (nameOrId: string) => {
+  .option('--limit <n>', `Runs per page, 1 to ${MAX_RUNS_PER_PAGE} (default 20)`)
+  .option('--page <n>', 'Which page to show, from 1')
+  .action(async (nameOrId: string, opts: { limit?: string; page?: string }) => {
+    // Checked before any request, so a typo costs nothing.
+    const limit = opts.limit === undefined ? undefined : parseWholeNumber('--limit', opts.limit, 1, MAX_RUNS_PER_PAGE);
+    const page = opts.page === undefined ? undefined : parseWholeNumber('--page', opts.page, 1);
+    const query = new URLSearchParams();
+    if (limit !== undefined) query.set('per_page', String(limit));
+    if (page !== undefined) query.set('page', String(page));
+
     const api = await ApiClient.create();
     const container = await resolveContainer(api, nameOrId);
 
-    const res = await runsApi(() => api.get<Envelope<ServerlessRun[]>>(runsPath(container.id)));
+    const qs = query.toString();
+    const path = qs === '' ? runsPath(container.id) : `${runsPath(container.id)}?${qs}`;
+    const res = await runsApi(() => api.get<Envelope<ServerlessRun[]>>(path));
 
     if (isJsonMode()) {
       jsonEnvelope(res.data, { error: res.error ?? null, meta: res.meta ?? {} });
       return;
     }
 
+    // A platform that predates per_page on this list answers its fixed size whatever was asked.
+    const answered = res.meta?.per_page;
+    const limitIgnored = limit !== undefined && typeof answered === 'number' && answered !== limit
+      ? `The API answered ${answered} runs a page and ignored --limit.`
+      : null;
+
     if (res.data.length === 0) {
-      console.log(chalk.dim('No runs yet.'));
+      const total = res.meta?.total;
+      console.log(chalk.dim(typeof total === 'number' && total > 0 ? `No runs on this page; there are ${total} in all.` : 'No runs yet.'));
+      if (limitIgnored !== null) console.log(chalk.dim(limitIgnored));
       return;
     }
 
@@ -61,9 +109,12 @@ export const lsCommand = new Command('ls')
       ]),
     ));
 
-    const total = res.meta?.total;
-    if (typeof total === 'number' && total > res.data.length) {
-      console.log(chalk.dim(`Showing ${res.data.length} of ${total}.`));
+    const note = pageNote(res.meta, res.data.length, limit);
+    if (note !== null) {
+      console.log(chalk.dim(note));
+    }
+    if (limitIgnored !== null) {
+      console.log(chalk.dim(limitIgnored));
     }
   });
 

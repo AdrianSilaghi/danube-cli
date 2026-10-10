@@ -154,4 +154,51 @@ describe('login command', () => {
       }),
     );
   });
+
+  it('selects the project a locked token works in, since it works nowhere else', async () => {
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve(url.endsWith('/api/v1/user/teams')
+        ? { data: [{ id: 4, name: 'Personal' }, { id: 5, name: 'Prod' }], current_team_id: 5, token_team_id: 5 }
+        : { id: 1, name: 'Test User', email: 'test@example.com' }),
+    }));
+
+    await loginCommand.parseAsync(['node', 'test', '--token', 'locked-token']);
+
+    expect(fetch).toHaveBeenCalledWith('https://test.danubedata.ro/api/v1/user/teams', {
+      headers: { 'Accept': 'application/json', 'Authorization': 'Bearer locked-token' },
+      signal: expect.any(AbortSignal),
+    });
+    expect(mockWriteConfig).toHaveBeenCalledWith({
+      token: 'locked-token',
+      apiBase: 'https://test.danubedata.ro',
+      teamId: 5,
+      teamName: 'Prod',
+    });
+    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('the only project this token works in'));
+  });
+
+  it('logs in without selecting a project when the teams cannot be read', async () => {
+    // The refused answer carries a lock that would be selected if it were read.
+    const lockedBody = { data: [{ id: 5, name: 'Prod' }], current_team_id: 5, token_team_id: 5 };
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => Promise.resolve(url.endsWith('/api/v1/user/teams')
+      ? { ok: false, status: 500, json: () => Promise.resolve(lockedBody) }
+      : { ok: true, json: () => Promise.resolve({ id: 1, name: 'Test User', email: 'test@example.com' }) }));
+
+    await loginCommand.parseAsync(['node', 'test', '--token', 'my-token']);
+
+    expect(mockWriteConfig).toHaveBeenCalledWith({ token: 'my-token', apiBase: 'https://test.danubedata.ro' });
+  });
+
+  it('logs in without selecting a project when the teams request fails or times out', async () => {
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => (url.endsWith('/api/v1/user/teams')
+      ? Promise.reject(new DOMException('The operation was aborted due to timeout', 'TimeoutError'))
+      : Promise.resolve({ ok: true, json: () => Promise.resolve({ id: 1, name: 'Test User', email: 'test@example.com' }) })));
+
+    await loginCommand.parseAsync(['node', 'test', '--token', 'my-token']);
+
+    expect(mockWriteConfig).toHaveBeenCalledWith({ token: 'my-token', apiBase: 'https://test.danubedata.ro' });
+    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Test User'));
+  });
 });
+
