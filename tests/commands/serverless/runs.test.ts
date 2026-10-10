@@ -169,6 +169,27 @@ describe('rapids runs', () => {
       expect(out).not.toContain('No runs yet.');
     });
 
+    it('says so when the API answered another page size than --limit asked for', async () => {
+      // A platform that predates per_page on this list answers 20 a page whatever was asked.
+      mockGet.mockImplementation((path: string) => Promise.resolve(isListCall(path) ? listResponse() : {
+        data: [makeRun()], meta: { total: 45, current_page: 1, per_page: 20 },
+      }));
+
+      await lsCommand.parseAsync(['node', 'test', 'my-api', '--limit', '5']);
+
+      expect(logSpy.mock.calls.flat().join('\n')).toContain('The API answered 20 runs a page and ignored --limit.');
+    });
+
+    it('says nothing about the page size when the API honoured --limit', async () => {
+      mockGet.mockImplementation((path: string) => Promise.resolve(isListCall(path) ? listResponse() : {
+        data: [makeRun()], meta: { total: 45, current_page: 1, last_page: 9, per_page: 5 },
+      }));
+
+      await lsCommand.parseAsync(['node', 'test', 'my-api', '--limit', '5']);
+
+      expect(logSpy.mock.calls.flat().join('\n')).not.toContain('ignored --limit');
+    });
+
     it('outputs the envelope as JSON in json mode', async () => {
       setJsonMode(true);
       mockGet.mockImplementation((path: string) =>

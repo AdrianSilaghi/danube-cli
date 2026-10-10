@@ -84,9 +84,16 @@ export const lsCommand = new Command('ls')
       return;
     }
 
+    // A platform that predates per_page on this list answers its fixed size whatever was asked.
+    const answered = res.meta?.per_page;
+    const limitIgnored = limit !== undefined && typeof answered === 'number' && answered !== limit
+      ? `The API answered ${answered} runs a page and ignored --limit.`
+      : null;
+
     if (res.data.length === 0) {
       const total = res.meta?.total;
       console.log(chalk.dim(typeof total === 'number' && total > 0 ? `No runs on this page; there are ${total} in all.` : 'No runs yet.'));
+      if (limitIgnored !== null) console.log(chalk.dim(limitIgnored));
       return;
     }
 
@@ -105,6 +112,9 @@ export const lsCommand = new Command('ls')
     const note = pageNote(res.meta, res.data.length, limit);
     if (note !== null) {
       console.log(chalk.dim(note));
+    }
+    if (limitIgnored !== null) {
+      console.log(chalk.dim(limitIgnored));
     }
   });
 

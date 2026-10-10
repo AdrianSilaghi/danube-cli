@@ -97,7 +97,8 @@ project and is refused in every other. `danube login` selects that project for
 you, `danube whoami` says where the token works, `danube project ls` marks the
 projects it cannot be used in, and `danube project select` refuses one of them
 rather than leave every later command failing with a 403. Listing and selecting
-projects never send a project, so a stale selection cannot block fixing it.
+projects ask without naming a project first, so a stale selection cannot block
+fixing it.
 
 ### Structured API failures
 
@@ -274,7 +275,8 @@ danube vps create \
 
 Plans and prices in the interactive picker are fetched live from the API. With
 SSH key authentication it offers your account's keys, your default key first
-and already selected.
+and already selected. A token without `ssh-key:read` is asked for the key's ID
+instead, and an account with no key is offered a password.
 
 #### Power management
 

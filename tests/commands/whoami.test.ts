@@ -62,5 +62,22 @@ describe('whoami command', () => {
 
     expect(consoleLogSpy).not.toHaveBeenCalledWith(expect.stringContaining('Token works in'));
   });
+
+  it('gives the token\'s project in JSON', async () => {
+    const { setJsonMode } = await import('../../src/lib/json-mode.js');
+    setJsonMode(true);
+    mockGet
+      .mockResolvedValueOnce({ id: 1, name: 'Alice', email: 'alice@test.com' })
+      .mockResolvedValueOnce({ data: [{ id: 1, name: 'Team A' }, { id: 2, name: 'Team B' }], current_team_id: 2, token_team_id: 2 });
+
+    try {
+      await whoamiCommand.parseAsync(['node', 'test']);
+
+      const printed = JSON.parse(consoleLogSpy.mock.calls.at(-1)![0] as string).data;
+      expect(printed).toMatchObject({ current_team_id: 2, token_team_id: 2 });
+    } finally {
+      setJsonMode(false);
+    }
+  });
 });
 

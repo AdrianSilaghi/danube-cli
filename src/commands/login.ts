@@ -8,16 +8,20 @@ import { lockedTeamId } from '../lib/token-scope.js';
 import { teamsArray } from '../types/api.js';
 import type { Team, TeamsResponse, User } from '../types/api.js';
 
+/** How long the login waits to learn the token's project before carrying on without it. */
+const LOCKED_PROJECT_TIMEOUT_MS = 10_000;
+
 /**
  * The project a token made for "This project only" is locked to: it works
  * nowhere else, so it becomes the selected project at once. Undefined for a
- * token that works in every project, and when the teams cannot be read: the
- * login itself has already succeeded.
+ * token that works in every project, and when the teams cannot be read in
+ * time: the login itself has already succeeded.
  */
 async function lockedProject(apiBase: string, token: string): Promise<Team | undefined> {
   try {
     const res = await fetch(`${apiBase}/api/v1/user/teams`, {
       headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${token}` },
+      signal: AbortSignal.timeout(LOCKED_PROJECT_TIMEOUT_MS),
     });
     if (!res.ok) {
       return undefined;

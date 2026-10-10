@@ -150,4 +150,54 @@ describe('project commands with a token locked to one project', () => {
     expect(mockSelect).toHaveBeenCalled();
     expect(mockWriteConfig).toHaveBeenCalledWith({ token: 't', teamId: 1, teamName: 'Team A' });
   });
+
+  it('selects the project the token works in when it is named', async () => {
+    await projectCommand.parseAsync(['node', 'test', 'select', '--project', '2']);
+
+    expect(mockWriteConfig).toHaveBeenCalledWith({ token: 't', teamId: 2, teamName: 'Team B' });
+  });
+
+  it('says in JSON which projects the token reaches', async () => {
+    const { setJsonMode } = await import('../../src/lib/json-mode.js');
+    setJsonMode(true);
+
+    try {
+      await projectCommand.parseAsync(['node', 'test', 'ls']);
+
+      const printed = JSON.parse(consoleLogSpy.mock.calls.at(-1)![0] as string).data as Array<{ id: number; token_reaches: boolean | null }>;
+      expect(printed.map(t => [t.id, t.token_reaches])).toEqual([[1, false], [2, true]]);
+    } finally {
+      setJsonMode(false);
+    }
+  });
+
+  it('says in JSON that it does not know what the token reaches when the server does not say', async () => {
+    const { setJsonMode } = await import('../../src/lib/json-mode.js');
+    setJsonMode(true);
+    const { token_team_id: _, ...olderServer } = lockedToB;
+    mockGet.mockResolvedValue(olderServer);
+
+    try {
+      await projectCommand.parseAsync(['node', 'test', 'ls']);
+
+      const printed = JSON.parse(consoleLogSpy.mock.calls.at(-1)![0] as string).data as Array<{ token_reaches: boolean | null }>;
+      expect(printed.map(t => t.token_reaches)).toEqual([null, null]);
+    } finally {
+      setJsonMode(false);
+    }
+  });
+
+  it('asks in the selected project, as before, when the default project refuses the account', async () => {
+    // A blocked default project refuses even a GET; the selected one may still answer.
+    const { ApiError } = await import('../../src/lib/errors.js');
+    mockGet.mockReset();
+    mockGet
+      .mockRejectedValueOnce(new ApiError(403, 'Your account has been permanently blocked.'))
+      .mockResolvedValueOnce({ ...lockedToB, token_team_id: null });
+
+    await projectCommand.parseAsync(['node', 'test', 'ls']);
+
+    expect(mockCreate.mock.calls).toEqual([[{ unscoped: true }], []]);
+    expect(consoleLogSpy.mock.calls.map(c => String(c[0])).join('\n')).toContain('Team B');
+  });
 });
