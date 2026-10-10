@@ -587,7 +587,7 @@ Knative-based serverless containers with scale-to-zero.
 | `danube rapids probe [name]` | Reach the public URL from outside: DNS, TLS, status, cold vs warm latency |
 | `danube rapids preflight --image <ref>` | Check namespace, credential, manifest, digest and architecture before deploying |
 | `danube rapids run <name-or-id> [-- <command...>]` | **Preview.** Run the container's image ONCE, on demand, as a Kubernetes Job (`--tag`, `--env`, `--timeout`, `--wait`, `--wait-timeout`, `--no-logs`) |
-| `danube rapids runs ls <name-or-id>` | **Preview.** List runs for a container |
+| `danube rapids runs ls <name-or-id>` | **Preview.** List runs for a container, newest first, 20 to a page (`--limit` up to 200, `--page` for older runs) |
 | `danube rapids runs show <name-or-id> <run-id>` | **Preview.** Show one run's status, exit code and timing |
 | `danube rapids runs logs <name-or-id> <run-id>` | **Preview.** Fetch a run's logs (`--follow` to poll until terminal) |
 | `danube rapids runs cancel <name-or-id> <run-id>` | **Preview.** Cancel an active run |
