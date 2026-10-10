@@ -907,10 +907,31 @@ export interface paths {
         };
         /** Show a specific firewall */
         get: operations["v1.firewalls.show"];
-        /** Update a firewall */
+        /**
+         * Update a firewall
+         * @description `rules` is declarative: when present it replaces the firewall's whole rule set, when
+         *     absent the rules are left alone. Send each rule back as listed: its `id`, its `port` or
+         *     port range, and its `source_ips` and `source_instance_ids`. A rule with `"port": null`
+         *     and no range applies to every port, and one with no `source_instance_ids` admits
+         *     traffic from any resource. A rule sent back with its `id` and without a `port` or
+         *     `source_instance_ids` field keeps the one it had. A source whose resource no longer
+         *     exists in your team is refused with a 422 until you remove it from the rule; one saved
+         *     without a type is listed with a `null` `type` in that case.
+         *
+         *     Locked rules (`is_locked`: the default firewall's outbound SMTP blocks) are always
+         *     kept. Leave them out or send them back, either way they stay as they are. A rule that
+         *     would allow what a locked rule blocks (its port, or a range containing it) is rejected
+         *     with a 422 naming the rule, and nothing is changed; open a support ticket to lift the
+         *     block.
+         */
         put: operations["v1.firewalls.update"];
         post?: never;
-        /** Delete a firewall */
+        /**
+         * Delete a firewall
+         * @description A system firewall (the default firewall created with an instance, `is_system`) cannot
+         *     be deleted: the response is a 422. A firewall still attached to an instance cannot be
+         *     deleted either.
+         */
         delete: operations["v1.firewalls.destroy"];
         options?: never;
         head?: never;
@@ -929,6 +950,8 @@ export interface paths {
         /**
          * Attach firewall to an instance
          * @description Attaches the firewall to a VPS, cache, or database instance. The firewall rules will be deployed asynchronously.
+         *     A system firewall (`is_system`) belongs to the instance it was created with and cannot
+         *     be attached to another one: the response is a 422.
          */
         post: operations["v1.firewalls.attach"];
         delete?: never;
@@ -948,7 +971,9 @@ export interface paths {
         put?: never;
         /**
          * Detach firewall from an instance
-         * @description Removes the firewall from a VPS, cache, or database instance.
+         * @description Removes the firewall from a VPS, cache, or database instance. A system firewall
+         *     (`is_system`) cannot be detached from its instance: it carries the outbound SMTP block
+         *     and the inbound filtering, and the response is a 422.
          */
         post: operations["v1.firewalls.detach"];
         delete?: never;
@@ -4705,14 +4730,34 @@ export interface components {
                 action: string;
                 direction: string;
                 protocol: string;
+                /**
+                 * @description The rule's single port. Null when it uses a port range (the two
+                 *     fields below) or applies to every port. Send it back unchanged
+                 *     when you update the firewall.
+                 */
+                port: number | null;
                 port_range_start: number | null;
                 port_range_end: number | null;
                 source_ips: unknown[] | null;
+                /**
+                 * @description The resources this rule admits traffic from, as `{id, type}`
+                 *     pairs, or null. Send them back unchanged when you update the
+                 *     firewall: a rule written back without them admits traffic from
+                 *     anywhere. A source saved before pairs existed is listed with the
+                 *     type it resolves to; `type` is null when no resource of your team
+                 *     has that id any more, and the update asks you to remove it.
+                 */
+                source_instance_ids: unknown[] | null;
                 /**
                  * @description Was `priority`, which is not a column on firewall_rules
                  *     and therefore always serialized as null.
                  */
                 order: number;
+                /**
+                 * @description True for platform policy such as the default firewall's outbound
+                 *     SMTP blocks. An update keeps a locked rule whatever it sends.
+                 */
+                is_locked: boolean;
             }[];
             created_at: string;
             updated_at: string;
@@ -6080,7 +6125,7 @@ export interface components {
              * @description The public key on one line, such as the contents of `~/.ssh/id_ed25519.pub`: its type
              *     (`ssh-ed25519`, `ssh-rsa`, `ssh-dss`, `ecdsa-sha2-nistp256`, `-nistp384` or `-nistp521`,
              *     `sk-ssh-ed25519@openssh.com` or `sk-ecdsa-sha2-nistp256@openssh.com`), the key and an
-             *     optional comment. A key that is already added, to your account or another one, is refused.
+             *     optional comment. A key that is already registered is refused.
              */
             public_key: string;
             /**
@@ -6437,6 +6482,12 @@ export interface components {
                 type?: "database" | "cache" | "vps" | "queue" | "serverless";
             }[];
             rules?: {
+                /**
+                 * Format: uuid
+                 * @description The id a listing returned. It says which rule this is, so a rule written
+                 *     back is recognised by identity and not guessed from its label.
+                 */
+                id?: string | null;
                 name?: string | null;
                 /** @enum {string} */
                 direction: "inbound" | "outbound";
@@ -7361,6 +7412,7 @@ export interface operations {
     "v1.cache.index": {
         parameters: {
             query?: {
+                /** @description How many items a page holds. */
                 per_page?: number;
                 /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
                 page?: number;
@@ -7908,6 +7960,7 @@ export interface operations {
     "v1.registry.repositories.index": {
         parameters: {
             query?: {
+                /** @description How many items a page holds. */
                 per_page?: number;
                 /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
                 page?: number;
@@ -8323,6 +8376,7 @@ export interface operations {
     "v1.database.index": {
         parameters: {
             query?: {
+                /** @description How many items a page holds. */
                 per_page?: number;
                 /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
                 page?: number;
@@ -9380,7 +9434,12 @@ export interface operations {
     };
     "v1.firewalls.index": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description How many items a page holds. */
+                per_page?: number;
+                /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
+                page?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -9728,6 +9787,7 @@ export interface operations {
     "v1.apps.index": {
         parameters: {
             query?: {
+                /** @description How many items a page holds. */
                 per_page?: number;
                 /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
                 page?: number;
@@ -10241,6 +10301,7 @@ export interface operations {
     "v1.kubernetes.index": {
         parameters: {
             query?: {
+                /** @description How many items a page holds. */
                 per_page?: number;
                 /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
                 page?: number;
@@ -10542,6 +10603,7 @@ export interface operations {
     "v1.metric-alerts.index": {
         parameters: {
             query?: {
+                /** @description How many items a page holds. */
                 per_page?: number;
                 /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
                 page?: number;
@@ -10945,6 +11007,7 @@ export interface operations {
             query?: {
                 category?: string;
                 unread?: "0" | "1" | "true" | "false";
+                /** @description How many items a page holds. */
                 per_page?: number;
                 /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
                 page?: number;
@@ -11075,6 +11138,7 @@ export interface operations {
     "v1.storage.buckets.index": {
         parameters: {
             query?: {
+                /** @description How many items a page holds. */
                 per_page?: number;
                 /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
                 page?: number;
@@ -11656,6 +11720,7 @@ export interface operations {
     "v1.storage.access-keys.index": {
         parameters: {
             query?: {
+                /** @description How many items a page holds. */
                 per_page?: number;
                 /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
                 page?: number;
@@ -11955,6 +12020,7 @@ export interface operations {
     "v1.parameter-groups.index": {
         parameters: {
             query?: {
+                /** @description How many items a page holds. */
                 per_page?: number;
                 /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
                 page?: number;
@@ -12649,6 +12715,7 @@ export interface operations {
     "v1.queue.index": {
         parameters: {
             query?: {
+                /** @description How many items a page holds. */
                 per_page?: number;
                 /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
                 page?: number;
@@ -13387,6 +13454,7 @@ export interface operations {
                 since?: string | null;
                 until?: string | null;
                 cursor?: string | null;
+                /** @description How many items a page holds. */
                 per_page?: number | null;
             };
             header?: never;
@@ -13537,6 +13605,7 @@ export interface operations {
                 resource_id?: string | null;
                 signal_key?: string | null;
                 cursor?: string | null;
+                /** @description How many items a page holds. */
                 per_page?: number | null;
             };
             header?: never;
@@ -13759,6 +13828,7 @@ export interface operations {
     "v1.ssh-keys.index": {
         parameters: {
             query?: {
+                /** @description How many items a page holds. */
                 per_page?: number;
                 /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
                 page?: number;
@@ -14175,6 +14245,7 @@ export interface operations {
     "v1.serverless.index": {
         parameters: {
             query?: {
+                /** @description How many items a page holds. */
                 per_page?: number;
                 /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
                 page?: number;
@@ -14419,6 +14490,7 @@ export interface operations {
     "v1.serverless.deployments": {
         parameters: {
             query?: {
+                /** @description How many items a page holds. */
                 per_page?: number;
                 /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
                 page?: number;
@@ -14707,7 +14779,12 @@ export interface operations {
     };
     "v1.serverless.runs.index": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description How many items a page holds. */
+                per_page?: number;
+                /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
+                page?: number;
+            };
             header?: never;
             path: {
                 /** @description The serverless container ID */
@@ -16045,6 +16122,7 @@ export interface operations {
     "v1.snapshots.vps.index": {
         parameters: {
             query?: {
+                /** @description How many items a page holds. */
                 per_page?: number;
                 /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
                 page?: number;
@@ -16275,6 +16353,7 @@ export interface operations {
     "v1.snapshots.cache.index": {
         parameters: {
             query?: {
+                /** @description How many items a page holds. */
                 per_page?: number;
                 /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
                 page?: number;
@@ -16568,6 +16647,7 @@ export interface operations {
     "v1.snapshots.database.index": {
         parameters: {
             query?: {
+                /** @description How many items a page holds. */
                 per_page?: number;
                 /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
                 page?: number;
@@ -16945,6 +17025,7 @@ export interface operations {
     "v1.teams.static-sites.index": {
         parameters: {
             query?: {
+                /** @description How many items a page holds. */
                 per_page?: number;
                 /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
                 page?: number;
@@ -17015,6 +17096,7 @@ export interface operations {
     "v1.static-sites.index": {
         parameters: {
             query?: {
+                /** @description How many items a page holds. */
                 per_page?: number;
                 /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
                 page?: number;
@@ -17251,6 +17333,7 @@ export interface operations {
     "v1.static-sites.deployments": {
         parameters: {
             query?: {
+                /** @description How many items a page holds. */
                 per_page?: number;
                 /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
                 page?: number;
@@ -17449,6 +17532,7 @@ export interface operations {
         parameters: {
             query?: {
                 status?: "open" | "in_progress" | "waiting_customer" | "resolved" | "closed" | null;
+                /** @description How many items a page holds. */
                 per_page?: number | null;
                 /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
                 page?: number;
@@ -17668,6 +17752,7 @@ export interface operations {
     "v1.uptime-checks.index": {
         parameters: {
             query?: {
+                /** @description How many items a page holds. */
                 per_page?: number;
                 /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
                 page?: number;
@@ -18174,6 +18259,7 @@ export interface operations {
     "v1.vps.index": {
         parameters: {
             query?: {
+                /** @description How many items a page holds. */
                 per_page?: number;
                 /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
                 page?: number;
@@ -18756,7 +18842,12 @@ export interface operations {
     };
     "v1.vps.volumes.index": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description How many items a page holds. */
+                per_page?: number;
+                /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
+                page?: number;
+            };
             header?: never;
             path: {
                 /** @description The vps instance ID */
@@ -19079,7 +19170,12 @@ export interface operations {
     };
     "v1.volumes.index": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description How many items a page holds. */
+                per_page?: number;
+                /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
+                page?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -19236,7 +19332,12 @@ export interface operations {
     };
     "v1.webhooks.deliveries": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description How many items a page holds. */
+                per_page?: number;
+                /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
+                page?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
