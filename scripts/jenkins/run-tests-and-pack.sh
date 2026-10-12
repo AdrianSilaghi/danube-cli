@@ -15,7 +15,7 @@ trap cleanup EXIT
 npm ci
 npm run build
 npm test
-npm pack --json >"${pack_json}"
+npm pack --json --ignore-scripts >"${pack_json}"
 
 pack_file="$(node -e '
     const fs = require("node:fs")

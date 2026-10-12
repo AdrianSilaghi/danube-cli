@@ -53,6 +53,7 @@ for file in \
     scripts/jenkins/verify-git-context.sh \
     scripts/jenkins/verify-release-context.sh \
     scripts/jenkins/run-tests-and-pack.sh \
+    tests/jenkins/npm-publish-policy.test.sh \
     scripts/jenkins/measure-coverage.sh \
     scripts/jenkins/check-types-drift.sh; do
     [ -f "${file}" ] || fail "missing ${file}"
@@ -145,11 +146,85 @@ assert_contains "${RELEASE}" 'skipDefaultCheckout\(true\)'
 assert_contains "${RELEASE}" "JOB_NAME.*danube-cli-release/npm"
 assert_contains "${RELEASE}" 'refs/tags/'
 assert_contains "${RELEASE}" 'git merge-base --is-ancestor'
+assert_contains "${RELEASE}" "git rev-parse.*VERIFIED_TAG_REF"
+assert_contains "${RELEASE}" "git rev-parse.*VERIFIED_TAG_REF.*\^\{commit\}"
+assert_contains "${RELEASE}" 'sourceShaMatchesTagRef.*sourceShaMatchesTagCommit'
+assert_contains "${RELEASE}" 'checkedOutSha.equalsIgnoreCase\(tagCommitSha\)'
 assert_contains "${RELEASE}" 'packageVersion'
-assert_contains "${RELEASE}" 'run-tests-and-pack\.sh'
+assert_contains "${RELEASE}" "<<'TEST_SCRIPT'"
+assert_contains "${RELEASE}" '/usr/local/bin/npm ci'
+assert_contains "${RELEASE}" '/usr/local/bin/npm run build'
+assert_contains "${RELEASE}" '/usr/local/bin/npm test'
+assert_not_contains "${RELEASE}" 'scripts/jenkins/run-tests-and-pack\.sh'
 assert_contains "${RELEASE}" 'PUBLISH_TO_NPM.*false'
-assert_contains "${RELEASE}" 'Publishing is disabled during the Jenkins migration'
-assert_not_contains "${RELEASE}" 'npm publish|withCredentials|danube-cli-npm-publish-token'
+assert_contains "${RELEASE}" "credentialsId: 'danube-cli-npm-publish-token'"
+assert_contains "${RELEASE}" 'withCredentials\(\[string\('
+assert_contains "${RELEASE}" 'expression \{ !params\.PUBLISH_TO_NPM \}'
+assert_contains "${RELEASE}" 'expression \{ params\.PUBLISH_TO_NPM \}'
+assert_before "${RELEASE}" 'git merge-base --is-ancestor' 'withCredentials'
+assert_before "${RELEASE}" "<<'TEST_SCRIPT'" 'withCredentials'
+assert_contains "${RELEASE}" 'disableConcurrentBuilds\(\)'
+assert_not_contains "${RELEASE}" "<<'PACKAGE_SCRIPT'"
+assert_contains "${RELEASE}" '/usr/local/bin/npm pack --json --ignore-scripts'
+assert_contains "${RELEASE}" 'Created exact tested npm release package'
+assert_contains "${RELEASE}" "git grep -Eq 'npm\[\[:space:\]\]\+publish'"
+assert_contains "${RELEASE}" 'GitHub Actions npm publication is still active on protected main'
+assert_before "${RELEASE}" 'GitHub Actions npm publication is still active' 'withCredentials'
+assert_contains "${RELEASE}" "archiveArtifacts artifacts: 'danube-cli-release\.tgz', fingerprint: true"
+# This is a literal contract for the trusted Jenkins shell block.
+# shellcheck disable=SC2016
+assert_contains "${RELEASE}" '--volume "\$WORKSPACE:/workspace:ro"'
+assert_contains "${RELEASE}" '/usr/local/bin/npm publish'
+assert_contains "${RELEASE}" '--access public'
+assert_contains "${RELEASE}" '--ignore-scripts'
+assert_contains "${RELEASE}" '/usr/local/bin/npm view'
+assert_contains "${RELEASE}" 'dist\.integrity'
+assert_contains "${RELEASE}" 'local_integrity'
+assert_contains "${RELEASE}" 'remote_integrity'
+assert_contains "${RELEASE}" 'NPM_RELEASE_STATE'
+assert_contains "${RELEASE}" 'NPM_RELEASE_INTEGRITY'
+assert_before "${RELEASE}" 'Credential-free npm registry preflight' 'withCredentials'
+assert_before "${RELEASE}" 'Tested tarball identity does not match' 'withCredentials'
+preflight_stage="$(awk '
+    /stage\(.Credential-free npm registry preflight.\)/ { capture=1 }
+    capture { print }
+    capture && /stage\(.Exact npm package already published.\)/ { exit }
+' "${RELEASE}")"
+if printf '%s\n' "${preflight_stage}" | grep -Eq '^[[:space:]]*when[[:space:]]*\{'; then
+    fail 'credential-free npm registry preflight must run in dry-run and publish modes'
+fi
+test "$(printf '%s\n' "${preflight_stage}" | grep -Ec '^[[:space:]]+steps[[:space:]]*\{')" -eq 1 ||
+    fail 'credential-free npm registry preflight must contain exactly one steps block'
+assert_contains "${RELEASE}" 'Unable to establish whether the npm version already exists'
+assert_contains "${RELEASE}" 'return 44'
+assert_contains "${RELEASE}" 'NPM_CONFIG_USERCONFIG'
+assert_contains "${RELEASE}" '_authToken=%s.*NPM_TOKEN'
+assert_contains "${RELEASE}" 'trap cleanup EXIT HUP INT TERM'
+assert_contains "${RELEASE}" 'set \+x'
+assert_not_contains "${RELEASE}" '--env NPM_TOKEN'
+assert_contains "${RELEASE}" 'npm_token="\$\{NPM_TOKEN\}"'
+assert_contains "${RELEASE}" 'unset NPM_TOKEN'
+assert_contains "${RELEASE}" "printf '%s\\\\n'.*npm_token"
+assert_contains "${RELEASE}" 'unset npm_token'
+assert_contains "${RELEASE}" 'IFS= read -r NPM_TOKEN; source /dev/stdin'
+assert_not_contains "${RELEASE}" 'NODE_AUTH_TOKEN|npm config set'
+credential_block="$(awk '
+    /withCredentials\(\[string\(/ { capture=1 }
+    capture { print }
+    capture && /^[[:space:]]{16}}$/ { exit }
+' "${RELEASE}")"
+if printf '%s\n' "${credential_block}" | grep -Eq 'scripts/jenkins|bash[[:space:]]+[^[:space:]]+\.sh'; then
+    fail 'npm credential scope executes a workspace-controlled script'
+fi
+publish_script="$(awk '
+    /cat <<.PUBLISH_SCRIPT./ { capture=1; next }
+    /^PUBLISH_SCRIPT$/ { exit }
+    capture { print }
+' "${RELEASE}")"
+[ -n "${publish_script}" ] || fail 'trusted npm publish script is missing'
+if printf '%s\n' "${publish_script}" | grep -Eq 'scripts/jenkins|WORKSPACE'; then
+    fail 'trusted npm publish script depends on workspace-controlled executables'
+fi
 assert_contains "${RELEASE}" "node:22[^[:space:]\"']*@sha256:[0-9a-f]{64}"
 
 assert_contains scripts/jenkins/verify-git-context.sh 'git show -s --format=%P'
@@ -177,6 +252,7 @@ assert_contains ci/jenkins/README.md 'Never require .*ci/jenkins/pr-merge'
 assert_contains ci/jenkins/README.md 'strict.*up.to.date|up.to.date.*strict'
 assert_contains ci/jenkins/README.md 'dry run'
 assert_contains ci/jenkins/README.md 'danube-cli-npm-publish-token'
+assert_contains ci/jenkins/README.md 'single publisher|single-publisher'
 assert_contains .github/CODEOWNERS '^/ci/jenkins/[[:space:]]+@AdrianSilaghi$'
 assert_contains .github/CODEOWNERS '^/scripts/jenkins/[[:space:]]+@AdrianSilaghi$'
 assert_contains .github/CODEOWNERS '^/tests/jenkins/[[:space:]]+@AdrianSilaghi$'
