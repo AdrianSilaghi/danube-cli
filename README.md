@@ -487,6 +487,12 @@ Managed MySQL / PostgreSQL / MariaDB with read-replica support.
 | `danube database start <name-or-id>` | Start a stopped database |
 | `danube database stop <name-or-id>` | Stop a running database |
 | `danube database credentials <name-or-id>` | Show connection URL, username, and password |
+| `danube database ca-certificate <name-or-id> [--output <path>]` | Download the public PostgreSQL CA certificate |
+| `danube database tls status <name-or-id> [--output <path>]` | Show public TLS state and optionally export the pending trust bundle |
+| `danube database tls ca-stage <name-or-id> --mode managed\|byo --expected-revision <n>` | Stage a CA without activating it |
+| `danube database tls ca-activate <name-or-id> --stage-id <uuid> --fingerprint <sha256> --expected-revision <n> --clients-trust-ca` | Activate the reviewed CA after clients trust it |
+| `danube database tls ca-cancel <name-or-id> --stage-id <uuid> --expected-revision <n>` | Cancel a specific pending CA |
+| `danube database tls ca-rollback <name-or-id> --fingerprint <sha256> --expected-revision <n> --clients-trust-ca` | Restore the previous CA after clients trust it |
 | `danube database metrics <name-or-id>` | Show memory, connections, query throughput, and health |
 | `danube database dns enable <name-or-id>` | Enable public DNS |
 | `danube database dns disable <name-or-id>` | Disable public DNS |
@@ -511,6 +517,56 @@ danube database create --name my-db --provider postgresql --datacenter fsn1 --pr
 ```
 
 Plans and prices in the interactive picker are fetched live from the API.
+
+#### Verify a PostgreSQL connection
+
+Download the public CA certificate to a new file, then verify the server's
+hostname and certificate when connecting:
+
+```bash
+danube database ca-certificate my-db --output ca.pem
+psql "host=<database-endpoint> dbname=app user=<username> sslmode=verify-full sslrootcert=ca.pem"
+```
+
+`--output` refuses to replace an existing file or follow a symlink. Without it,
+the command prints PEM to stdout. `--json` returns `ca_certificate`, `expires_at`
+and `fingerprint_sha256` in the standard envelope. The endpoint must support CA
+downloads; no password or private key is included.
+
+#### Stage and activate a PostgreSQL CA
+
+TLS lifecycle commands require the exact instance name or full ID. Every
+change requires the revision you reviewed in `tls status`; a stale revision
+fails rather than applying a change against newer state.
+
+```bash
+danube database tls status my-db --json
+
+# Use the revision from that status; staging never activates the CA.
+danube database tls ca-stage my-db --mode managed --expected-revision <revision> --output trust-bundle.pem
+
+# Or provide your own CA and its private key using file paths only.
+danube database tls ca-stage my-db --mode byo --expected-revision <revision> \
+  --ca-certificate-file ./my-ca.pem --ca-private-key-file ./my-ca.key \
+  --output trust-bundle.pem
+
+# Install the old+new public trust bundle in every client before activation.
+danube database tls status my-db --json
+danube database tls ca-activate my-db --stage-id <pending-id> \
+  --fingerprint <pending-fingerprint> --expected-revision <latest-revision> --clients-trust-ca
+```
+
+The two staging examples are alternatives. Public bundle exports create new
+files and refuse overwrites. `tls status --output <new-path>` can export the
+pending bundle again. BYO files must contain 1–65536 bytes of PEM; private key
+contents are never accepted inline or printed, and error details from BYO
+staging are suppressed to avoid echoing a key.
+
+Activation and rollback require `--clients-trust-ca`, an acknowledgement that
+every client trusts the destination CA. There is no automatic activation. Read
+status after a change to check its operation; an accepted change does not mean
+the database has finished applying it. For rollback, use `previous.fingerprint_sha256`
+from TLS status and make sure clients still trust that CA before acknowledging.
 
 ### Parameter Groups (`danube parameter-groups` / `danube pg`)
 

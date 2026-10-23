@@ -112,6 +112,16 @@ describe('ApiClient', () => {
     expect(result).toBeUndefined();
   });
 
+  it('sends an optional JSON body with DELETE for guarded mutations', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ success: true }) });
+    const client = new ApiClient('my-token', 'https://api.test');
+    await client.delete('/api/v1/database/db-1/tls/ca/stage', { expected_revision: 1, stage_id: 'stage-1' });
+    expect(fetch).toHaveBeenCalledWith('https://api.test/api/v1/database/db-1/tls/ca/stage', expect.objectContaining({
+      method: 'DELETE', body: JSON.stringify({ expected_revision: 1, stage_id: 'stage-1' }),
+      headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
+    }));
+  });
+
   it('sends PUT request with JSON body', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,

@@ -4,6 +4,8 @@ import { startCommand, stopCommand, credentialsCommand, metricsCommand, dnsComma
 import { replicasCommand } from './replicas.js';
 import { createDiagnoseCommand, createLogsCommand, createEventsCommand } from '../../lib/diagnostics/commands.js';
 import { snapshotsCommand } from './snapshots.js';
+import { caCertificateCommand } from './ca-certificate.js';
+import { tlsCommand } from './tls.js';
 
 
 const diagnosticsTarget = { noun: 'database instance', kind: 'database', listPath: '/api/v1/database', resourcePath: (id: string) => `/api/v1/database/${id}` };
@@ -18,6 +20,8 @@ export const databaseCommand = new Command('database')
   .addCommand(startCommand)
   .addCommand(stopCommand)
   .addCommand(credentialsCommand)
+  .addCommand(caCertificateCommand)
+  .addCommand(tlsCommand)
   .addCommand(metricsCommand)
   .addCommand(dnsCommand)
   .addCommand(replicasCommand)

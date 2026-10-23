@@ -7,4 +7,13 @@ describe('database command group', () => {
     expect(databaseCommand.name()).toBe('database');
     expect(databaseCommand.aliases()).toContain('db');
   });
+
+  it('registers the public CA certificate download', () => {
+    expect(databaseCommand.commands.map(command => command.name())).toContain('ca-certificate');
+  });
+
+  it('registers TLS lifecycle commands', () => {
+    const tls = databaseCommand.commands.find(command => command.name() === 'tls');
+    expect(tls?.commands.map(command => command.name())).toEqual(['status', 'ca-stage', 'ca-cancel', 'ca-activate', 'ca-rollback']);
+  });
 });
