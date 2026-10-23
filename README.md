@@ -526,12 +526,18 @@ hostname and certificate when connecting:
 ```bash
 danube database ca-certificate my-db --output ca.pem
 psql "host=<database-endpoint> dbname=app user=<username> sslmode=verify-full sslrootcert=ca.pem"
+
+# Print PEM, or retrieve the public certificate with its metadata.
+danube database ca-certificate my-db
+danube database ca-certificate my-db --json
 ```
 
-`--output` refuses to replace an existing file or follow a symlink. Without it,
+`--output` creates an owner-only file (mode `0600`) and refuses to replace an
+existing file or follow a symlink. Without it,
 the command prints PEM to stdout. `--json` returns `ca_certificate`, `expires_at`
-and `fingerprint_sha256` in the standard envelope. The endpoint must support CA
-downloads; no password or private key is included.
+and `fingerprint_sha256` in the standard envelope. The complete PEM bundle is
+preserved when it contains overlapping CAs during rotation. The endpoint must
+support CA downloads; no password or private key is included.
 
 #### Stage and activate a PostgreSQL CA
 
