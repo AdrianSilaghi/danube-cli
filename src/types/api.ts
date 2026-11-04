@@ -709,6 +709,12 @@ export interface ServerlessContainer {
   concurrency_target: number | null;
   timeout_seconds: number | null;
   environment_variables: Record<string, string> | null;
+  /**
+   * Opaque marker of `environment_variables`. Send it back with them on update;
+   * the API refuses a write without a current one when the container has
+   * service connections.
+   */
+  environment_snapshot?: string;
   current_replicas: number;
   status: string;
   /**

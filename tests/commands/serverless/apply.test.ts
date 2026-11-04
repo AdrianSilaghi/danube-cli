@@ -96,6 +96,18 @@ describe('apply --env/--rm-env', () => {
     });
   });
 
+  it('sends the container’s environment_snapshot with the merged environment', async () => {
+    mockExisting(makeContainer({ environment_variables: { A: '1' }, environment_snapshot: 'snap-1' }));
+    mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer() });
+
+    await applyCommand.parseAsync(['node', 'test', '--name', 'my-api', '--env', 'B=2']);
+
+    expect(mockPut).toHaveBeenCalledWith('/api/v1/serverless/abc-123', {
+      environment_variables: { A: '1', B: '2' },
+      environment_snapshot: 'snap-1',
+    });
+  });
+
   it('removes keys named by --rm-env before merging --env', async () => {
     mockExisting(makeContainer({ environment_variables: { KEEP: 'yes', DROP: 'gone' } }));
     mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer() });

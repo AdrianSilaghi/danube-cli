@@ -7,6 +7,7 @@ import type { WaitBaseline } from '../../lib/wait-for-terminal.js';
 import { waitEnvelope, printWaitOutcome } from '../../lib/report-wait.js';
 import type { ServerlessContainer } from '../../types/api.js';
 import { parseDurationSeconds } from '../../lib/duration.js';
+import { mergeEnv, putMergedEnvironment } from '../../lib/serverless-env.js';
 
 interface ListResponse { data: ServerlessContainer[] }
 interface MutateResponse { message?: string; container: ServerlessContainer }
@@ -110,9 +111,14 @@ export const applyCommand = new Command('apply')
         // Only the fields actually supplied are sent, so apply converges the
         // stated configuration without silently resetting anything the caller
         // did not mention.
-        const body: Record<string, unknown> = { ...desired };
-        if (desiredEnv !== null) body.environment_variables = desiredEnv;
-        const res = await api.put<MutateResponse>(`/api/v1/serverless/${existing.id}`, body);
+        const res = envRequested
+          ? await putMergedEnvironment<MutateResponse>(
+              api,
+              existing,
+              (env) => mergeEnv(env, envPairs, opts.rmEnv),
+              desired,
+            )
+          : await api.put<MutateResponse>(`/api/v1/serverless/${existing.id}`, desired);
         container = res.container;
         action = 'updated';
       }
@@ -219,17 +225,4 @@ function envEqual(existing: Record<string, string> | null | undefined, desired: 
   const desiredKeys = Object.keys(desired);
   if (currentKeys.length !== desiredKeys.length) return false;
   return currentKeys.every((k) => current[k] === desired[k]);
-}
-
-/** Same merge semantics as `rapids update`: remove named keys, then overlay --env. */
-function mergeEnv(
-  existing: Record<string, string> | null | undefined,
-  envPairs: Record<string, string>,
-  rmEnv: string[] | undefined,
-): Record<string, string> {
-  const merged: Record<string, string> = { ...(existing ?? {}) };
-  if (rmEnv) {
-    for (const key of rmEnv) delete merged[key];
-  }
-  return { ...merged, ...envPairs };
 }

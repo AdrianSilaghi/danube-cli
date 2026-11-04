@@ -156,6 +156,21 @@ describe('serverless update command', () => {
     });
   });
 
+  it('sends the container’s environment_snapshot with the merged environment', async () => {
+    mockGet.mockResolvedValueOnce(listResponse({
+      environment_variables: { DATABASE_URL: 'postgres://x' },
+      environment_snapshot: 'snap-1',
+    }));
+    mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer() });
+
+    await updateCommand.parseAsync(['node', 'test', 'my-api', '--env', 'FEATURE=on']);
+
+    expect(mockPut).toHaveBeenCalledWith('/api/v1/serverless/abc-123', {
+      environment_variables: { DATABASE_URL: 'postgres://x', FEATURE: 'on' },
+      environment_snapshot: 'snap-1',
+    });
+  });
+
   it('updates scaling options', async () => {
     mockGet.mockResolvedValue(listResponse());
     mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer() });
