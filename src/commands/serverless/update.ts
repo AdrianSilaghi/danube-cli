@@ -10,6 +10,7 @@ import type { WaitBaseline } from '../../lib/wait-for-terminal.js';
 import { waitEnvelope, printWaitOutcome } from '../../lib/report-wait.js';
 import type { ServerlessContainer } from '../../types/api.js';
 import { parseDurationSeconds } from '../../lib/duration.js';
+import { mergeEnv, putMergedEnvironment } from '../../lib/serverless-env.js';
 
 export const updateCommand = new Command('update')
   .description('Update a serverless container')
@@ -62,33 +63,19 @@ export const updateCommand = new Command('update')
     if (opts.concurrencyTarget !== undefined) body.concurrency_target = parseIntOption(opts.concurrencyTarget, '--concurrency-target');
     if (opts.timeout !== undefined) body.timeout_seconds = parseIntOption(opts.timeout, '--timeout');
 
-    // Handle environment variable changes (merge with existing)
-    if (opts.env || opts.rmEnv) {
-      const existingEnv: Record<string, string> = { ...(container.environment_variables ?? {}) };
-
-      // Remove specified keys first
-      if (opts.rmEnv) {
-        for (const key of opts.rmEnv) {
-          delete existingEnv[key];
-        }
+    // Environment changes merge into the container's current map when written.
+    const envRequested = Boolean(opts.env || opts.rmEnv);
+    const envPairs: Record<string, string> = {};
+    for (const pair of (opts.env ?? []) as string[]) {
+      const eqIndex = pair.indexOf('=');
+      if (eqIndex <= 0) {
+        console.error(chalk.red(`Invalid env format: '${pair}'. Use KEY=VALUE.`));
+        process.exit(1);
       }
-
-      // Merge new env vars on top
-      if (opts.env) {
-        for (const pair of opts.env) {
-          const eqIndex = pair.indexOf('=');
-          if (eqIndex <= 0) {
-            console.error(chalk.red(`Invalid env format: '${pair}'. Use KEY=VALUE.`));
-            process.exit(1);
-          }
-          existingEnv[pair.substring(0, eqIndex)] = pair.substring(eqIndex + 1);
-        }
-      }
-
-      body.environment_variables = existingEnv;
+      envPairs[pair.substring(0, eqIndex)] = pair.substring(eqIndex + 1);
     }
 
-    if (Object.keys(body).length === 0) {
+    if (Object.keys(body).length === 0 && !envRequested) {
       console.error(chalk.red('No update options specified. Use --help for available options.'));
       process.exit(1);
     }
@@ -101,10 +88,15 @@ export const updateCommand = new Command('update')
     }
 
     const spinner = isJsonMode() || opts.wait ? null : ora('Updating container...').start();
-    const res = await api.put<{ message: string; container: ServerlessContainer }>(
-      `/api/v1/serverless/${container.id}`,
-      body,
-    );
+    type UpdateResponse = { message: string; container: ServerlessContainer };
+    const res = envRequested
+      ? await putMergedEnvironment<UpdateResponse>(
+          api,
+          container,
+          (env) => mergeEnv(env, envPairs, opts.rmEnv),
+          body,
+        )
+      : await api.put<UpdateResponse>(`/api/v1/serverless/${container.id}`, body);
 
     if (!opts.wait) {
       if (isJsonMode()) {
