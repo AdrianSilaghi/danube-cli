@@ -3,6 +3,7 @@ import { lsCommand, createCommand, getCommand, updateCommand, deleteCommand } fr
 import { startCommand, stopCommand, rebootCommand, reinstallCommand, statusCommand, metricsCommand, passwordCommand } from './actions.js';
 import { createDiagnoseCommand, createEventsCommand } from '../../lib/diagnostics/commands.js';
 import { imagesCommand } from './images.js';
+import { snapshotsCommand } from './snapshots.js';
 
 
 const diagnosticsTarget = { noun: 'VPS instance', kind: 'vps', listPath: '/api/v1/vps', resourcePath: (id: string) => `/api/v1/vps/${id}` };
@@ -23,5 +24,6 @@ export const vpsCommand = new Command('vps')
   .addCommand(metricsCommand)
   .addCommand(passwordCommand)
   .addCommand(imagesCommand)
+  .addCommand(snapshotsCommand)
   .addCommand(createDiagnoseCommand(diagnosticsTarget))
   .addCommand(createEventsCommand(diagnosticsTarget));

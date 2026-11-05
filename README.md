@@ -258,6 +258,11 @@ minor counts as a major, per semver.
 | `danube vps metrics <name-or-id>` | Show CPU/memory/storage/network usage |
 | `danube vps password <name-or-id>` | Show SSH password (with confirmation) |
 | `danube vps images` | List available OS images |
+| `danube vps snapshots ls` | List snapshots (optional `--instance <name-or-id>`; alias `snapshot`) |
+| `danube vps snapshots create <name-or-id> --name <name>` | Create a snapshot |
+| `danube vps snapshots restore <snapshot-id>` | Replace the source VPS disk with the snapshot |
+| `danube vps snapshots clone <snapshot-id> --name <new>` | Create a NEW VPS from the snapshot (10-30 min; 404 = not enabled for your account, 409 = another clone running, 422 = not exported / limit / name) |
+| `danube vps snapshots rm <snapshot-id>` | Delete a snapshot |
 
 #### Create a VPS
 
