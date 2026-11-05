@@ -483,6 +483,20 @@ export interface CacheSnapshot {
   updated_at: string;
 }
 
+export interface VpsSnapshot {
+  id: number;
+  name: string;
+  description: string | null;
+  status: string;
+  size_bytes: number | null;
+  size_gb: number | null;
+  vps_instance_id: string;
+  vps_instance?: { id: string; name: string; deleted_at: string | null };
+  expires_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface CachePlanInfo {
   slug: string;
   display_name: string;
