@@ -41,7 +41,7 @@ const lsCommand = new Command('ls')
           ? `${s.vps_instance.name}${s.vps_instance.deleted_at ? ' (deleted)' : ''}`
           : s.vps_instance_id,
         statusColor(s.status),
-        s.size_gb != null ? `${s.size_gb} GB` : '-',
+        s.size_gb != null ? `${Number(s.size_gb).toFixed(2)} GB` : '-',
         formatDate(s.created_at),
       ]),
     ));
@@ -56,6 +56,7 @@ const createCommand = new Command('create')
   .argument('<vps-name-or-id>', 'VPS name or ID')
   .option('--name <name>', 'Snapshot name')
   .option('--description <text>', 'Optional description')
+  .addHelpText('after', '\nRequires: snapshot:write (API token).')
   .action(async (nameOrId: string, opts: { name?: string; description?: string }) => {
     if (!opts.name) {
       console.error(chalk.red('--name is required.'));
@@ -86,6 +87,7 @@ const restoreCommand = new Command('restore')
   .argument('<snapshot-id>', 'Snapshot ID')
   .option('-f, --force', 'Skip confirmation')
   .option('-y, --yes', 'Alias for --force')
+  .addHelpText('after', '\nRequires: snapshot:write (API token) and the vps:delete permission in the project.')
   .action(async (snapshotId: string, opts: { force?: boolean; yes?: boolean }) => {
     const proceed = await confirmDestruction(
       `restore of snapshot ${snapshotId}`,
@@ -111,14 +113,17 @@ const restoreCommand = new Command('restore')
 const cloneCommand = new Command('clone')
   .description('Create a NEW VPS from a snapshot (the source VPS is untouched)')
   .argument('<snapshot-id>', 'Snapshot ID')
-  .option('--name <name>', 'Name for the new VPS (3-32 characters: lowercase letters, digits, hyphens)')
+  .option('--name <name>', 'Name for the new VPS: 3-32 characters, lowercase letters, digits and hyphens; must start and end with a letter or digit')
   .addHelpText('after', `
 The new VPS gets the plan, image and datacenter of the VPS the snapshot was
 taken from, counts against the project's VPS limit and takes 10 to 30 minutes
 to provision. The command returns as soon as the clone is accepted.
 
+Requires: snapshot:write and vps:write (API token), and the vps:write permission
+in the project.
+
 Errors:
-  404  cloning from snapshots is not enabled for your account
+  404  not enabled for your account, or no such snapshot
   409  another clone of this snapshot is still running; wait for it to finish
   422  the snapshot is not ready or its export is not complete, the name is
        invalid or taken, the VPS limit is reached, or there is no capacity
@@ -150,6 +155,7 @@ const rmCommand = new Command('rm')
   .argument('<snapshot-id>', 'Snapshot ID')
   .option('-f, --force', 'Skip confirmation')
   .option('-y, --yes', 'Alias for --force')
+  .addHelpText('after', '\nRequires: snapshot:delete (API token).')
   .action(async (snapshotId: string, opts: { force?: boolean; yes?: boolean }) => {
     const proceed = await confirmDestruction(
       `deletion of snapshot ${snapshotId}`,

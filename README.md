@@ -261,7 +261,7 @@ minor counts as a major, per semver.
 | `danube vps snapshots ls` | List snapshots (optional `--instance <name-or-id>`; alias `snapshot`) |
 | `danube vps snapshots create <name-or-id> --name <name>` | Create a snapshot |
 | `danube vps snapshots restore <snapshot-id>` | Replace the source VPS disk with the snapshot |
-| `danube vps snapshots clone <snapshot-id> --name <new>` | Create a NEW VPS from the snapshot (10-30 min; 404 = not enabled for your account, 409 = another clone running, 422 = not exported / limit / name) |
+| `danube vps snapshots clone <snapshot-id> --name <new>` | Create a NEW VPS from the snapshot (10-30 min; 404 = not enabled for your account or no such snapshot, 409 = another clone running, 422 = not exported / limit / name) |
 | `danube vps snapshots rm <snapshot-id>` | Delete a snapshot |
 
 #### Create a VPS

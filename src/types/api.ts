@@ -489,7 +489,7 @@ export interface VpsSnapshot {
   description: string | null;
   status: string;
   size_bytes: number | null;
-  size_gb: string | null;
+  size_gb: number | null;
   vps_instance_id: string;
   vps_instance?: { id: string; name: string; deleted_at: string | null };
   expires_at: string | null;

@@ -35,9 +35,9 @@ const makeSnapshot = (overrides = {}) => ({
   name: 'before-upgrade',
   description: null,
   status: 'ready',
-  size_bytes: 5368709120,
+  size_bytes: 5000000000,
   size_basis: 'stored',
-  size_gb: '5.00',
+  size_gb: 4.656612873077393,
   vps_instance_id: 'vps-1',
   vps_instance: { id: 'vps-1', name: 'web-1', deleted_at: null },
   expires_at: null,
@@ -88,6 +88,14 @@ describe('vps snapshots', () => {
       expect(logged()).toContain('web-1');
       expect(logged()).toContain('dead-1 (deleted)');
       expect(logged()).toContain('41');
+      expect(logged()).toContain('4.66 GB');
+      expect(logged()).not.toContain('4.6566');
+    });
+
+    it('shows a dash when the size is not known yet', async () => {
+      mockGet.mockResolvedValue({ data: [makeSnapshot({ size_gb: null })] });
+      await snapshotsCommand.parseAsync(['node', 'test', 'ls']);
+      expect(logged()).not.toContain('GB');
     });
 
     it('filters by --instance name', async () => {
@@ -185,15 +193,43 @@ describe('vps snapshots', () => {
       expect(mockPost).not.toHaveBeenCalled();
     });
 
-    it('lets the server message for 404, 409 and 422 through to the error handler', async () => {
+    it.each([
+      [404, 'Not found.'],
+      [409, 'A clone of this snapshot is already running.'],
+      [422, 'Snapshot export is not complete.'],
+    ])('lets the API error %i reach the error handler unchanged', async (status, message) => {
       const { ApiError } = await import('../../../src/lib/errors.js');
-      const { handleError } = await import('../../../src/lib/handle-error.js');
-      for (const [status, message] of [[404, 'Not found.'], [409, 'A clone of this snapshot is already running.'], [422, 'Snapshot export is not complete.']] as const) {
-        mockPost.mockRejectedValueOnce(new ApiError(status, message));
-        const err = await snapshotsCommand.parseAsync(['node', 'test', 'clone', '41', '--name', 'web-copy']).catch(e => e);
-        expect(() => handleError(err)).toThrow(ExitError);
-        expect(consoleErrorSpy.mock.calls.map(c => c[0]).join('\n')).toContain(`(${status}): ${message}`);
-      }
+      const apiError = new ApiError(status, message);
+      mockPost.mockRejectedValueOnce(apiError);
+      await expect(
+        snapshotsCommand.parseAsync(['node', 'test', 'clone', '41', '--name', 'web-copy']),
+      ).rejects.toBe(apiError);
+      expect(logged()).not.toContain('creation initiated');
+    });
+  });
+
+  describe('help', () => {
+    const renderedHelp = (name: string): string => {
+      let out = '';
+      const cmd = snapshotsCommand.commands.find(c => c.name() === name)!;
+      cmd.configureOutput({ writeOut: (t: string) => { out += t; } });
+      cmd.outputHelp();
+      return out;
+    };
+
+    it.each([
+      ['create', 'snapshot:write'],
+      ['restore', 'snapshot:write'],
+      ['rm', 'snapshot:delete'],
+      ['clone', 'snapshot:write and vps:write'],
+    ])('%s names the token abilities it needs', (name, ability) => {
+      expect(renderedHelp(name)).toContain(`Requires: ${ability}`);
+    });
+
+    it('clone explains the 404 and the name rules', () => {
+      const text = renderedHelp('clone');
+      expect(text).toMatch(/404.*no such snapshot/);
+      expect(text).toMatch(/3-32 characters.*start and end with a letter or digit/s);
     });
   });
 });
