@@ -443,6 +443,24 @@ danube storage policy get my-bucket --json | jq '.data.custom_policy_statements'
   after the seconds it names. In `--json` mode an API error carries `retry_after_seconds` when the
   API sent a Retry-After.
 
+### Container Registry (`danube registry`)
+
+| Command | Description |
+|---|---|
+| `danube registry keys ls` | List registry access keys (`--active`: neither revoked nor expired) |
+| `danube registry keys create <name>` | Create a key (`--scope push_pull\|pull`, `--expires-in 24h`, `--expires-at <iso>`) |
+| `danube registry keys rm <id>` | Revoke a key (alias `revoke`; `--force`/`--yes`; repeating it is harmless) |
+
+```bash
+danube registry keys create ci --scope push_pull --expires-in 30d
+echo "$TOKEN" | docker login cr.danubedata.ro -u <username> --password-stdin
+```
+
+- The token (`cr_...`) is shown once, when the key is created; save it then. `--json` returns it as
+  `data.token` next to the key's fields. `--expires-in` takes `90m`, `24h` or `30d`.
+- A key's name is unique in the project, revoked keys included. Creating a key needs the
+  `registry:credentials` token ability and the project owner, listing needs `registry:read`.
+
 ### Cache Instances (`danube cache`)
 
 Managed Redis / Valkey / Dragonfly in-memory stores.

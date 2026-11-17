@@ -145,6 +145,25 @@ export interface PaginatedResponse<T> {
   pagination: Pagination;
 }
 
+export type RegistryKeyScope = 'push_pull' | 'pull';
+
+export interface RegistryAccessKey {
+  id: string;
+  name: string;
+  username: string;
+  scope: RegistryKeyScope;
+  last_used_at: string | null;
+  expires_at: string | null;
+  revoked_at: string | null;
+  created_at: string;
+}
+
+/** The token (`cr_...`) is in this answer and nowhere else. */
+export interface CreateRegistryAccessKeyResponse {
+  key: RegistryAccessKey;
+  token: string;
+}
+
 export interface MessageResponse {
   message: string;
 }
