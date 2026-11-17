@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { ApiError } from '../src/lib/errors.js';
-import { mergeEnv, putMergedEnvironment } from '../src/lib/serverless-env.js';
+import { effectiveSecretChanges, mergeEnv, putMergedEnvironment } from '../src/lib/serverless-env.js';
 import type { ApiClient } from '../src/lib/api-client.js';
 import type { ServerlessContainer } from '../src/types/api.js';
 
@@ -35,6 +35,17 @@ describe('putMergedEnvironment', () => {
     expect(put).toHaveBeenCalledWith('/api/v1/serverless/c-1', {
       port: 80,
       environment_variables: { A: '1', NEW: 'v' },
+      environment_snapshot: 'snap-1',
+    });
+  });
+
+  it('leaves the plain variables out, and keeps the snapshot, for a secrets-only change', async () => {
+    const put = vi.fn().mockResolvedValue('ok');
+
+    await putMergedEnvironment(fakeApi(put), container({ A: '1' }, 'snap-1'), null, { secret_environment_variables: { K: 'v' } });
+
+    expect(put).toHaveBeenCalledWith('/api/v1/serverless/c-1', {
+      secret_environment_variables: { K: 'v' },
       environment_snapshot: 'snap-1',
     });
   });
@@ -78,5 +89,15 @@ describe('putMergedEnvironment', () => {
     await expect(putMergedEnvironment(fakeApi(put, get), container({}), merge, {})).rejects.toBeInstanceOf(ApiError);
     expect(get).not.toHaveBeenCalled();
     expect(put).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('effectiveSecretChanges', () => {
+  it('keeps every value to set and the removals of names the container holds', () => {
+    expect(effectiveSecretChanges({ NEW: 'v', HELD: null, ABSENT: null }, ['HELD'])).toEqual({ NEW: 'v', HELD: null });
+  });
+
+  it('treats a platform without secret keys as holding none', () => {
+    expect(effectiveSecretChanges({ GONE: null }, undefined)).toEqual({});
   });
 });

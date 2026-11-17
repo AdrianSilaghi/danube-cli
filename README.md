@@ -132,6 +132,32 @@ succeed at all — a missing tag or an arm64-only image otherwise surfaces as a 
 `ContainerMissing` minutes later, naming neither. `can_pull: null` means the image lives in a
 registry DanubeData cannot read; that is *unknown*, not a failure, and does not exit non-zero.
 
+### Pushing images: `registry login` and `registry verify-push`
+
+```bash
+danube registry login                                  # creates a push+pull key, signs Docker in with it
+danube registry login --scope pull --expires-in 90d --name ci-readonly
+danube registry verify-push gym-occupancy              # project check + the login Docker will actually use
+```
+
+`registry login` creates a registry access key (`POST /api/v1/registry/access-keys`, project owner
+only, `registry:write`) and hands its token to `docker login <registry> --password-stdin`. The token
+travels on Docker's standard input only: it is never an argument, never printed, never written by
+the CLI. Docker keeps it in its own credential store, so it cannot be shown again; each run makes a
+new key (`--name` defaults to this machine and the time). It takes the same `--scope`,
+`--expires-in` (`90m`, `24h`, `30d`) and `--expires-at` as `registry keys create`, and creates the key
+the same way. A `404` means the platform is too old for the key API, a `403` that the token is not
+the owner's or lacks `registry:credentials`. If `docker login` fails after the key exists, the error
+names the key so you can revoke it with `registry keys rm`.
+
+`registry verify-push` answers for the project, then checks what `docker push` will present: it
+reads Docker's login for the registry (`~/.docker/config.json` or `$DOCKER_CONFIG`: `auths`,
+`credHelpers`, `credsStore` through `docker-credential-<helper>`), asks the registry's token realm
+for `repository:<path>:push,pull` over https, and reports whether the granted `access` includes
+`push`. `--json` adds `data.docker` (`status`: `push`, `pull_only`, `no_access`, `no_credentials`,
+`rejected` or `unknown`; `can_push`; `actions`; `message`). Docker's login being unusable for a
+push exits 1; `unknown` (no network, an unreadable credential helper) does not.
+
 ### Operations
 
 Create, deploy and redeploy return before the work is done, so they hand back an operation:
@@ -447,6 +473,8 @@ danube storage policy get my-bucket --json | jq '.data.custom_policy_statements'
 
 | Command | Description |
 |---|---|
+| `danube registry login` | Create a key and sign Docker in with it (`--scope`, `--name`, `--expires-in`, `--expires-at`); see "Pushing images" above |
+| `danube registry verify-push <repo>` | Check a push would be permitted, including the login Docker will present |
 | `danube registry keys ls` | List registry access keys (`--active`: neither revoked nor expired) |
 | `danube registry keys create <name>` | Create a key (`--scope push_pull\|pull`, `--expires-in 24h`, `--expires-at <iso>`) |
 | `danube registry keys rm <id>` | Revoke a key (alias `revoke`; `--force`/`--yes`; repeating it is harmless) |
@@ -597,10 +625,10 @@ Knative-based serverless containers with scale-to-zero.
 |---|---|
 | `danube rapids ls` | List serverless containers |
 | `danube rapids get <name-or-id>` | Show serverless container details |
-| `danube rapids create` | Create a new serverless container |
+| `danube rapids create` | Create a new serverless container (`--env`, `--env-file`, `--secret`, `--secret-file`) |
 | `danube rapids deploy <name-or-id>` | Deploy a serverless container from local directory |
 | `danube rapids redeploy <name-or-id>` | Redeploy a container with its current image (rolls out a new zero-downtime revision) |
-| `danube rapids update <name-or-id>` | Update a serverless container (`--wait`, `--env`, `--rm-env`, `--initial-scale`, `--scale-down-delay`) |
+| `danube rapids update <name-or-id>` | Update a serverless container (`--wait`, `--env`, `--env-file`, `--rm-env`, `--secret`, `--secret-file`, `--rm-secret`, `--initial-scale`, `--scale-down-delay`). Without `--wait` it only reports that the update was accepted |
 | `danube rapids rm <name-or-id>` | Delete a serverless container |
 | `danube rapids deployments <name-or-id>` | List deployments for a serverless container |
 | `danube rapids usage <name-or-id>` | Show usage and billing for a serverless container |
@@ -608,10 +636,10 @@ Knative-based serverless containers with scale-to-zero.
 | `danube rapids revisions <name-or-id>` | List Knative revisions with their conditions, plus Service and Route readiness |
 | `danube rapids events <name-or-id>` | Curated platform events for the container's service, revisions and pods |
 | `danube rapids diagnose <name-or-id>` | Correlate status, revisions, events and logs into ranked findings with remediation |
-| `danube rapids apply` | Create-or-update idempotently (`--wait`, `--idempotency-key`, `--env`, `--rm-env`, `--initial-scale`, `--scale-down-delay`) |
+| `danube rapids apply` | Create-or-update idempotently (`--wait`, `--idempotency-key`, `--env`, `--env-file`, `--rm-env`, `--secret`, `--secret-file`, `--rm-secret`, `--initial-scale`, `--scale-down-delay`) |
 | `danube rapids probe [name]` | Reach the public URL from outside: DNS, TLS, status, cold vs warm latency |
 | `danube rapids preflight --image <ref>` | Check namespace, credential, manifest, digest and architecture before deploying |
-| `danube rapids run <name-or-id> [-- <command...>]` | **Preview.** Run the container's image ONCE, on demand, as a Kubernetes Job (`--tag`, `--env`, `--timeout`, `--wait`, `--wait-timeout`, `--no-logs`) |
+| `danube rapids run <name-or-id> [-- <command...>]` | **Preview.** Run the container's image ONCE, on demand, as a Kubernetes Job (`--tag`, `--env`, `--env-file`, `--timeout`, `--wait`, `--wait-timeout`, `--no-logs`) |
 | `danube rapids runs ls <name-or-id>` | **Preview.** List runs for a container, newest first, 20 to a page (`--limit` up to 200, `--page` for older runs) |
 | `danube rapids runs show <name-or-id> <run-id>` | **Preview.** Show one run's status, exit code and timing |
 | `danube rapids runs logs <name-or-id> <run-id>` | **Preview.** Fetch a run's logs (`--follow` to poll until terminal) |
@@ -642,6 +670,30 @@ Diagnostics notes:
   progress, not that it failed.
 - Always pass `--since` to `logs`; without it the query covers only the last
   30 minutes.
+
+### Environment variables and secrets
+
+```bash
+danube rapids update my-api --env-file .env.production --wait    # dotenv file; - reads the standard input
+danube rapids update my-api --env DATABASE_HOST=db.internal LOG_LEVEL   # LOG_LEVEL is read from your shell
+danube rapids update my-api --secret-file secrets.env --secret API_KEY    # write-only, see below
+danube rapids update my-api --rm-secret OLD_KEY
+```
+
+- `--env KEY` with no `=` takes the value from the CLI's own environment and fails when it is
+  unset, so a value never has to be typed on the command line (where it lands in the process list and
+  shell history). `--env-file` reads dotenv text: `KEY=VALUE`, `#` comments, blank lines, an optional
+  `export `, single or double quotes (double quotes understand `\n`, `\"`, `\\`), no `$VAR`
+  interpolation. `--env` wins over the file.
+- **Secrets** (`--secret KEY[=VALUE]`, `--secret-file`, `--rm-secret KEY`, on `create`, `update` and
+  `apply`; `--rm-secret` not on `create`) are write-only: the API accepts them and never returns them, so
+  `rapids get` lists the names only and nothing, in this CLI or the API, can read a value back. A key
+  cannot be both a plain variable and a secret.
+- `rapids update` without `--wait` prints `Update accepted; rolling out generation N`: the change is
+  recorded and the rollout runs on after the command returns. Pass `--wait` to block until it is live.
+- Because a secret cannot be read, `rapids apply --secret` cannot tell whether the value changed and
+  sends it on every run, which rolls out a new revision each time.
+- Secrets need a platform that offers them; on an older one the API rejects the field.
 
 ### Rapids runs (preview / early access)
 

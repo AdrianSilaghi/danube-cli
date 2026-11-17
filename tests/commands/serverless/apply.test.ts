@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const mockGet = vi.fn();
 const mockPut = vi.fn();
@@ -160,15 +163,66 @@ describe('apply --env/--rm-env', () => {
     expect(body).not.toHaveProperty('environment_variables');
   });
 
-  it('exits on invalid --env format (no equals sign)', async () => {
+  it('creates with secret_environment_variables, sending only the secrets that carry a value', async () => {
     mockGet.mockResolvedValue({ data: [] });
+    mockPost.mockResolvedValue({ message: 'Created', container: makeContainer() });
 
+    await applyCommand.parseAsync(['node', 'test', '--name', 'my-api', '--secret', 'API_KEY=abc', '--rm-secret', 'GONE']);
+
+    expect(mockPost).toHaveBeenCalledWith(
+      '/api/v1/serverless',
+      expect.objectContaining({ secret_environment_variables: { API_KEY: 'abc' } }),
+      undefined,
+    );
+  });
+
+  it('updates secrets alone, with the snapshot, and reports updated', async () => {
+    mockExisting(makeContainer({ environment_snapshot: 'snap-1', secret_environment_keys: ['OLD'] }));
+    mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer() });
+
+    await applyCommand.parseAsync(['node', 'test', '--name', 'my-api', '--secret', 'API_KEY=abc', '--rm-secret', 'OLD']);
+
+    expect(mockPut).toHaveBeenCalledWith('/api/v1/serverless/abc-123', {
+      secret_environment_variables: { API_KEY: 'abc', OLD: null },
+      environment_snapshot: 'snap-1',
+    });
+    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('updated'));
+  });
+
+  it('treats removing a secret the container does not hold as unchanged', async () => {
+    mockExisting(makeContainer({ secret_environment_keys: ['KEEP'] }));
+
+    await applyCommand.parseAsync(['node', 'test', '--name', 'my-api', '--rm-secret', 'NOT_THERE']);
+
+    expect(mockPut).not.toHaveBeenCalled();
+    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('unchanged'));
+  });
+
+  it('creates with environment_variables from --env-file', async () => {
+    mockGet.mockResolvedValue({ data: [] });
+    mockPost.mockResolvedValue({ message: 'Created', container: makeContainer() });
+    const dir = await mkdtemp(join(tmpdir(), 'danube-apply-env-'));
+    await writeFile(join(dir, '.env'), 'A=1\n');
+
+    try {
+      await applyCommand.parseAsync(['node', 'test', '--name', 'my-api', '--env-file', join(dir, '.env')]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+
+    expect(mockPost).toHaveBeenCalledWith(
+      '/api/v1/serverless',
+      expect.objectContaining({ environment_variables: { A: '1' } }),
+      undefined,
+    );
+  });
+
+  it('refuses an --env KEY that is not in the environment, before any request', async () => {
     await expect(
-      applyCommand.parseAsync(['node', 'test', '--name', 'my-api', '--env', 'INVALID']),
-    ).rejects.toThrow(ExitError);
+      applyCommand.parseAsync(['node', 'test', '--name', 'my-api', '--env', 'DANUBE_TEST_SURELY_UNSET']),
+    ).rejects.toThrow(/Invalid env format/);
 
-    expect(process.exit).toHaveBeenCalledWith(1);
-    expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid env format'));
+    expect(mockGet).not.toHaveBeenCalled();
   });
 });
 

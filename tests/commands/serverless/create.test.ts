@@ -86,6 +86,32 @@ describe('serverless create command', () => {
     expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Created'));
   });
 
+  it('creates with plain and secret variables', async () => {
+    mockGet.mockResolvedValue(teamsResponse());
+    mockPost.mockResolvedValue(containerResponse());
+
+    await createCommand.parseAsync([
+      'node', 'test', '--name', 'my-api', '--type', 'docker_image', '--image', 'nginx', '--profile', 'micro',
+      '--env', 'MODE=prod', '--secret', 'API_KEY=abc',
+    ]);
+
+    expect(mockPost).toHaveBeenCalledWith('/api/v1/serverless', expect.objectContaining({
+      environment_variables: { MODE: 'prod' },
+      secret_environment_variables: { API_KEY: 'abc' },
+    }));
+  });
+
+  it('sends neither variable field when no environment flag is given', async () => {
+    mockGet.mockResolvedValue(teamsResponse());
+    mockPost.mockResolvedValue(containerResponse());
+
+    await createCommand.parseAsync(['node', 'test', '--name', 'my-api', '--type', 'docker_image', '--image', 'nginx', '--profile', 'micro']);
+
+    const body = mockPost.mock.calls[0]![1] as Record<string, unknown>;
+    expect(body).not.toHaveProperty('environment_variables');
+    expect(body).not.toHaveProperty('secret_environment_variables');
+  });
+
   it('creates a container with initial scale and scale-down delay, including zero values', async () => {
     mockGet.mockResolvedValue(teamsResponse());
     mockPost.mockResolvedValue(containerResponse());

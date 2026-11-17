@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const mockGet = vi.fn();
 const mockPut = vi.fn();
@@ -8,10 +11,11 @@ vi.mock('../../../src/lib/api-client.js', () => ({
   },
 }));
 
+const spinner = vi.hoisted(() => ({ succeed: vi.fn() }));
 vi.mock('ora', () => ({
   default: () => ({
     start: vi.fn().mockReturnThis(),
-    succeed: vi.fn().mockReturnThis(),
+    succeed: spinner.succeed.mockReturnThis(),
     fail: vi.fn().mockReturnThis(),
   }),
 }));
@@ -85,12 +89,82 @@ describe('serverless update command', () => {
     }) as never;
     mockGet.mockReset();
     mockPut.mockReset();
+    spinner.succeed.mockClear();
   });
 
   afterEach(() => {
     process.exit = originalExit;
     process.exitCode = undefined;
     vi.restoreAllMocks();
+  });
+
+  it('says the update is accepted and rolling out, not finished, without --wait', async () => {
+    mockGet.mockResolvedValue(listResponse());
+    mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer({ spec_generation: 7 }) });
+
+    await updateCommand.parseAsync(['node', 'test', 'my-api', '--env', 'A=1']);
+
+    expect(spinner.succeed).toHaveBeenCalledWith(
+      'Update accepted; rolling out generation 7. Pass --wait to block until it is live.',
+    );
+  });
+
+  it('leaves the generation out when the platform does not report one', async () => {
+    mockGet.mockResolvedValue(listResponse());
+    mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer() });
+
+    await updateCommand.parseAsync(['node', 'test', 'my-api', '--image', 'node']);
+
+    expect(spinner.succeed).toHaveBeenCalledWith('Update accepted; rolling out. Pass --wait to block until it is live.');
+  });
+
+  it('sends secret changes as a delta (string sets, null removes) and never reads values from the container', async () => {
+    mockGet.mockResolvedValue(listResponse({ environment_snapshot: 'snap-1', secret_environment_keys: ['OLD'] }));
+    mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer({ spec_generation: 2 }) });
+    vi.stubEnv('DANUBE_TEST_DB_PASSWORD', 'hunter2');
+
+    await updateCommand.parseAsync([
+      'node', 'test', 'my-api',
+      '--secret', 'API_KEY=abc', 'DANUBE_TEST_DB_PASSWORD',
+      '--rm-secret', 'OLD',
+    ]);
+    vi.unstubAllEnvs();
+
+    // A secrets-only change leaves the plain variables out but keeps the snapshot, which covers secret names.
+    expect(mockPut).toHaveBeenCalledWith('/api/v1/serverless/abc-123', {
+      secret_environment_variables: { API_KEY: 'abc', DANUBE_TEST_DB_PASSWORD: 'hunter2', OLD: null },
+      environment_snapshot: 'snap-1',
+    });
+  });
+
+  it('sends plain and secret changes together, from --env-file and --secret-file', async () => {
+    mockGet.mockResolvedValueOnce(listResponse({ environment_variables: { KEEP: '1' } }));
+    mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer() });
+    const dir = await mkdtemp(join(tmpdir(), 'danube-update-env-'));
+    await writeFile(join(dir, 'plain.env'), 'MODE=prod\n');
+    await writeFile(join(dir, 'secret.env'), 'TOKEN=\'t0k\'\n');
+
+    try {
+      await updateCommand.parseAsync([
+        'node', 'test', 'my-api',
+        '--env-file', join(dir, 'plain.env'), '--secret-file', join(dir, 'secret.env'),
+      ]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+
+    expect(mockPut).toHaveBeenCalledWith('/api/v1/serverless/abc-123', {
+      environment_variables: { KEEP: '1', MODE: 'prod' },
+      secret_environment_variables: { TOKEN: 't0k' },
+    });
+  });
+
+  it('refuses a key that is set and removed as a secret, before any request', async () => {
+    await expect(
+      updateCommand.parseAsync(['node', 'test', 'my-api', '--secret', 'A=1', '--rm-secret', 'A']),
+    ).rejects.toThrow(/both set \(--secret\) and removed/);
+
+    expect(mockGet).not.toHaveBeenCalled();
   });
 
   it('updates container image', async () => {
@@ -241,15 +315,13 @@ describe('serverless update command', () => {
     expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid value for --initial-scale'));
   });
 
-  it('exits on invalid env format (no equals sign)', async () => {
-    mockGet.mockResolvedValueOnce(listResponse({ environment_variables: {} }));
-
+  it('refuses an --env KEY that is not in the environment, before any request', async () => {
     await expect(
-      updateCommand.parseAsync(['node', 'test', 'my-api', '--env', 'INVALID_FORMAT']),
-    ).rejects.toThrow(ExitError);
+      updateCommand.parseAsync(['node', 'test', 'my-api', '--env', 'DANUBE_TEST_SURELY_UNSET']),
+    ).rejects.toThrow(/Invalid env format.*not set in your environment/);
 
-    expect(process.exit).toHaveBeenCalledWith(1);
-    expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid env format'));
+    expect(mockGet).not.toHaveBeenCalled();
+    expect(mockPut).not.toHaveBeenCalled();
   });
 
   it('exits on non-integer port value', async () => {

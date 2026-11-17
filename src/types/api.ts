@@ -743,6 +743,11 @@ export interface ServerlessContainer {
   timeout_seconds: number | null;
   environment_variables: Record<string, string> | null;
   /**
+   * Names of the write-only secret variables, sorted. The values are never
+   * returned. Absent on a platform that predates secret variables.
+   */
+  secret_environment_keys?: string[];
+  /**
    * Opaque marker of `environment_variables`. Send it back with them on update;
    * the API refuses a write without a current one when the container has
    * service connections.

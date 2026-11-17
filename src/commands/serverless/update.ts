@@ -11,6 +11,7 @@ import { waitEnvelope, printWaitOutcome } from '../../lib/report-wait.js';
 import type { ServerlessContainer } from '../../types/api.js';
 import { parseDurationSeconds } from '../../lib/duration.js';
 import { mergeEnv, putMergedEnvironment } from '../../lib/serverless-env.js';
+import { readEnvironmentFlags } from '../../lib/env-input.js';
 
 export const updateCommand = new Command('update')
   .description('Update a serverless container')
@@ -28,11 +29,18 @@ export const updateCommand = new Command('update')
   .option('--scaling-target <n>', 'Target value per pod for scaling metric')
   .option('--concurrency-target <n>', 'Concurrency target per pod')
   .option('--timeout <seconds>', 'Request timeout in seconds (max 900)')
-  .option('--env <pairs...>', 'Set environment variables (KEY=VALUE), merged with existing')
+  .option('--env <pairs...>', 'Set environment variables (KEY=VALUE, or KEY to read it from your environment), merged with existing')
+  .option('--env-file <path>', 'Read environment variables from a dotenv file (- for the standard input); --env wins')
   .option('--rm-env <keys...>', 'Remove environment variables by key')
+  .option('--secret <pairs...>', 'Set write-only secret variables (KEY=VALUE, or KEY to read it from your environment)')
+  .option('--secret-file <path>', 'Read secret variables from a dotenv file (- for the standard input)')
+  .option('--rm-secret <keys...>', 'Remove secret variables by key')
   .option('--wait', 'Block until the container reaches a terminal state')
   .option('--wait-timeout <duration>', 'Ceiling for --wait: 30s, 10m, 1h (default 10m)')
   .action(async (nameOrId: string, opts) => {
+    // Read before any request: a bad flag or file fails without touching the API.
+    const { env: envPairs, secrets } = await readEnvironmentFlags(opts);
+
     const api = await ApiClient.create();
     const container = await resolveContainer(api, nameOrId);
 
@@ -64,16 +72,10 @@ export const updateCommand = new Command('update')
     if (opts.timeout !== undefined) body.timeout_seconds = parseIntOption(opts.timeout, '--timeout');
 
     // Environment changes merge into the container's current map when written.
-    const envRequested = Boolean(opts.env || opts.rmEnv);
-    const envPairs: Record<string, string> = {};
-    for (const pair of (opts.env ?? []) as string[]) {
-      const eqIndex = pair.indexOf('=');
-      if (eqIndex <= 0) {
-        console.error(chalk.red(`Invalid env format: '${pair}'. Use KEY=VALUE.`));
-        process.exit(1);
-      }
-      envPairs[pair.substring(0, eqIndex)] = pair.substring(eqIndex + 1);
-    }
+    const envRequested = Boolean(opts.env || opts.envFile || opts.rmEnv);
+    // Secrets merge on the server (a string sets, null removes), so only the delta is sent.
+    const secretsRequested = Object.keys(secrets).length > 0;
+    if (secretsRequested) body.secret_environment_variables = secrets;
 
     if (Object.keys(body).length === 0 && !envRequested) {
       console.error(chalk.red('No update options specified. Use --help for available options.'));
@@ -89,11 +91,12 @@ export const updateCommand = new Command('update')
 
     const spinner = isJsonMode() || opts.wait ? null : ora('Updating container...').start();
     type UpdateResponse = { message: string; container: ServerlessContainer };
-    const res = envRequested
+    // A secrets-only change still sends the environment snapshot, which covers secret names.
+    const res = envRequested || secretsRequested
       ? await putMergedEnvironment<UpdateResponse>(
           api,
           container,
-          (env) => mergeEnv(env, envPairs, opts.rmEnv),
+          envRequested ? (env) => mergeEnv(env, envPairs, opts.rmEnv) : null,
           body,
         )
       : await api.put<UpdateResponse>(`/api/v1/serverless/${container.id}`, body);
@@ -103,7 +106,12 @@ export const updateCommand = new Command('update')
         jsonOutput(res.container);
         return;
       }
-      spinner!.succeed(`Updated ${chalk.bold(res.container.name)}`);
+      // The PUT only records the change: the rollout runs on after it returns.
+      const generation = res.container.spec_generation;
+      spinner!.succeed(
+        `Update accepted; rolling out${generation == null ? '' : ` generation ${generation}`}. ` +
+        'Pass --wait to block until it is live.',
+      );
       return;
     }
 

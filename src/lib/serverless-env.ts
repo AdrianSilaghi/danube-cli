@@ -1,8 +1,9 @@
 import type { ApiClient } from './api-client.js';
 import { ApiError } from './errors.js';
 import type { ServerlessContainer } from '../types/api.js';
+import type { EnvMap, SecretChanges } from './env-input.js';
 
-export type EnvMap = Record<string, string>;
+export type { EnvMap };
 
 /** Remove the named keys first, then overlay `pairs` on what is left. */
 export function mergeEnv(existing: EnvMap | null | undefined, pairs: EnvMap, rmKeys: string[] | undefined): EnvMap {
@@ -21,22 +22,38 @@ function isStaleEnvironment(e: unknown): boolean {
 }
 
 /**
+ * The secret changes that can change anything. Secret values are write-only, so
+ * a value to set always counts; removing a name the container does not hold is
+ * a no-op and must not make `apply` report an update.
+ */
+export function effectiveSecretChanges(
+  changes: SecretChanges,
+  existingKeys: readonly string[] | null | undefined,
+): SecretChanges {
+  const held = new Set(existingKeys ?? []);
+  return Object.fromEntries(Object.entries(changes).filter(([key, value]) => value !== null || held.has(key)));
+}
+
+/**
  * PUT a container with `environment_variables` merged from what the container
  * holds now. The API needs the `environment_snapshot` of the response the merge
  * was built from (required when the container has service connections), so it
  * goes out with the map. If the environment changed in between, read the
  * container again, merge again and retry once.
+ *
+ * `merge` is null for a change to secrets alone: the plain variables are left
+ * out of the request, and the snapshot still goes with it.
  */
 export async function putMergedEnvironment<T>(
   api: ApiClient,
   current: ServerlessContainer,
-  merge: (existing: EnvMap | null) => EnvMap,
+  merge: ((existing: EnvMap | null) => EnvMap) | null,
   body: Record<string, unknown>,
 ): Promise<T> {
   const send = (from: ServerlessContainer): Promise<T> =>
     api.put<T>(`/api/v1/serverless/${from.id}`, {
       ...body,
-      environment_variables: merge(from.environment_variables),
+      ...(merge ? { environment_variables: merge(from.environment_variables) } : {}),
       ...(from.environment_snapshot ? { environment_snapshot: from.environment_snapshot } : {}),
     });
 
