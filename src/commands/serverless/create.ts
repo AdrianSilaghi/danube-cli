@@ -11,6 +11,8 @@ import type { WaitResult } from '../../lib/wait-for-terminal.js';
 import { teamsArray } from '../../types/api.js';
 import type { TeamsResponse, ServerlessCreateResponse } from '../../types/api.js';
 import { parseDurationSeconds } from '../../lib/duration.js';
+import { readEnvironmentFlags, secretsToSet } from '../../lib/env-input.js';
+import { assertSecretsStored } from '../../lib/serverless-env.js';
 
 export const createCommand = new Command('create')
   .description('Create a new serverless container')
@@ -30,10 +32,17 @@ export const createCommand = new Command('create')
   .option('--scale-down-delay <duration>', 'How long the previous revision keeps its instances after losing traffic: 0, 30s, 5m, 1h')
   .option('--health-check-path <path>', 'Readiness probe path, e.g. /healthz')
   .option('--registry-credential <id>', 'Registry credential UUID (omit for images in your own team namespace)')
+  .option('--env <pairs...>', 'Environment variables (KEY=VALUE, or KEY to read it from your environment)')
+  .option('--env-file <path>', 'Read environment variables from a dotenv file (- for the standard input); --env wins')
+  .option('--secret <pairs...>', 'Write-only secret variables (KEY=VALUE, or KEY to read it from your environment)')
+  .option('--secret-file <path>', 'Read secret variables from a dotenv file (- for the standard input)')
   .option('--wait', 'Block until the container reaches a terminal state, then report it')
   .option('--wait-timeout <duration>', 'Ceiling for --wait: 30s, 10m, 1h (default 10m)')
   .option('--team <id>', 'Team ID (required with multiple teams in non-interactive mode)')
   .action(async (opts) => {
+    // Read before any request or prompt: a bad flag or file fails first.
+    const { env, secrets } = await readEnvironmentFlags(opts);
+
     const api = await ApiClient.create();
 
     const parseIntOption = (val: string, name: string): number => {
@@ -109,6 +118,9 @@ export const createCommand = new Command('create')
     // someone else's registry.
     if (opts.registryCredential !== undefined) body.registry_credential_id = opts.registryCredential;
 
+    if (opts.env || opts.envFile) body.environment_variables = env;
+    if (Object.keys(secrets).length > 0) body.secret_environment_variables = secretsToSet(secrets);
+
     // Type-specific fields
     if (deploymentType === 'docker_image') {
       body.image = await promptOr('--image', opts.image, () => input({
@@ -162,6 +174,8 @@ export const createCommand = new Command('create')
     }
 
     const res = await api.post<ServerlessCreateResponse>('/api/v1/serverless', body);
+    // A platform without secret variables would create the container without them.
+    assertSecretsStored(res.container, Object.keys(secretsToSet(secrets)));
 
     if (!opts.wait) {
       if (isJsonMode()) {

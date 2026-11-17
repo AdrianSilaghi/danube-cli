@@ -12,10 +12,13 @@ export const STDIN_SOURCE = '-';
  */
 export const MAX_INPUT_BYTES = 256 * 1024;
 
+/** Why 256 KiB is already too much, for the policy input this was written for. A caller with another input passes its own. */
+const POLICY_SIZE_HINT = 'a bucket takes at most 20 KB of custom statements.';
+
 const describe = (source: string): string => (source === STDIN_SOURCE ? 'the standard input' : source);
 
 /** Every byte, or a usage error as soon as there are more than the limit allows. */
-async function collect(stream: AsyncIterable<Buffer | string>, source: string): Promise<Buffer> {
+async function collect(stream: AsyncIterable<Buffer | string>, source: string, sizeHint: string): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let size = 0;
 
@@ -24,9 +27,7 @@ async function collect(stream: AsyncIterable<Buffer | string>, source: string): 
     size += bytes.length;
 
     if (size > MAX_INPUT_BYTES) {
-      throw new UsageError(
-        `${describe(source)} is larger than 256 KiB; a bucket takes at most 20 KB of custom statements.`,
-      );
+      throw new UsageError(`${describe(source)} is larger than 256 KiB; ${sizeHint}`);
     }
 
     chunks.push(bytes);
@@ -50,9 +51,9 @@ function decode(bytes: Buffer, source: string): string {
   }
 }
 
-async function readFileBytes(path: string): Promise<Buffer> {
+async function readFileBytes(path: string, sizeHint: string): Promise<Buffer> {
   try {
-    return await collect(createReadStream(path), path);
+    return await collect(createReadStream(path), path, sizeHint);
   } catch (err) {
     if (err instanceof UsageError) throw err;
 
@@ -63,14 +64,14 @@ async function readFileBytes(path: string): Promise<Buffer> {
   }
 }
 
-async function readStdinBytes(): Promise<Buffer> {
+async function readStdinBytes(sizeHint: string): Promise<Buffer> {
   // Nothing is piped in: say what the terminal is waiting for rather than look hung.
   if (process.stdin.isTTY) {
     const finish = process.platform === 'win32' ? 'Ctrl-Z then Enter' : 'Ctrl-D';
     console.error(chalk.dim(`Reading the standard input; finish with ${finish}.`));
   }
 
-  return collect(process.stdin, STDIN_SOURCE);
+  return collect(process.stdin, STDIN_SOURCE, sizeHint);
 }
 
 /**
@@ -80,12 +81,14 @@ async function readStdinBytes(): Promise<Buffer> {
  * A file that cannot be read is a usage error — the path is the caller's to
  * fix — and names the path, so a script log says which file it was.
  */
-export async function readInput(source: string): Promise<string> {
+export async function readInput(source: string, options: { sizeHint?: string } = {}): Promise<string> {
+  const sizeHint = options.sizeHint ?? POLICY_SIZE_HINT;
+
   if (source !== STDIN_SOURCE && source.trim() === '') {
     throw new UsageError('--file needs a path, or - for the standard input.');
   }
 
-  const bytes = source === STDIN_SOURCE ? await readStdinBytes() : await readFileBytes(source);
+  const bytes = source === STDIN_SOURCE ? await readStdinBytes(sizeHint) : await readFileBytes(source, sizeHint);
 
   return decode(bytes, source);
 }

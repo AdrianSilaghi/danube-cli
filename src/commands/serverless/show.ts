@@ -82,4 +82,14 @@ export const showCommand = new Command('get')
         console.log(`  ${key}=[hidden]`);
       }
     }
+
+    // Names only: a secret's value is write-only and no one can read it back.
+    const secretKeys = c.secret_environment_keys ?? [];
+    if (secretKeys.length > 0) {
+      console.log();
+      console.log(chalk.bold('Secret Variables'));
+      for (const key of secretKeys) {
+        console.log(`  ${key} ${chalk.dim('(secret, write-only)')}`);
+      }
+    }
   });

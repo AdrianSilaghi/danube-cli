@@ -9,6 +9,9 @@ vi.mock('../../src/lib/api-client.js', () => ({
   },
 }));
 
+const mockConfirm = vi.fn();
+vi.mock('@inquirer/prompts', () => ({ confirm: (...args: unknown[]) => mockConfirm(...args) }));
+
 vi.mock('ora', () => ({
   default: () => ({
     start: vi.fn().mockReturnThis(),
@@ -76,7 +79,7 @@ describe('registry keys', () => {
     it('lists keys with their id, scope and state', async () => {
       mockGet.mockResolvedValue(
         page([
-          makeKey(),
+          makeKey({ last_used_at: '2026-11-05T10:00:00Z' }),
           makeKey({ id: 'rev-1', name: 'old', revoked_at: '2026-11-02T10:00:00Z' }),
           makeKey({ id: 'exp-1', name: 'stale', expires_at: '2020-01-01T00:00:00Z' }),
         ]),
@@ -99,6 +102,14 @@ describe('registry keys', () => {
       await run('ls', '--active');
 
       expect(mockGet).toHaveBeenCalledWith('/api/v1/registry/access-keys?active=true&per_page=100&page=1');
+    });
+
+    it('says how many it shows when the list is cut short', async () => {
+      mockGet.mockResolvedValue({ data: [makeKey()], pagination: { current_page: 1, last_page: 1, per_page: 100, total: 5 } });
+
+      await run('ls');
+
+      expect(printed()).toContain('Showing 1 of 5.');
     });
 
     it('says so when there are no keys', async () => {
@@ -133,6 +144,20 @@ describe('registry keys', () => {
       expect(out.split(TOKEN)).toHaveLength(2);
       expect(out).toContain('it will not be shown again');
       expect(out).toContain('echo "$TOKEN" | docker login cr.danubedata.ro -u key-ci --password-stdin');
+    });
+
+    it('refuses an answer whose token is empty', async () => {
+      mockPost.mockResolvedValue({ key: makeKey(), token: '' });
+
+      await expect(run('create', 'ci', '--scope', 'pull')).rejects.toThrow('had no key or token');
+    });
+
+    it('shows when a key with an expiry expires', async () => {
+      mockPost.mockResolvedValue(answer({ expires_at: '2027-01-31T00:00:00Z' }));
+
+      await run('create', 'ci', '--scope', 'pull', '--expires-at', '2027-01-31T00:00:00Z');
+
+      expect(printed()).not.toContain('Expires:   never');
     });
 
     it('returns the token in data with --json', async () => {
@@ -223,6 +248,14 @@ describe('registry keys', () => {
       expect(printed()).toContain("Registry access key 'ci' revoked.");
     });
 
+    it('shows a dash when the answer carries no revocation time', async () => {
+      mockDelete.mockResolvedValue({ data: makeKey() });
+
+      await run('rm', 'some-id', '--force');
+
+      expect(printed()).toContain('Revoked');
+    });
+
     it('is also reachable as revoke, with --json returning the key', async () => {
       setJsonMode(true);
       const revoked = makeKey({ revoked_at: '2026-11-03T10:00:00Z' });
@@ -237,6 +270,22 @@ describe('registry keys', () => {
       mockDelete.mockRejectedValue(new ApiError(404, 'Not found'));
 
       await expect(run('rm', 'nope', '--force')).rejects.toThrow('Not found');
+    });
+
+    it('revokes nothing when the prompt is declined', async () => {
+      const original = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+      Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+      mockConfirm.mockResolvedValue(false);
+
+      try {
+        await run('rm', 'some-id');
+      } finally {
+        if (original) Object.defineProperty(process.stdin, 'isTTY', original);
+        else delete (process.stdin as { isTTY?: boolean }).isTTY;
+      }
+
+      expect(printed()).toContain('Cancelled.');
+      expect(mockDelete).not.toHaveBeenCalled();
     });
 
     it('does not revoke without confirmation when it cannot prompt', async () => {

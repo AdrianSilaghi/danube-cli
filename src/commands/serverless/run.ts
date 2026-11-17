@@ -11,11 +11,13 @@ import { isJsonMode, jsonOutput, jsonEnvelope } from '../../lib/json-mode.js';
 import { parseDuration } from '../../lib/duration.js';
 import { statusColor } from '../../lib/output.js';
 import { ApiError } from '../../lib/errors.js';
+import { readEnvironmentFlags } from '../../lib/env-input.js';
 import type { ServerlessContainer, ServerlessRun, Envelope } from '../../types/api.js';
 
 interface RunOptions {
   tag?: string;
   env?: string[];
+  envFile?: string;
   timeout?: string;
   wait?: boolean;
   waitTimeout?: string;
@@ -35,12 +37,16 @@ export const runCommand = new Command('run')
   .argument('<name-or-id>', 'Container name or ID')
   .argument('[command...]', 'Command to run, after --, e.g. -- npm run migrate')
   .option('--tag <tag>', "Image tag to run (defaults to the container's current tag)")
-  .option('--env <pairs...>', 'Environment variables for this run only (KEY=VALUE)')
+  .option('--env <pairs...>', 'Environment variables for this run only (KEY=VALUE, or KEY to read it from your environment)')
+  .option('--env-file <path>', 'Read this run\'s environment variables from a dotenv file (- for the standard input); --env wins')
   .option('--timeout <duration>', 'Run timeout: 30s, 10m, 1h (server default 15m)')
   .option('--wait', 'Block until the run reaches a terminal state')
   .option('--wait-timeout <duration>', 'Ceiling for --wait: 30s, 10m, 1h (default 10m)')
   .option('--no-logs', 'Do not stream logs while waiting')
   .action(async (nameOrId: string, command: string[], opts: RunOptions) => {
+    // Read before any request: a bad flag or file fails without touching the API.
+    const { env } = await readEnvironmentFlags({ env: opts.env, envFile: opts.envFile });
+
     const api = await ApiClient.create();
     const container = await resolveContainer(api, nameOrId);
 
@@ -49,18 +55,7 @@ export const runCommand = new Command('run')
     if (opts.tag) body.image_tag = opts.tag;
     if (opts.timeout) body.timeout_seconds = Math.round(parseDuration(opts.timeout) / 1000);
 
-    if (opts.env) {
-      const env: Record<string, string> = {};
-      for (const pair of opts.env) {
-        const eqIndex = pair.indexOf('=');
-        if (eqIndex <= 0) {
-          console.error(chalk.red(`Invalid env format: '${pair}'. Use KEY=VALUE.`));
-          process.exit(1);
-        }
-        env[pair.substring(0, eqIndex)] = pair.substring(eqIndex + 1);
-      }
-      body.env = env;
-    }
+    if (opts.env || opts.envFile) body.env = env;
 
     const run = await createRun(api, container, body);
 

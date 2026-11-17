@@ -1,15 +1,16 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { ApiClient } from '../../lib/api-client.js';
+import { fetchAllPages } from '../../lib/paginate.js';
 import { isJsonMode, jsonEnvelope } from '../../lib/json-mode.js';
 import { waitForTerminal, captureBaseline, DEFAULT_WAIT_TIMEOUT_MS } from '../../lib/wait-for-terminal.js';
 import type { WaitBaseline } from '../../lib/wait-for-terminal.js';
 import { waitEnvelope, printWaitOutcome } from '../../lib/report-wait.js';
 import type { ServerlessContainer } from '../../types/api.js';
 import { parseDurationSeconds } from '../../lib/duration.js';
-import { mergeEnv, putMergedEnvironment } from '../../lib/serverless-env.js';
+import { assertSecretsStored, effectiveSecretChanges, ensureSecretSupport, mergeEnv, putMergedEnvironment, reconcileKinds } from '../../lib/serverless-env.js';
+import { readEnvironmentFlags, secretsToSet } from '../../lib/env-input.js';
 
-interface ListResponse { data: ServerlessContainer[] }
 interface MutateResponse { message?: string; container: ServerlessContainer }
 
 /**
@@ -37,12 +38,19 @@ export const applyCommand = new Command('apply')
   .option('--initial-scale <n>', 'Instances a new revision starts with before it counts as ready (0..max-scale)')
   .option('--scale-down-delay <duration>', 'How long the previous revision keeps its instances after losing traffic: 0, 30s, 5m, 1h')
   .option('--registry-credential <id>', 'Registry credential UUID (omit for your own namespace)')
-  .option('--env <pairs...>', 'Set environment variables (KEY=VALUE), merged with existing')
+  .option('--env <pairs...>', 'Set environment variables (KEY=VALUE, or KEY to read it from your environment), merged with existing')
+  .option('--env-file <path>', 'Read environment variables from a dotenv file (- for the standard input); --env wins')
   .option('--rm-env <keys...>', 'Remove environment variables by key')
+  .option('--secret <pairs...>', 'Set write-only secret variables (KEY=VALUE, or KEY to read it from your environment)')
+  .option('--secret-file <path>', 'Read secret variables from a dotenv file (- for the standard input)')
+  .option('--rm-secret <keys...>', 'Remove secret variables by key')
   .option('--idempotency-key <key>', 'Makes a create safe to retry after a timeout')
   .option('--wait', 'Block until the container reaches a terminal state')
   .option('--wait-timeout <duration>', 'Ceiling for --wait: 30s, 10m, 1h (default 10m)')
   .action(async (opts) => {
+    // Read before any request: a bad flag or file fails without touching the API.
+    const { env: envPairs, secrets: requestedSecrets } = await readEnvironmentFlags(opts);
+
     const api = await ApiClient.create();
 
     const int = (v: string | undefined, flag: string): number | undefined => {
@@ -67,20 +75,8 @@ export const applyCommand = new Command('apply')
     if (opts.scaleDownDelay !== undefined) desired.scale_down_delay_seconds = parseDurationSeconds(opts.scaleDownDelay);
     if (opts.registryCredential !== undefined) desired.registry_credential_id = opts.registryCredential;
 
-    // Parsed once, up front: validity does not depend on whether the
-    // container exists yet, and --rm-env alone must not require --env.
-    const envPairs: Record<string, string> = {};
-    if (opts.env) {
-      for (const pair of opts.env as string[]) {
-        const eqIndex = pair.indexOf('=');
-        if (eqIndex <= 0) {
-          console.error(chalk.red(`Invalid env format: '${pair}'. Use KEY=VALUE.`));
-          process.exit(1);
-        }
-        envPairs[pair.substring(0, eqIndex)] = pair.substring(eqIndex + 1);
-      }
-    }
-    const envRequested = Boolean(opts.env || opts.rmEnv);
+    // --rm-env alone must not require --env.
+    const envRequested = Boolean(opts.env || opts.envFile || opts.rmEnv);
 
     const existing = await findByName(api, opts.name);
 
@@ -89,38 +85,61 @@ export const applyCommand = new Command('apply')
     let baseline: WaitBaseline | null = null;
 
     if (existing) {
+      // Refuses, before any write, a platform that would drop the secrets without saying so.
+      const current = Object.keys(requestedSecrets).length > 0 ? await ensureSecretSupport(api, existing) : existing;
+      // A key set as a secret that is plain now (or the reverse) is moved in the same write.
+      const kinds = reconcileKinds(current, envPairs, requestedSecrets, opts.rmEnv);
+      const secrets = requestedSecrets;
+      const rmEnv = kinds.rmEnv;
+      const envTouched = envRequested || rmEnv.length > 0;
+      // stderr, also under --json: stdout stays one clean document.
+      for (const note of kinds.notes) console.error(chalk.dim(note));
+
       // Same semantics as `rapids update`: remove named keys first, then
       // overlay --env on what is left of the container's current map.
-      const desiredEnv = envRequested ? mergeEnv(existing.environment_variables, envPairs, opts.rmEnv) : null;
-      const envChanged = desiredEnv !== null && !envEqual(existing.environment_variables, desiredEnv);
+      const desiredEnv = envTouched ? mergeEnv(current.environment_variables, envPairs, rmEnv) : null;
+      const envChanged = desiredEnv !== null && !envEqual(current.environment_variables, desiredEnv);
 
       // Writing a configuration that already matches produces a new revision
       // for no reason — churn an agent has no way to know it caused. Compare
       // first and report `unchanged` instead.
+      const secretChanges = effectiveSecretChanges(secrets, current.secret_environment_keys);
+      const secretsChanged = Object.keys(secretChanges).length > 0;
+
       const drift = Object.entries(desired).filter(
-        ([k, v]) => String((existing as unknown as Record<string, unknown>)[k] ?? '') !== String(v ?? ''),
+        ([k, v]) => String((current as unknown as Record<string, unknown>)[k] ?? '') !== String(v ?? ''),
       );
 
-      if (drift.length === 0 && !envChanged) {
-        container = existing;
+      if (drift.length === 0 && !envChanged && !secretsChanged) {
+        container = current;
         action = 'unchanged';
       } else {
         // Snapshot BEFORE the write. Without it the first poll cannot tell the
         // previous operation's verdict from this one's.
-        baseline = await captureBaseline(api, existing.id);
-        // Only the fields actually supplied are sent, so apply converges the
+        baseline = await captureBaseline(api, current.id);
+        // Nothing but the secrets differs: send only them (and the snapshot, which covers their
+        // names). The platform skips the rollout for exactly that request when the secret map is
+        // unchanged, which any other field in it would turn into a new revision.
+        const secretsOnly = drift.length === 0 && !envChanged;
+        // Otherwise only the fields actually supplied are sent, so apply converges the
         // stated configuration without silently resetting anything the caller
         // did not mention.
-        const res = envRequested
+        const body = secretsOnly
+          ? { secret_environment_variables: secretChanges }
+          : secretsChanged ? { ...desired, secret_environment_variables: secretChanges } : desired;
+        const res = (envTouched && !secretsOnly) || secretsChanged
           ? await putMergedEnvironment<MutateResponse>(
               api,
-              existing,
-              (env) => mergeEnv(env, envPairs, opts.rmEnv),
-              desired,
+              current,
+              envTouched && !secretsOnly ? (env) => mergeEnv(env, envPairs, rmEnv) : null,
+              body,
             )
-          : await api.put<MutateResponse>(`/api/v1/serverless/${existing.id}`, desired);
+          : await api.put<MutateResponse>(`/api/v1/serverless/${current.id}`, body);
         container = res.container;
-        action = 'updated';
+        // The platform bumps the generation only when something it stores changed.
+        action = typeof container.spec_generation === 'number' && container.spec_generation === current.spec_generation
+          ? 'unchanged'
+          : 'updated';
       }
     } else {
       const body: Record<string, unknown> = {
@@ -132,19 +151,22 @@ export const applyCommand = new Command('apply')
       // A brand new container has no environment to remove from, so --rm-env
       // alone (no --env) is a true no-op here rather than an empty map sent
       // to the API.
-      if (opts.env) body.environment_variables = envPairs;
+      if (opts.env || opts.envFile) body.environment_variables = envPairs;
+      // Nothing to remove from a new container: only secrets with a value go out.
+      const newSecrets = secretsToSet(requestedSecrets);
+      if (Object.keys(newSecrets).length > 0) body.secret_environment_variables = newSecrets;
       const res = await api.post<MutateResponse>(
         '/api/v1/serverless',
         body,
         opts.idempotencyKey ? { 'Idempotency-Key': String(opts.idempotencyKey) } : undefined,
       );
       container = res.container;
+      // A platform without secret variables would create the container without them.
+      assertSecretsStored(container, Object.keys(newSecrets));
       action = 'created';
     }
 
-    // A no-op has nothing to converge to, so waiting would just re-confirm the
-    // state we already read.
-    if (!opts.wait || action === 'unchanged') {
+    if (!opts.wait) {
       if (isJsonMode()) {
         jsonEnvelope(waitEnvelope(action, container, {
           settled: action === 'unchanged',
@@ -167,9 +189,11 @@ export const applyCommand = new Command('apply')
       console.error(chalk.dim(`${action} ${container.name}; waiting for a terminal state...`));
     }
 
+    // A no-op writes nothing, yet --wait still reports on the container: an earlier
+    // rollout may be running or may have failed. One that has settled answers on the first poll.
     const wait = await waitForTerminal(api, container.id, {
       timeoutMs: parseDuration(opts.waitTimeout) ?? DEFAULT_WAIT_TIMEOUT_MS,
-      baseline,
+      baseline: action === 'unchanged' ? null : baseline,
       minGeneration: container.spec_generation ?? null,
     });
 
@@ -192,11 +216,13 @@ export const applyCommand = new Command('apply')
   });
 
 async function findByName(api: ApiClient, name: string): Promise<ServerlessContainer | null> {
-  const res = await api.get<ListResponse>('/api/v1/serverless');
+  // The list endpoint has no name filter and answers 15 at a time: every page is read, or a
+  // container past the first would not be found and apply would try to create it again.
+  const { items } = await fetchAllPages<ServerlessContainer>(api, '/api/v1/serverless');
   const wanted = name.toLowerCase();
   const slug = slugify(name);
 
-  return res.data.find((c) => c.name.toLowerCase() === wanted || c.slug === slug) ?? null;
+  return items.find((c) => c.name.toLowerCase() === wanted || c.slug === slug) ?? null;
 }
 
 /** Mirrors the API's slug rule: lowercase alphanumerics and hyphens, max 63. */

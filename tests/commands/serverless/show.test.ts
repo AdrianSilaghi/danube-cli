@@ -118,6 +118,20 @@ describe('serverless show command', () => {
     expect(allOutput).toContain('SECRET=[hidden]');
   });
 
+  it('lists secret variable names, never values', async () => {
+    const container = makeContainer({ environment_variables: {}, secret_environment_keys: ['API_KEY', 'DB_PASSWORD'] });
+    mockGet.mockResolvedValueOnce({ data: [container], pagination: { current_page: 1, last_page: 1, per_page: 15, total: 1 } });
+    mockGet.mockResolvedValueOnce({ container, metrics: {}, url: null, monthly_cost: 4.99 });
+
+    await showCommand.parseAsync(['node', 'test', 'my-api']);
+
+    const allOutput = consoleLogSpy.mock.calls.map(c => c[0]).join('\n');
+    expect(allOutput).toContain('Secret Variables');
+    expect(allOutput).toContain('API_KEY');
+    expect(allOutput).toContain('DB_PASSWORD');
+    expect(allOutput).not.toContain('=');
+  });
+
   it('throws when container not found', async () => {
     mockGet.mockResolvedValue({ data: [], pagination: { current_page: 1, last_page: 1, per_page: 15, total: 0 } });
 
