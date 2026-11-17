@@ -2,30 +2,20 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { ApiClient } from '../../lib/api-client.js';
 import { formatTable, statusColor, formatDate } from '../../lib/output.js';
-import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
+import { isJsonMode, jsonOutput, jsonEnvelope } from '../../lib/json-mode.js';
 import { confirmDestruction } from '../../lib/interactive.js';
 import { ResourceNotFoundError, UsageError } from '../../lib/errors.js';
 import { resolveQueue } from './shared.js';
-import { parseAcls, formatAcl, type AclRule } from './acl.js';
+import { parseAcls, formatAcl } from './acl.js';
+import type { KafkaUser } from '../../types/api.js';
 
 /** Kafka users (SASL/SCRAM) and their ACLs: `danube queue users`. */
 
-interface KafkaUser {
-  id: string;
-  name: string;
-  username: string;
-  status: string;
-  status_message: string | null;
-  acls: AclRule[];
-  created_at: string | null;
-  password?: string;
-}
-
 const collect = (value: string, previous: string[]) => [...previous, value];
 
-async function usersPath(api: ApiClient, queueName: string): Promise<{ base: string; queueName: string }> {
-  const queue = await resolveQueue(api, queueName);
-  return { base: `/api/v1/queue/${queue.id}/kafka-users`, queueName: queue.name };
+async function usersPath(api: ApiClient, queueName: string, exact = true): Promise<{ base: string }> {
+  const queue = await resolveQueue(api, queueName, exact);
+  return { base: `/api/v1/queue/${queue.id}/kafka-users` };
 }
 
 async function findUser(api: ApiClient, base: string, nameOrId: string): Promise<KafkaUser> {
@@ -51,11 +41,12 @@ function printPasswordOnce(user: KafkaUser): void {
 
 async function listUsers(queueName: string): Promise<void> {
   const api = await ApiClient.create();
-  const { base } = await usersPath(api, queueName);
+  const { base } = await usersPath(api, queueName, false);
   const res = await api.get<{ data: KafkaUser[]; meta?: unknown }>(base);
 
   if (isJsonMode()) {
-    jsonOutput(res.data);
+    // The limits (max_users, max_acl_rules, max_name_length) travel with the list.
+    jsonEnvelope(res.data, { meta: { count: res.data.length, ...(res.meta as Record<string, unknown> | undefined) } });
     return;
   }
   if (res.data.length === 0) {
@@ -177,7 +168,9 @@ const rotateCommand = new Command('rotate-password')
     }
     console.log(chalk.green(`Password of Kafka user '${user.name}' rotated.`));
     console.log(`${chalk.bold('Username')}  ${user.username}`);
+    console.log(`${chalk.bold('Status')}    ${statusColor(user.status)}`);
     printPasswordOnce(user);
+    console.log(chalk.dim('The old password keeps working until the cluster applies the new one (status active).'));
   });
 
 // `users <queue>` lists; the subcommands win when the first argument is their name.

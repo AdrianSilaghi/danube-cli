@@ -16,6 +16,7 @@ export interface QueueInstance {
 
 export const LIST_PATH = '/api/v1/queue';
 
-export function resolveQueue(api: ApiClient, nameOrId: string): Promise<QueueInstance> {
-  return resolveResource<QueueInstance>(api, LIST_PATH, 'queue', nameOrId);
+/** `exact` for commands that change credentials or destroy: an id prefix must not pick the queue. */
+export function resolveQueue(api: ApiClient, nameOrId: string, exact = false): Promise<QueueInstance> {
+  return resolveResource<QueueInstance>(api, LIST_PATH, 'queue', nameOrId, { exact });
 }

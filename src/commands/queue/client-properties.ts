@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { chmod, writeFile } from 'node:fs/promises';
+import { lstat, unlink, writeFile } from 'node:fs/promises';
 import { ApiClient } from '../../lib/api-client.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import { UsageError } from '../../lib/errors.js';
@@ -14,7 +14,7 @@ export const clientPropertiesCommand = new Command('client-properties')
   .option('-f, --force', 'Overwrite an existing file')
   .action(async (nameOrId: string, opts: { output?: string; force?: boolean }) => {
     const api = await ApiClient.create();
-    const queue = await resolveQueue(api, nameOrId);
+    const queue = await resolveQueue(api, nameOrId, true);
     const content = await api.getText(`/api/v1/queue/${queue.id}/client-properties`);
 
     if (opts.output === '-') {
@@ -23,17 +23,22 @@ export const clientPropertiesCommand = new Command('client-properties')
     }
 
     const file = opts.output ?? `kafka-${queue.name}-client.properties`;
+    const existing = await lstat(file).catch(() => null);
+    if (existing?.isDirectory()) throw new UsageError(`${file} is a directory. Give -o a file name.`);
+    if (existing && !opts.force) {
+      throw new UsageError(`${file} already exists. Use --force to overwrite it, or -o to pick another file.`);
+    }
+    // Remove first (a symlink is removed, never followed), then create exclusively
+    // at 0600: the credentials are never in a file another user can open.
+    if (existing) await unlink(file);
     try {
-      // 'wx' fails if the file exists, so a credentials file is never clobbered by accident.
-      await writeFile(file, content, { mode: 0o600, flag: opts.force ? 'w' : 'wx' });
+      await writeFile(file, content, { mode: 0o600, flag: 'wx' });
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
-        throw new UsageError(`${file} already exists. Use --force to overwrite it, or -o to pick another file.`);
+        throw new UsageError(`${file} appeared while writing. Run again, or pick another file with -o.`);
       }
       throw err;
     }
-    // 'w' keeps the mode of a file that already existed.
-    await chmod(file, 0o600);
 
     if (isJsonMode()) {
       jsonOutput({ file });

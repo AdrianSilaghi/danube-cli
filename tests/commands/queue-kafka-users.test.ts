@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, readFile, stat, writeFile, chmod, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, stat, writeFile, chmod, rm, symlink, lstat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -20,7 +20,8 @@ vi.mock('@inquirer/prompts', () => ({ confirm: confirmMock, input: vi.fn() }));
 const { queueCommand } = await import('../../src/commands/queue/index.js');
 const { parseAcl, parseAcls, formatAcl } = await import('../../src/commands/queue/acl.js');
 const { setJsonMode } = await import('../../src/lib/json-mode.js');
-const { UsageError, ConfirmationRequiredError } = await import('../../src/lib/errors.js');
+const { UsageError, ConfirmationRequiredError, ApiError } = await import('../../src/lib/errors.js');
+const { handleError } = await import('../../src/lib/handle-error.js');
 
 const run = (args: string[]) => queueCommand.parseAsync(args, { from: 'user' });
 
@@ -69,6 +70,16 @@ describe('parseAcl', () => {
     });
   });
 
+  it('keeps colons in the name', () => {
+    expect(parseAcl('group:app:consumer:read')).toEqual({
+      resource_type: 'group', name: 'app:consumer', pattern: 'literal', operations: ['read'],
+    });
+    expect(parseAcl('group:app:consumer:prefix:read')).toEqual({
+      resource_type: 'group', name: 'app:consumer', pattern: 'prefix', operations: ['read'],
+    });
+    expect(parseAcl('topic:a:b:c:literal:write')).toMatchObject({ name: 'a:b:c', pattern: 'literal', operations: ['write'] });
+  });
+
   it('parses a cluster rule without name or pattern', () => {
     expect(parseAcl('cluster:describe')).toEqual({ resource_type: 'cluster', operations: ['describe'] });
   });
@@ -79,7 +90,6 @@ describe('parseAcl', () => {
 
   it.each([
     ['queue:x:read', /unknown resource/],
-    ['topic:orders:glob:read', /unknown pattern/],
     ['topic:orders:prefix:fly', /fly not allowed on topic/],
     ['group:g:literal:write', /write not allowed on group/],
     ['cluster:read', /read not allowed on cluster/],
@@ -127,11 +137,13 @@ describe('queue users', () => {
 
   it('lists with the explicit ls subcommand too, and as JSON', async () => {
     setJsonMode(true);
-    routeGet({ [`${Q}/kafka-users`]: { data: [user()], meta: {} } });
+    routeGet({ [`${Q}/kafka-users`]: { data: [user()], meta: { max_users: 10, max_acl_rules: 50, max_name_length: 20 } } });
 
     await run(['users', 'ls', 'ev']);
 
-    expect(JSON.parse(String(logSpy.mock.calls[0]?.[0])).data[0].name).toBe('orders-app');
+    const json = JSON.parse(String(logSpy.mock.calls[0]?.[0]));
+    expect(json.data[0].name).toBe('orders-app');
+    expect(json.meta).toEqual({ count: 1, max_users: 10, max_acl_rules: 50, max_name_length: 20 });
   });
 
   it('creates a user, sends parsed rules and prints the password once with a warning', async () => {
@@ -206,15 +218,72 @@ describe('queue users', () => {
     expect(mockDelete).toHaveBeenCalledWith(`${Q}/kafka-users/u-1`);
   });
 
+  it('looks the queue up by exact name for changes but not for the list', async () => {
+    routeGet({ [`${Q}/kafka-users`]: { data: [user()] } });
+    mockPost.mockResolvedValue({ data: user() });
+    // an id prefix ("q-") must not select the queue for a credential change
+    mockGet.mockImplementation((path: string) =>
+      path.startsWith('/api/v1/queue?')
+        ? Promise.resolve({ data: [{ id: 'q-1', name: 'ev', provider: 'kafka' }], pagination: { last_page: 1, total: 1 } })
+        : Promise.resolve({ data: [user()] }),
+    );
+
+    await expect(run(['users', 'rotate-password', 'q-', 'orders-app', '--yes'])).rejects.toThrow(/not found/);
+    expect(mockPost).not.toHaveBeenCalled();
+    await run(['users', 'ls', 'q-']);
+    expect(out()).toContain('orders-app');
+  });
+
+  it('rotate-password without --yes when non-interactive exits 5 and sends nothing', async () => {
+    routeGet({ [`${Q}/kafka-users`]: { data: [user()] } });
+    const exit = vi.spyOn(process, 'exit').mockImplementation((() => { throw new Error('exit'); }) as never);
+
+    const failure = await run(['users', 'rotate-password', 'ev', 'orders-app']).catch((e) => e);
+
+    expect(failure).toBeInstanceOf(ConfirmationRequiredError);
+    expect(() => handleError(failure)).toThrow('exit');
+    expect(exit).toHaveBeenCalledWith(5);
+    expect(mockPost).not.toHaveBeenCalled();
+  });
+
+  it('refuses --acl together with --none before any request', async () => {
+    await expect(run(['users', 'update', 'ev', 'orders-app', '--acl', 'cluster:describe', '--none'])).rejects.toThrow(/either --acl or --none/);
+    expect(mockGet).not.toHaveBeenCalled();
+    expect(mockPut).not.toHaveBeenCalled();
+  });
+
+  it('shows the API 422 on a RabbitMQ queue', async () => {
+    routeGet({});
+    mockPost.mockRejectedValueOnce(new ApiError(422, 'Users and ACLs are available for Kafka clusters only.'));
+
+    await expect(run(['users', 'create', 'ev', 'orders-app', '--acl', 'cluster:describe'])).rejects.toMatchObject({
+      statusCode: 422,
+      message: 'Users and ACLs are available for Kafka clusters only.',
+    });
+  });
+
+  it('sends a group name containing colons intact', async () => {
+    routeGet({});
+    mockPost.mockResolvedValueOnce({ data: user() });
+
+    await run(['users', 'create', 'ev', 'orders-app', '--acl', 'group:app:consumer:prefix:read']);
+
+    expect(mockPost.mock.calls[0]?.[1].acls).toEqual([
+      { resource_type: 'group', name: 'app:consumer', pattern: 'prefix', operations: ['read'] },
+    ]);
+  });
+
   it('rotates a password after confirmation and shows the new one once', async () => {
     routeGet({ [`${Q}/kafka-users`]: { data: [user()] } });
-    mockPost.mockResolvedValueOnce({ data: user({ password: 'n3w' }) });
+    mockPost.mockResolvedValueOnce({ data: user({ status: 'pending', password: 'n3w' }) });
 
     await run(['users', 'rotate-password', 'ev', 'orders-app', '--yes']);
 
     expect(mockPost).toHaveBeenCalledWith(`${Q}/kafka-users/u-1/rotate-password`);
     expect(out()).toContain('n3w');
     expect(out()).toMatch(/only this once/);
+    expect(out()).toContain('pending');
+    expect(out()).toMatch(/old password keeps working/);
   });
 });
 
@@ -282,6 +351,45 @@ describe('queue schema-registry', () => {
 
     expect(mockPost).not.toHaveBeenCalled();
     expect(out()).toMatch(/already enabled/);
+  });
+
+  it('disable warns that schemas stay in the cluster; enable accepts --force', async () => {
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+    routeGet({ [`${Q}/schema-registry`]: { data: registry() } });
+    confirmMock.mockResolvedValueOnce(false);
+
+    await run(['schema-registry', 'disable', 'ev']);
+
+    const message = confirmMock.mock.calls[0]?.[0].message as string;
+    expect(message).toMatch(/_schemas topic/);
+    expect(message).toMatch(/billing stops/);
+    expect(mockDelete).not.toHaveBeenCalled();
+
+    Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+    mockPost.mockResolvedValueOnce({ data: registry({ enabled: true, status: 'provisioning' }) });
+    await run(['schema-registry', 'enable', 'ev', '--force']);
+    expect(mockPost).toHaveBeenCalledWith(`${Q}/schema-registry`);
+  });
+
+  it('disable and rotate-password without --yes when non-interactive exit 5 and send nothing', async () => {
+    routeGet({});
+    const exit = vi.spyOn(process, 'exit').mockImplementation((() => { throw new Error('exit'); }) as never);
+
+    for (const verb of ['disable', 'rotate-password']) {
+      const failure = await run(['schema-registry', verb, 'ev']).catch((e) => e);
+      expect(failure).toBeInstanceOf(ConfirmationRequiredError);
+      expect(() => handleError(failure)).toThrow('exit');
+      expect(exit).toHaveBeenLastCalledWith(5);
+    }
+    expect(mockDelete).not.toHaveBeenCalled();
+    expect(mockPost).not.toHaveBeenCalled();
+  });
+
+  it('shows the API 422 on a RabbitMQ queue', async () => {
+    routeGet({ [`${Q}/schema-registry`]: { data: registry() } });
+    mockPost.mockRejectedValueOnce(new ApiError(422, 'Schema Registry is available for Kafka clusters only.'));
+
+    await expect(run(['schema-registry', 'enable', 'ev', '--yes'])).rejects.toMatchObject({ statusCode: 422 });
   });
 
   it('disables with --yes', async () => {
@@ -368,6 +476,43 @@ describe('queue client-properties', () => {
     await run(['client-properties', 'ev', '-o', file, '--force']);
     expect(await readFile(file, 'utf8')).toBe(body);
     expect((await stat(file)).mode & 0o777).toBe(0o600);
+  });
+
+  it('writes nothing when the API answers 422 (RabbitMQ queue)', async () => {
+    mockGetText.mockRejectedValueOnce(new ApiError(422, 'Client properties are available for Kafka clusters only.'));
+    const file = join(dir, 'never.properties');
+
+    await expect(run(['client-properties', 'ev', '-o', file])).rejects.toMatchObject({ statusCode: 422 });
+    await expect(lstat(file)).rejects.toThrow();
+  });
+
+  it('errors clearly when -o is a directory', async () => {
+    await expect(run(['client-properties', 'ev', '-o', dir])).rejects.toThrow(/is a directory/);
+    await expect(run(['client-properties', 'ev', '-o', dir, '--force'])).rejects.toThrow(/is a directory/);
+  });
+
+  it('with --force replaces a symlink instead of writing through it', async () => {
+    const target = join(dir, 'target.txt');
+    const link = join(dir, 'link.properties');
+    await writeFile(target, 'precious');
+    await symlink(target, link);
+
+    await run(['client-properties', 'ev', '-o', link, '--force']);
+
+    expect(await readFile(target, 'utf8')).toBe('precious');
+    expect((await lstat(link)).isSymbolicLink()).toBe(false);
+    expect(await readFile(link, 'utf8')).toBe(body);
+    expect((await stat(link)).mode & 0o777).toBe(0o600);
+  });
+
+  it('refuses to follow a symlink without --force too', async () => {
+    const target = join(dir, 'target.txt');
+    const link = join(dir, 'link.properties');
+    await writeFile(target, 'precious');
+    await symlink(target, link);
+
+    await expect(run(['client-properties', 'ev', '-o', link])).rejects.toThrow(/already exists/);
+    expect(await readFile(target, 'utf8')).toBe('precious');
   });
 
   it('prints to stdout only for -o -', async () => {

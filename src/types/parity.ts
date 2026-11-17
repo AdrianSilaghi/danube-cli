@@ -44,6 +44,8 @@ import type {
   BucketPolicyGrant,
   Team,
   SshKey,
+  KafkaUser,
+  SchemaRegistry,
 } from './api.js';
 
 type Json<T> = T extends { content: { 'application/json': infer B } } ? B : never;
@@ -468,3 +470,20 @@ type _userTeams = Satisfies<{ data: Team[]; current_team_id: number; token_team_
 type SshKeyList = Json<paths['/ssh-keys']['get']['responses'][200]>;
 
 type _sshKeyList = Satisfies<{ data: SshKey[]; pagination: Pagination }, SshKeyList>;
+
+/**
+ * Kafka users and the Schema Registry add-on (`danube queue users` and
+ * `danube queue schema-registry`). The commands read `status`, `acls`,
+ * `monthly_price_cents` and the once-only `password`.
+ */
+type KafkaUserList = Json<paths['/queue/{queueInstance}/kafka-users']['get']['responses'][200]>;
+type KafkaUserCreate = Json<paths['/queue/{queueInstance}/kafka-users']['post']['responses'][201]>;
+type KafkaUserRotate = Json<paths['/queue/{queueInstance}/kafka-users/{kafkaUser}/rotate-password']['post']['responses'][200]>;
+type SchemaRegistryShow = Json<paths['/queue/{queueInstance}/schema-registry']['get']['responses'][200]>;
+type SchemaRegistryEnable = Json<paths['/queue/{queueInstance}/schema-registry']['post']['responses'][202]>;
+
+type _kafkaUserList = Satisfies<{ data: KafkaUser[] }, KafkaUserList>;
+type _kafkaUserCreate = Satisfies<{ data: KafkaUser }, KafkaUserCreate>;
+type _kafkaUserRotate = Satisfies<{ data: KafkaUser }, KafkaUserRotate>;
+type _schemaRegistryShow = Satisfies<{ data: SchemaRegistry }, SchemaRegistryShow>;
+type _schemaRegistryEnable = Satisfies<{ data: SchemaRegistry }, SchemaRegistryEnable>;

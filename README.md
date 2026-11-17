@@ -629,7 +629,7 @@ danube queue schema-registry enable events
 danube queue client-properties events -o events.properties
 ```
 
-ACL resources: `topic`, `group`, `transactional_id` (name and pattern, `literal` by default; `*` with `literal` means all) and `cluster` (operations only, e.g. `cluster:describe`). The server has the final say on limits such as the number of rules.
+ACL resources: `topic`, `group`, `transactional_id` (`<name>[:<literal|prefix>]:<ops>`, `literal` by default; `*` with `literal` means all; a name may contain colons, e.g. `group:app:consumer:prefix:read`; a name ending in `:literal` or `:prefix` needs the pattern written out) and `cluster` (operations only, e.g. `cluster:describe`). A queue named `ls`, `create`, `update`, `rm`, `rotate-password`, `show`, `enable` or `disable` is addressed by its id under `users` and `schema-registry`. The server has the final say on limits such as the number of rules.
 
 Kafka clusters do not support stop/start, snapshots or plan changes yet; the API says so when you try.
 

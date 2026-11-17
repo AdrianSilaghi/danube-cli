@@ -5,24 +5,15 @@ import { printDetails, statusColor } from '../../lib/output.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import { confirmDestruction } from '../../lib/interactive.js';
 import { resolveQueue } from './shared.js';
+import type { SchemaRegistry } from '../../types/api.js';
 
 /** The optional Schema Registry add-on of a Kafka cluster (billed monthly). */
 
-interface SchemaRegistry {
-  enabled: boolean;
-  status: string;
-  url: string | null;
-  username: string;
-  password: string | null;
-  monthly_price_cents: number;
-  enabled_at: string | null;
-}
-
 const euros = (cents: number) => `EUR ${(cents / 100).toFixed(2)}`;
 
-async function target(nameOrId: string): Promise<{ api: ApiClient; path: string; name: string }> {
+async function target(nameOrId: string, exact = true): Promise<{ api: ApiClient; path: string; name: string }> {
   const api = await ApiClient.create();
-  const queue = await resolveQueue(api, nameOrId);
+  const queue = await resolveQueue(api, nameOrId, exact);
   return { api, path: `/api/v1/queue/${queue.id}/schema-registry`, name: queue.name };
 }
 
@@ -51,7 +42,7 @@ const showCommand = new Command('show')
   .action(showRegistry);
 
 async function showRegistry(nameOrId: string): Promise<void> {
-  const { api, path } = await target(nameOrId);
+  const { api, path } = await target(nameOrId, false);
   const reg = unwrap(await api.get<{ data: SchemaRegistry }>(path));
 
   if (isJsonMode()) {
@@ -66,7 +57,8 @@ const enableCommand = new Command('enable')
   .description('Enable the Schema Registry (billed monthly)')
   .argument('<queue>', 'Queue name or ID')
   .option('-y, --yes', 'Skip the price confirmation')
-  .action(async (nameOrId: string, opts: { yes?: boolean }) => {
+  .option('-f, --force', 'Alias for --yes')
+  .action(async (nameOrId: string, opts: { yes?: boolean; force?: boolean }) => {
     const { api, path, name } = await target(nameOrId);
     const current = unwrap(await api.get<{ data: SchemaRegistry }>(path));
     if (current.enabled) {
@@ -78,7 +70,7 @@ const enableCommand = new Command('enable')
     const confirmed = await confirmDestruction(
       name,
       `Enable the Schema Registry on '${name}' for ${euros(current.monthly_price_cents)}/month?`,
-      opts.yes,
+      opts.yes || opts.force,
     );
     if (!confirmed) return;
 
@@ -101,7 +93,7 @@ const disableCommand = new Command('disable')
     const { api, path, name } = await target(nameOrId);
     const confirmed = await confirmDestruction(
       name,
-      `Disable the Schema Registry on '${name}'? Its registered schemas are removed.`,
+      `Disable the Schema Registry on '${name}'? Clients lose the registry and billing stops. Registered schemas stay in the cluster (the _schemas topic) and come back if you enable it again.`,
       opts.yes || opts.force,
     );
     if (!confirmed) return;
