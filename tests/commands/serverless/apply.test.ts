@@ -13,6 +13,8 @@ vi.mock('../../../src/lib/api-client.js', () => ({
 }));
 
 const { applyCommand, slugify } = await import('../../../src/commands/serverless/apply.js');
+const { UsageError } = await import('../../../src/lib/errors.js');
+const { setJsonMode } = await import('../../../src/lib/json-mode.js');
 
 class ExitError extends Error {
   constructor(public code: number) {
@@ -229,6 +231,39 @@ describe('apply --env/--rm-env', () => {
       secret_environment_variables: { DB_PASSWORD: 'new' },
     });
     expect(consoleErrorSpy).toHaveBeenCalledWith(expect.anything());
+  });
+
+  it('refuses a dotenv key that is a secret, with --json, sending nothing', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'danube-apply-demote-'));
+    await writeFile(join(dir, '.env'), 'DB_PASSWORD=hunter2\nMODE=prod\n');
+    mockExisting(makeContainer({ environment_variables: { MODE: 'dev' }, secret_environment_keys: ['DB_PASSWORD'] }));
+    setJsonMode(true);
+
+    try {
+      const failure = await applyCommand.parseAsync(['node', 'test', '--name', 'my-api', '--env-file', join(dir, '.env')]).catch((e: Error) => e);
+
+      expect(failure).toBeInstanceOf(UsageError);
+      expect((failure as Error).message).toMatch(/DB_PASSWORD is a secret.*--rm-secret DB_PASSWORD/);
+      expect((failure as Error).message).not.toContain('hunter2');
+    } finally {
+      setJsonMode(false);
+      await rm(dir, { recursive: true, force: true });
+    }
+
+    expect(mockPut).not.toHaveBeenCalled();
+    expect(mockPost).not.toHaveBeenCalled();
+  });
+
+  it('allows the move to plain when --rm-secret names the key', async () => {
+    mockExisting(makeContainer({ environment_variables: {}, secret_environment_keys: ['MODE'] }));
+    mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer({ spec_generation: 2 }) });
+
+    await applyCommand.parseAsync(['node', 'test', '--name', 'my-api', '--env', 'MODE=prod', '--rm-secret', 'MODE']);
+
+    expect(mockPut).toHaveBeenCalledWith('/api/v1/serverless/abc-123', {
+      environment_variables: { MODE: 'prod' },
+      secret_environment_variables: { MODE: null },
+    });
   });
 
   it('reports unchanged when the platform did not move the generation', async () => {

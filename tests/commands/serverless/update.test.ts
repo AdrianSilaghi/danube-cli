@@ -212,17 +212,38 @@ describe('serverless update command', () => {
       expect(consoleErrorSpy.mock.calls.flat().join('\n')).toContain('moved DB_PASSWORD from plain to secret');
     });
 
-    it('moves a secret to a plain variable', async () => {
+    it('refuses --env for a key that is a secret, before writing, naming the key and not the value', async () => {
+      mockGet.mockResolvedValue(listResponse({ environment_variables: {}, secret_environment_keys: ['MODE'] }));
+
+      const failure = await updateCommand.parseAsync(['node', 'test', 'my-api', '--env', 'MODE=hunter2']).catch((e: Error) => e);
+
+      expect((failure as Error).message).toMatch(/MODE is a secret.*--rm-secret MODE/);
+      expect((failure as Error).message).not.toContain('hunter2');
+      expect(mockPut).not.toHaveBeenCalled();
+    });
+
+    it('moves a secret to a plain variable when the same command removes the secret', async () => {
       mockGet.mockResolvedValue(listResponse({ environment_variables: {}, secret_environment_keys: ['MODE'] }));
       mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer({ spec_generation: 2 }) });
 
-      await updateCommand.parseAsync(['node', 'test', 'my-api', '--env', 'MODE=prod']);
+      await updateCommand.parseAsync(['node', 'test', 'my-api', '--env', 'MODE=prod', '--rm-secret', 'MODE']);
 
       expect(mockPut).toHaveBeenCalledWith('/api/v1/serverless/abc-123', {
         environment_variables: { MODE: 'prod' },
         secret_environment_variables: { MODE: null },
       });
-      expect(consoleErrorSpy.mock.calls.flat().join('\n')).toContain('moved MODE from secret to plain');
+    });
+
+    it('prints the move note on stderr under --json, leaving stdout one document', async () => {
+      setJsonMode(true);
+      mockGet.mockResolvedValue(listResponse({ environment_variables: { DB_PASSWORD: 'old' }, secret_environment_keys: [] }));
+      mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer({ spec_generation: 2 }) });
+
+      await updateCommand.parseAsync(['node', 'test', 'my-api', '--secret', 'DB_PASSWORD=new']);
+
+      expect(consoleErrorSpy.mock.calls.flat().join('\n')).toContain('moved DB_PASSWORD from plain to secret');
+      expect(consoleLogSpy).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(String(consoleLogSpy.mock.calls[0]![0])).success).toBe(true);
     });
   });
 
@@ -248,6 +269,27 @@ describe('serverless update command', () => {
       await updateCommand.parseAsync(['node', 'test', 'my-api', '--secret', 'K=same']);
 
       expect(spinner.succeed).toHaveBeenCalledWith(expect.stringContaining('No change: generation 4 is already current'));
+    });
+
+    it('emits the wait envelope for --wait --json, terminal and at the current generation', async () => {
+      setJsonMode(true);
+      mockGet.mockImplementation((path: string) =>
+        Promise.resolve(path.startsWith('/api/v1/serverless?')
+          ? listResponse({ spec_generation: 4, secret_environment_keys: ['K'] })
+          : showResponse()));
+      mockPut.mockResolvedValue({
+        message: 'Updated',
+        container: makeContainer({ spec_generation: 4, status_details: terminalStatus(), observed_generation: 4, url: 'https://my-api.example' }),
+      });
+
+      await updateCommand.parseAsync(['node', 'test', 'my-api', '--secret', 'K=same', '--wait']);
+
+      expect(consoleLogSpy).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(String(consoleLogSpy.mock.calls[0]![0]))).toMatchObject({
+        success: true,
+        data: { action: 'unchanged', container_id: 'abc-123', settled: true, terminal: true, summary: 'ready', fresh_observation: true, url: 'https://my-api.example', waited_ms: 0 },
+        meta: { waited: false, fresh_observation: true },
+      });
     });
 
     it('returns the container in --json', async () => {

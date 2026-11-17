@@ -89,10 +89,11 @@ export const applyCommand = new Command('apply')
       const current = Object.keys(requestedSecrets).length > 0 ? await ensureSecretSupport(api, existing) : existing;
       // A key set as a secret that is plain now (or the reverse) is moved in the same write.
       const kinds = reconcileKinds(current, envPairs, requestedSecrets, opts.rmEnv);
-      const secrets = kinds.secrets;
+      const secrets = requestedSecrets;
       const rmEnv = kinds.rmEnv;
       const envTouched = envRequested || rmEnv.length > 0;
-      if (!isJsonMode()) for (const note of kinds.notes) console.error(chalk.dim(note));
+      // stderr, also under --json: stdout stays one clean document.
+      for (const note of kinds.notes) console.error(chalk.dim(note));
 
       // Same semantics as `rapids update`: remove named keys first, then
       // overlay --env on what is left of the container's current map.

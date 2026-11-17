@@ -695,8 +695,10 @@ danube rapids update my-api --rm-secret OLD_KEY
   cannot be both a plain variable and a secret.
 - `rapids update` without `--wait` prints `Update accepted; rolling out generation N`: the change is
   recorded and the rollout runs on after the command returns. Pass `--wait` to block until it is live.
-- A key is plain or secret, never both. Giving `--secret X` for a key that is plain now (or `--env X`
-  for one that is secret now) moves it in the same write and says `moved X from plain to secret`.
+- A key is plain or secret, never both. Giving `--secret X` for a key that is plain now moves it in
+  the same write and says `moved X from plain to secret` on stderr (also under `--json`). The reverse
+  is never done quietly: `--env X` or an `--env-file` line for a key that is a secret is refused before
+  anything is written, naming the key; pass `--rm-secret X` as well to turn it back into a plain variable.
 - Because a secret cannot be read, `rapids apply --secret` cannot compare it; it sends it on every run
   and reports `unchanged` when the platform did not move the container's generation (no rollout).
 - Secrets need a platform that stores them. A platform without them would ignore the field and report

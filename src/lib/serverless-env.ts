@@ -74,17 +74,19 @@ export function assertSecretsStored(container: ServerlessContainer, sent: readon
 export interface KindReconciliation {
   /** `--rm-env` plus the plain variables that are becoming secrets. */
   rmEnv: string[];
-  /** The requested secret changes plus the removal of secrets that are becoming plain. */
-  secrets: SecretChanges;
   /** One line per key that changes kind, for the user. */
   notes: string[];
 }
 
 /**
  * A key is plain or secret, never both, and the API refuses a request that
- * leaves it in both. Setting a key as a secret that is plain now (or as plain
- * one that is secret now) means moving it, so the removal from the old kind
- * goes in the same write instead of failing with a 422.
+ * leaves it in both.
+ *
+ * Plain to secret is a hardening, so `--secret X` for a plain X moves it: the
+ * removal from the plain variables goes in the same write instead of failing
+ * with a 422. The reverse is a demotion, and a plain `--env X` from a dotenv
+ * file or a script must not do it quietly: it is refused unless the same command
+ * also says `--rm-secret X`. The refusal names the key, never a value.
  */
 export function reconcileKinds(
   container: Pick<ServerlessContainer, 'environment_variables' | 'secret_environment_keys'>,
@@ -96,16 +98,21 @@ export function reconcileKinds(
   const secretNow = new Set(container.secret_environment_keys ?? []);
   const removed = new Set(rmEnv ?? []);
 
+  const demoted = Object.keys(env).filter((key) => secretNow.has(key) && secrets[key] !== null);
+  if (demoted.length > 0) {
+    const one = demoted.length === 1;
+    throw new UsageError(
+      `${demoted.join(', ')} ${one ? 'is a secret' : 'are secrets'}, so --env or --env-file would turn ${one ? 'it into a plain variable' : 'them into plain variables'} ` +
+      `and nothing was changed. If that is what you want, pass ${demoted.map((key) => `--rm-secret ${key}`).join(' ')} as well to turn ` +
+      `${one ? 'it' : 'them'} back into ${one ? 'a plain variable' : 'plain variables'}.`,
+    );
+  }
+
   const toSecret = Object.keys(secrets).filter((key) => secrets[key] !== null && key in plainNow && !removed.has(key));
-  const toPlain = Object.keys(env).filter((key) => secretNow.has(key) && !(key in secrets));
 
   return {
     rmEnv: [...(rmEnv ?? []), ...toSecret],
-    secrets: { ...secrets, ...Object.fromEntries(toPlain.map((key) => [key, null])) },
-    notes: [
-      ...toSecret.map((key) => `moved ${key} from plain to secret`),
-      ...toPlain.map((key) => `moved ${key} from secret to plain`),
-    ],
+    notes: toSecret.map((key) => `moved ${key} from plain to secret`),
   };
 }
 

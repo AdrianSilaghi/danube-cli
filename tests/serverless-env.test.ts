@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { ApiError } from '../src/lib/errors.js';
+import { ApiError, UsageError } from '../src/lib/errors.js';
 import { assertSecretsStored, effectiveSecretChanges, ensureSecretSupport, mergeEnv, putMergedEnvironment, reconcileKinds } from '../src/lib/serverless-env.js';
 import type { ApiClient } from '../src/lib/api-client.js';
 import type { ServerlessContainer } from '../src/types/api.js';
@@ -142,23 +142,33 @@ describe('assertSecretsStored', () => {
 describe('reconcileKinds', () => {
   const now = (env: Record<string, string>, secretKeys: string[]) => ({ environment_variables: env, secret_environment_keys: secretKeys });
 
-  it('moves a plain key that is set as a secret, and a secret key that is set as plain', () => {
-    const plan = reconcileKinds(now({ P: '1', Q: '2' }, ['S']), { S: 'plain' }, { P: 'secret' }, ['Q']);
+  it('moves a plain key that is set as a secret, and says so', () => {
+    const plan = reconcileKinds(now({ P: '1', Q: '2' }, []), {}, { P: 'secret' }, ['Q']);
 
     expect(plan.rmEnv).toEqual(['Q', 'P']);
-    expect(plan.secrets).toEqual({ P: 'secret', S: null });
-    expect(plan.notes).toEqual(['moved P from plain to secret', 'moved S from secret to plain']);
+    expect(plan.notes).toEqual(['moved P from plain to secret']);
   });
 
-  it('leaves alone a key already removed, a key that is only removed as a secret, and an empty container', () => {
+  it('refuses to turn a secret into a plain variable without --rm-secret, naming the key and never a value', () => {
+    const attempt = () => reconcileKinds(now({}, ['S', 'T']), { S: 'topsecret-value', T: 'x', NEW: 'y' }, {}, undefined);
+
+    expect(attempt).toThrow(UsageError);
+    expect(attempt).toThrow(/S, T are secrets.*nothing was changed.*--rm-secret S --rm-secret T/);
+    expect(attempt).not.toThrow(/topsecret-value/);
+    expect(() => reconcileKinds(now({}, ['S']), { S: '1' }, {}, undefined)).toThrow(/S is a secret, so --env or --env-file would turn it into a plain variable/);
+  });
+
+  it('allows the move to plain when the same command removes the secret', () => {
+    const plan = reconcileKinds(now({}, ['S']), { S: 'plain' }, { S: null }, undefined);
+
+    expect(plan).toEqual({ rmEnv: [], notes: [] });
+  });
+
+  it('leaves alone a key already removed, a secret only removed, and an empty container', () => {
     const removed = reconcileKinds(now({ P: '1' }, []), {}, { P: 'x' }, ['P']);
-    expect(removed.rmEnv).toEqual(['P']);
-    expect(removed.notes).toEqual([]);
+    expect(removed).toEqual({ rmEnv: ['P'], notes: [] });
 
-    const rmSecret = reconcileKinds(now({}, ['S']), { S: 'v' }, { S: null }, undefined);
-    expect(rmSecret.secrets).toEqual({ S: null });
-    expect(rmSecret.notes).toEqual([]);
-
-    expect(reconcileKinds({ environment_variables: null }, { A: '1' }, { B: 'x' }, undefined)).toEqual({ rmEnv: [], secrets: { B: 'x' }, notes: [] });
+    expect(reconcileKinds(now({}, ['S']), {}, { S: null }, undefined)).toEqual({ rmEnv: [], notes: [] });
+    expect(reconcileKinds({ environment_variables: null }, { A: '1' }, { B: 'x' }, undefined)).toEqual({ rmEnv: [], notes: [] });
   });
 });

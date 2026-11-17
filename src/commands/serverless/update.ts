@@ -48,9 +48,10 @@ export const updateCommand = new Command('update')
     const container = Object.keys(requested.secrets).length > 0 ? await ensureSecretSupport(api, listed) : listed;
     // A key set as a secret that is plain now (or the reverse) is moved in the same write.
     const kinds = reconcileKinds(container, envPairs, requested.secrets, opts.rmEnv);
-    const secrets = kinds.secrets;
+    const secrets = requested.secrets;
     const rmEnv = kinds.rmEnv;
-    if (!isJsonMode()) for (const note of kinds.notes) console.error(chalk.dim(note));
+    // stderr, also under --json: stdout stays one clean document.
+    for (const note of kinds.notes) console.error(chalk.dim(note));
 
     const parseIntOption = (val: string, name: string): number => {
       const n = parseInt(val, 10);
@@ -115,7 +116,19 @@ export const updateCommand = new Command('update')
     const generation = res.container.spec_generation;
     if (typeof generation === 'number' && generation === container.spec_generation) {
       const text = `No change: generation ${generation} is already current, so nothing is rolling out.`;
-      if (isJsonMode()) jsonOutput(res.container);
+      if (isJsonMode() && opts.wait) {
+        // The shape a completed --wait has, so a caller parses one thing: terminal, at the current generation.
+        jsonEnvelope(waitEnvelope('unchanged', res.container, {
+          settled: true,
+          status: res.container.status_details ?? null,
+          url: res.container.url,
+          targetRevision: res.container.current_revision ?? null,
+          observedAt: res.container.status_details?.observed_at ?? null,
+          sawFreshObservation: true,
+          observedGeneration: res.container.observed_generation ?? null,
+          waitedMs: 0,
+        }), { meta: { waited: false, fresh_observation: true } });
+      } else if (isJsonMode()) jsonOutput(res.container);
       else if (spinner) spinner.succeed(text);
       else console.log(text);
       return;
