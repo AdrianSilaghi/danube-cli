@@ -2,50 +2,95 @@ import { hostname } from 'node:os';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { ApiClient } from '../../lib/api-client.js';
-import { UsageError } from '../../lib/errors.js';
+import { ApiError, UsageError } from '../../lib/errors.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import { runDocker } from '../../lib/docker-cli.js';
-import { fetchAllPages } from '../../lib/paginate.js';
-import type { RegistryAccessKey } from '../../types/api.js';
-import { createRegistryAccessKey, KEYS_PATH, readScope, resolveExpiry, revokeRegistryAccessKey } from './keys.js';
+import { readConfig, getTeamId } from '../../lib/config.js';
+import { getProjectOverride } from '../../lib/project-context.js';
+import { dockerConfigDir, readLoginKeys, writeLoginKeys } from '../../lib/registry-logins.js';
+import type { LoginKeyRecord } from '../../lib/registry-logins.js';
+import type { RegistryAccessKey, TeamsResponse } from '../../types/api.js';
+import { createRegistryAccessKey, readScope, resolveExpiry, revokeRegistryAccessKey } from './keys.js';
 
 const KEY_NAME_MAX = 120;
 /** A login on a laptop should not leave a push credential that outlives the machine's interest in it. Re-running `registry login` renews. */
 const DEFAULT_EXPIRES_IN = '90d';
 
-/** Docker's own login is replaced by each `login`, so the keys an earlier one made on this machine are orphans. They are recognised by this prefix. */
-const keyNamePrefix = (): string => `danube-cli-${hostname().replace(/[^A-Za-z0-9.-]/g, '-')}-`;
-
 /** A name for a key made without --name: this machine and this moment, which keeps it unique and recognisable in the console. */
 function defaultKeyName(now: Date = new Date()): string {
   const stamp = now.toISOString().replace(/[-:]/g, '').replace(/\..*$/, '').replace('T', '-');
-  return `${keyNamePrefix()}${stamp}`.slice(0, KEY_NAME_MAX);
+  return `danube-cli-${hostname().replace(/[^A-Za-z0-9.-]/g, '-')}-${stamp}`.slice(0, KEY_NAME_MAX);
 }
 
-/** Docker is asked for its server, which is what a login needs; the client alone answers `docker --version`. */
-const DAEMON_CHECK_TIMEOUT_MS = 15_000;
+/** Only the client has to run: `docker login` can work without a daemon (a credential store, a remote context). */
+const DOCKER_CHECK_TIMEOUT_MS = 15_000;
 /** A login that needs a keychain prompt nobody sees would otherwise hang with a live key behind it. */
 const DOCKER_LOGIN_TIMEOUT_MS = 120_000;
 
-interface Renewal { revoked: number; failed: number; unlisted: boolean }
+/** The project a new key is created in: the one the request is scoped to, else the account's current one. Null when neither can be learned. */
+async function currentTeamId(api: ApiClient): Promise<number | null> {
+  const chosen = getProjectOverride() ?? getTeamId(await readConfig());
+  if (chosen !== null) return chosen;
+
+  try {
+    return (await api.get<TeamsResponse>('/api/v1/user/teams')).current_team_id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+interface Renewal {
+  /** True when every key the last login(s) here made is gone, false when one could not be revoked, null when none was recorded. */
+  previousKeyRevoked: boolean | null;
+  message: string | null;
+  /** Whether the new key was recorded, so the next login here can revoke it. */
+  recorded: boolean;
+}
+
+/** Revoke one recorded key in the project it belongs to. A 404 means it is already gone, which is what was wanted. */
+async function revokeRecorded(api: ApiClient, record: LoginKeyRecord, currentTeam: number | null): Promise<string | null> {
+  try {
+    const client = record.teamId !== null && record.teamId !== currentTeam ? await ApiClient.create({ teamId: record.teamId }) : api;
+    await revokeRegistryAccessKey(client, record.keyId);
+    return null;
+  } catch (err) {
+    if (err instanceof ApiError && err.statusCode === 404) return null;
+    return err instanceof Error ? err.message : String(err);
+  }
+}
 
 /**
- * After a login that worked, the keys earlier `registry login` runs on this machine made are no longer
- * in Docker: revoke them. Only active keys with this machine's default name prefix, never the new one.
- * Best effort: a failure is a warning, not a failed login.
+ * Docker now holds the new key, so the key the last `registry login` for this Docker config and
+ * registry put there is dead weight. Exactly the ids recorded by this command are revoked, each in its
+ * own project, and then the new key is recorded. A key that could not be revoked stays recorded, so a
+ * later login tries again. Best effort: nothing here fails a login that worked.
  */
-async function revokePreviousLoginKeys(api: ApiClient, current: RegistryAccessKey): Promise<Renewal> {
-  const prefix = keyNamePrefix();
-  let keys: RegistryAccessKey[];
+async function renewLogin(api: ApiClient, key: RegistryAccessKey, registryHost: string, teamId: number | null): Promise<Renewal> {
+  const dockerDir = dockerConfigDir();
+  const previous = (await readLoginKeys(dockerDir, registryHost)).filter((r) => r.keyId !== key.id);
+  const failures = await Promise.all(previous.map((r) => revokeRecorded(api, r, teamId)));
+  const kept = previous.filter((_, i) => failures[i] !== null);
+
+  let recorded = true;
   try {
-    keys = (await fetchAllPages<RegistryAccessKey>(api, `${KEYS_PATH}?active=true`)).items;
+    await writeLoginKeys(dockerDir, registryHost, [...kept, { keyId: key.id, teamId }]);
   } catch {
-    return { revoked: 0, failed: 0, unlisted: true };
+    recorded = false;
   }
 
-  const previous = keys.filter((k) => k.id !== current.id && !k.revoked_at && k.name.startsWith(prefix));
-  const results = await Promise.all(previous.map((k) => revokeRegistryAccessKey(api, k.id).then(() => true, () => false)));
-  return { revoked: results.filter(Boolean).length, failed: results.filter((ok) => !ok).length, unlisted: false };
+  const problems = failures.filter((f): f is string => f !== null);
+  const done = previous.length - problems.length;
+  const parts = [
+    ...(done > 0 ? [`Revoked the ${done === 1 ? 'key' : `${done} keys`} the earlier login here made.`] : []),
+    ...(problems.length > 0 ? [`Could not revoke ${problems.length === 1 ? 'an earlier login key' : `${problems.length} earlier login keys`} (${problems.join('; ')}); the next login will try again.`] : []),
+    ...(recorded ? [] : ['Could not record this key, so the next login will not revoke it.']),
+  ];
+
+  return {
+    previousKeyRevoked: previous.length === 0 ? null : problems.length === 0,
+    message: parts.length > 0 ? parts.join(' ') : null,
+    recorded,
+  };
 }
 
 interface RegistryContextResponse { data: { registry_host: string } }
@@ -63,16 +108,14 @@ export const loginCommand = new Command('login')
     const name = opts.name ?? defaultKeyName();
 
     // Before the key exists: a key made for a machine without a working Docker would be lost, its token shown once.
-    let daemon;
+    let docker;
     try {
-      daemon = await runDocker(['version', '--format', '{{.Server.Version}}'], undefined, { timeoutMs: DAEMON_CHECK_TIMEOUT_MS });
+      docker = await runDocker(['--version'], undefined, { timeoutMs: DOCKER_CHECK_TIMEOUT_MS });
     } catch {
       throw new UsageError('Docker was not found on your PATH. Install it, then run this again; no key was created.');
     }
-    if (daemon.code !== 0) {
-      throw new UsageError(
-        `Docker is installed but its daemon did not answer${daemon.timedOut ? ' in time' : ''}. Start Docker, then run this again; no key was created.`,
-      );
+    if (docker.code !== 0) {
+      throw new UsageError(`Docker could not be run${docker.timedOut ? ' (it did not answer in time)' : ''}. Fix it, then run this again; no key was created.`);
     }
 
     const api = await ApiClient.create();
@@ -107,8 +150,8 @@ export const loginCommand = new Command('login')
     const warnings = scrub(login.stderr);
     if (warnings) console.error(chalk.dim(warnings));
 
-    // Docker now holds this key, so the ones this machine's earlier logins made are dead weight.
-    const renewal = await revokePreviousLoginKeys(api, key);
+    // Docker now holds this key: the one the last login here put there is no longer needed.
+    const renewal = await renewLogin(api, key, registryHost, await currentTeamId(api));
 
     if (isJsonMode()) {
       jsonOutput({
@@ -116,8 +159,9 @@ export const loginCommand = new Command('login')
         username: key.username,
         key,
         docker_login: 'succeeded',
-        previous_keys_revoked: renewal.revoked,
-        previous_keys_failed: renewal.failed,
+        previous_key_revoked: renewal.previousKeyRevoked,
+        previous_key_message: renewal.message,
+        key_recorded: renewal.recorded,
       });
       return;
     }
@@ -125,8 +169,10 @@ export const loginCommand = new Command('login')
     console.log(chalk.green(`Docker is signed in to ${registryHost}`));
     console.log(`Key:     ${key.name} (${key.scope}${key.expires_at ? `, expires ${key.expires_at}` : ', until revoked'})`);
     console.log(chalk.dim('Docker holds the token (see its output above for where); it is not shown again and the CLI keeps no copy.'));
-    if (renewal.revoked > 0) console.log(`Revoked ${renewal.revoked} earlier login key${renewal.revoked === 1 ? '' : 's'} from this machine.`);
-    if (renewal.unlisted) console.error(chalk.yellow('Could not list the keys, so earlier login keys from this machine were not revoked. See: danube registry keys ls'));
-    if (renewal.failed > 0) console.error(chalk.yellow(`Could not revoke ${renewal.failed} earlier login key${renewal.failed === 1 ? '' : 's'}. See: danube registry keys ls`));
+    if (renewal.message) {
+      // A warning when something could not be done, plain news otherwise.
+      if (renewal.previousKeyRevoked === false || !renewal.recorded) console.error(chalk.yellow(renewal.message));
+      else console.log(renewal.message);
+    }
     if (key.expires_at) console.log(chalk.dim('To renew before it expires, run danube registry login again: it revokes this key then.'));
   });

@@ -1,11 +1,40 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { hostname } from 'node:os';
 
+const OTHER_TEAM = 9;
 const mockGet = vi.fn();
 const mockPost = vi.fn();
 const mockDelete = vi.fn();
+const mockOtherDelete = vi.fn();
+const createCalls: Array<unknown> = [];
 vi.mock('../../src/lib/api-client.js', () => ({
-  ApiClient: { create: () => Promise.resolve({ get: mockGet, post: mockPost, delete: mockDelete }) },
+  ApiClient: {
+    // A client for another project is a different object, so a revoke can be seen going to the right one.
+    create: (options?: { teamId?: number }) => {
+      createCalls.push(options ?? null);
+      return Promise.resolve(options?.teamId === OTHER_TEAM ? { delete: mockOtherDelete } : { get: mockGet, post: mockPost, delete: mockDelete });
+    },
+  },
+}));
+
+let configuredTeam: number | null = null;
+vi.mock('../../src/lib/config.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/lib/config.js')>()),
+  readConfig: () => Promise.resolve(null),
+  getTeamId: () => configuredTeam,
+}));
+
+// Where the CLI remembers its logins, in memory, and which Docker config directory this run has.
+let store = new Map<string, Array<{ keyId: string; teamId: number | null }>>();
+let dockerDir = '/home/u/.docker';
+let writeFails = false;
+vi.mock('../../src/lib/registry-logins.js', () => ({
+  dockerConfigDir: () => dockerDir,
+  readLoginKeys: (dir: string, host: string) => Promise.resolve([...(store.get(`${dir}|${host}`) ?? [])]),
+  writeLoginKeys: (dir: string, host: string, records: Array<{ keyId: string; teamId: number | null }>) => {
+    if (writeFails) return Promise.reject(new Error('EACCES'));
+    store.set(`${dir}|${host}`, [...records]);
+    return Promise.resolve();
+  },
 }));
 
 vi.mock('ora', () => ({
@@ -36,8 +65,8 @@ const login = (args: string[]) => {
   return registryCommand.parseAsync(['login', ...args], { from: 'user' });
 };
 
-const PREFIX = `danube-cli-${hostname().replace(/[^A-Za-z0-9.-]/g, '-')}-`;
-let earlierKeys: Array<Record<string, unknown>> = [];
+const HOST = 'cr.danubedata.ro';
+const CURRENT_TEAM = 5;
 
 describe('danube registry login', () => {
   let logSpy: ReturnType<typeof vi.spyOn>;
@@ -47,11 +76,16 @@ describe('danube registry login', () => {
     logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     [mockGet, mockPost, mockDelete, mockDocker].forEach((m) => m.mockReset());
-    earlierKeys = [];
+    store = new Map();
+    dockerDir = '/home/u/.docker';
+    writeFails = false;
+    configuredTeam = null;
+    createCalls.length = 0;
+    mockOtherDelete.mockReset().mockResolvedValue({ data: key });
     mockGet.mockImplementation((path: string) =>
-      Promise.resolve(path.startsWith('/api/v1/registry/access-keys')
-        ? { data: earlierKeys, pagination: { current_page: 1, last_page: 1, per_page: 100, total: earlierKeys.length } }
-        : { success: true, data: { registry_host: 'cr.danubedata.ro' } }));
+      Promise.resolve(path === '/api/v1/user/teams'
+        ? { data: [], current_team_id: CURRENT_TEAM }
+        : { success: true, data: { registry_host: HOST } }));
     mockPost.mockResolvedValue({ key, token: TOKEN });
     mockDocker.mockResolvedValue({ code: 0, stdout: 'Login Succeeded', stderr: '', timedOut: false });
     mockDelete.mockResolvedValue({ data: { ...key, revoked_at: '2026-11-17T10:05:00+00:00' } });
@@ -71,7 +105,7 @@ describe('danube registry login', () => {
     expect(mockGet).toHaveBeenCalledWith('/api/v1/registry/context');
     // `login` expires its key after 90 days unless told otherwise.
     expect(mockPost).toHaveBeenCalledWith('/api/v1/registry/access-keys', { name: 'laptop', scope: 'push_pull', expires_at: expect.any(String) });
-    expect(mockDocker).toHaveBeenNthCalledWith(1, ['version', '--format', '{{.Server.Version}}'], undefined, { timeoutMs: 15_000 });
+    expect(mockDocker).toHaveBeenNthCalledWith(1, ['--version'], undefined, { timeoutMs: 15_000 });
     expect(mockDocker).toHaveBeenNthCalledWith(2, ['login', 'cr.danubedata.ro', '-u', key.username, '--password-stdin'], TOKEN, { timeoutMs: 120_000 });
     // The token is the stdin argument and nowhere else.
     expect(JSON.stringify(mockDocker.mock.calls[1]![0])).not.toContain(TOKEN);
@@ -164,14 +198,14 @@ describe('danube registry login', () => {
     expect(mockPost).not.toHaveBeenCalled();
   });
 
-  it('creates no key when the docker daemon does not answer', async () => {
-    mockDocker.mockResolvedValueOnce({ code: 1, stdout: '', stderr: 'Cannot connect to the Docker daemon', timedOut: false });
+  it('creates no key when docker cannot be run', async () => {
+    mockDocker.mockResolvedValueOnce({ code: 127, stdout: '', stderr: 'broken', timedOut: false });
 
-    await expect(login([])).rejects.toThrow(/daemon did not answer\. Start Docker.*no key was created/);
+    await expect(login([])).rejects.toThrow(/Docker could not be run\. Fix it.*no key was created/);
     expect(mockPost).not.toHaveBeenCalled();
   });
 
-  it('says the daemon check ran out of time', async () => {
+  it('says the docker check ran out of time', async () => {
     mockDocker.mockResolvedValueOnce({ code: null, stdout: '', stderr: '', timedOut: true });
 
     await expect(login([])).rejects.toThrow(/did not answer in time/);
@@ -190,78 +224,165 @@ describe('danube registry login', () => {
     expect((failure as Error).message).toContain('revoked again');
   });
 
-  describe('earlier login keys of this machine', () => {
-    const earlier = (id: string, name: string, over: Record<string, unknown> = {}) => ({ ...key, id, name, ...over });
+  describe('renewing the login', () => {
+    const recorded = (dir = '/home/u/.docker') => store.get(`${dir}|${HOST}`);
+    const printedJson = () => JSON.parse(String(logSpy.mock.calls[0]![0])).data;
 
-    it('are revoked after a successful login, and only those', async () => {
-      earlierKeys = [
-        earlier('k-1', `${PREFIX}20261101-100000`),
-        earlier('k-old-1', `${PREFIX}20261001-100000`),
-        earlier('k-old-2', `${PREFIX}20260901-100000`),
-        earlier('k-other', 'danube-cli-another-machine-20261001-100000'),
-        earlier('k-ci', 'ci-deploy'),
-        earlier('k-gone', `${PREFIX}20260801-100000`, { revoked_at: '2026-08-02T00:00:00Z' }),
-      ];
+    it('records the new key against this Docker config and registry, and revokes nothing the first time', async () => {
+      setJsonMode(true);
 
       await login(['--name', 'laptop']);
 
-      expect(mockGet).toHaveBeenCalledWith('/api/v1/registry/access-keys?active=true&per_page=100&page=1');
-      expect(mockDelete.mock.calls.map((c) => c[0]).sort()).toEqual([
-        '/api/v1/registry/access-keys/k-old-1',
-        '/api/v1/registry/access-keys/k-old-2',
-      ]);
-      expect(everythingPrinted()).toContain('Revoked 2 earlier login keys from this machine.');
+      expect(recorded()).toEqual([{ keyId: 'k-1', teamId: CURRENT_TEAM }]);
+      expect(mockDelete).not.toHaveBeenCalled();
+      expect(printedJson()).toMatchObject({ previous_key_revoked: null, previous_key_message: null, key_recorded: true });
     });
 
-    it('are reported in the JSON envelope', async () => {
-      setJsonMode(true);
-      earlierKeys = [earlier('k-old-1', `${PREFIX}20261001-100000`)];
+    it('revokes exactly the key the last login here recorded, and records the new one', async () => {
+      store.set(`/home/u/.docker|${HOST}`, [{ keyId: 'k-old', teamId: CURRENT_TEAM }]);
 
-      await login([]);
+      await login(['--name', 'laptop']);
 
-      expect(JSON.parse(String(logSpy.mock.calls[0]![0])).data).toMatchObject({ previous_keys_revoked: 1, previous_keys_failed: 0 });
+      expect(mockDelete.mock.calls.map((c) => c[0])).toEqual(['/api/v1/registry/access-keys/k-old']);
+      expect(recorded()).toEqual([{ keyId: 'k-1', teamId: CURRENT_TEAM }]);
+      expect(everythingPrinted()).toContain('Revoked the key the earlier login here made.');
     });
 
-    it('are left alone, with a warning, when the list cannot be read', async () => {
-      mockGet.mockImplementation((path: string) =>
-        path.startsWith('/api/v1/registry/access-keys')
-          ? Promise.reject(new ApiError(403, 'no registry:read'))
-          : Promise.resolve({ success: true, data: { registry_host: 'cr.danubedata.ro' } }));
+    it('never lists keys or goes by name', async () => {
+      store.set(`/home/u/.docker|${HOST}`, [{ keyId: 'k-old', teamId: CURRENT_TEAM }]);
+
+      await login(['--name', 'danube-cli-anything-else']);
+
+      expect(mockGet.mock.calls.map((c) => c[0]).filter((p) => String(p).startsWith('/api/v1/registry/access-keys'))).toEqual([]);
+    });
+
+    it('does not touch the key of another Docker config directory', async () => {
+      store.set('/home/u/.docker|' + HOST, [{ keyId: 'k-home', teamId: CURRENT_TEAM }]);
+      dockerDir = '/root/.docker';
 
       await login(['--name', 'laptop']);
 
       expect(mockDelete).not.toHaveBeenCalled();
-      expect(everythingPrinted()).toContain('Could not list the keys');
+      expect(recorded('/home/u/.docker')).toEqual([{ keyId: 'k-home', teamId: CURRENT_TEAM }]);
+      expect(recorded('/root/.docker')).toEqual([{ keyId: 'k-1', teamId: CURRENT_TEAM }]);
+    });
+
+    it('revokes an old key in the project it belongs to, even when this login is for another', async () => {
+      store.set(`/home/u/.docker|${HOST}`, [{ keyId: 'k-other-project', teamId: OTHER_TEAM }]);
+
+      await login(['--name', 'laptop']);
+
+      expect(createCalls).toContainEqual({ teamId: OTHER_TEAM });
+      expect(mockOtherDelete).toHaveBeenCalledWith('/api/v1/registry/access-keys/k-other-project');
+      expect(mockDelete).not.toHaveBeenCalled();
+      expect(recorded()).toEqual([{ keyId: 'k-1', teamId: CURRENT_TEAM }]);
+    });
+
+    it('uses the project the request is scoped to, without asking the account', async () => {
+      configuredTeam = 7;
+
+      await login(['--name', 'laptop']);
+
+      expect(recorded()).toEqual([{ keyId: 'k-1', teamId: 7 }]);
+      expect(mockGet).not.toHaveBeenCalledWith('/api/v1/user/teams');
+    });
+
+    it('records no project when the account cannot say, and still revokes through the current client later', async () => {
+      mockGet.mockImplementation((path: string) =>
+        path === '/api/v1/user/teams' ? Promise.reject(new Error('offline')) : Promise.resolve({ success: true, data: { registry_host: HOST } }));
+      store.set(`/home/u/.docker|${HOST}`, [{ keyId: 'k-old', teamId: null }]);
+
+      await login(['--name', 'laptop']);
+
+      expect(recorded()).toEqual([{ keyId: 'k-1', teamId: null }]);
+      expect(mockDelete).toHaveBeenCalledWith('/api/v1/registry/access-keys/k-old');
+    });
+
+    it('records no project when the account answers without one, and reports a revoke failure that is not an Error', async () => {
+      mockGet.mockImplementation((path: string) =>
+        Promise.resolve(path === '/api/v1/user/teams' ? { data: [] } : { success: true, data: { registry_host: HOST } }));
+      store.set(`/home/u/.docker|${HOST}`, [{ keyId: 'k-old', teamId: null }]);
+      mockDelete.mockRejectedValue('plain string failure');
+
+      await login(['--name', 'laptop']);
+
+      expect(recorded()).toEqual([{ keyId: 'k-old', teamId: null }, { keyId: 'k-1', teamId: null }]);
+      expect(errSpy.mock.calls.flat().join('\n')).toContain('(plain string failure)');
+    });
+
+    it('treats a 404 on the old key as already gone', async () => {
+      setJsonMode(true);
+      store.set(`/home/u/.docker|${HOST}`, [{ keyId: 'k-old', teamId: CURRENT_TEAM }]);
+      mockDelete.mockRejectedValue(new ApiError(404, 'Not found'));
+
+      await login(['--name', 'laptop']);
+
+      expect(printedJson()).toMatchObject({ previous_key_revoked: true });
+      expect(recorded()).toEqual([{ keyId: 'k-1', teamId: CURRENT_TEAM }]);
+    });
+
+    it('warns, keeps the old key recorded for the next try, and still reports the login', async () => {
+      store.set(`/home/u/.docker|${HOST}`, [{ keyId: 'k-old', teamId: CURRENT_TEAM }]);
+      mockDelete.mockRejectedValue(new ApiError(500, 'server exploded'));
+
+      await login(['--name', 'laptop']);
+
+      expect(recorded()).toEqual([{ keyId: 'k-old', teamId: CURRENT_TEAM }, { keyId: 'k-1', teamId: CURRENT_TEAM }]);
+      expect(errSpy.mock.calls.flat().join('\n')).toContain('Could not revoke an earlier login key (server exploded); the next login will try again.');
       expect(everythingPrinted()).toContain('Docker is signed in');
     });
 
-    it('warn, without failing the login, when one cannot be revoked', async () => {
-      earlierKeys = [earlier('k-old-1', `${PREFIX}20261001-100000`), earlier('k-old-2', `${PREFIX}20260901-100000`)];
-      mockDelete.mockRejectedValueOnce(new ApiError(500, 'boom')).mockResolvedValueOnce({ data: key });
+    it('retries every recorded key, counts them, and reports the failure in JSON', async () => {
+      setJsonMode(true);
+      store.set(`/home/u/.docker|${HOST}`, [{ keyId: 'k-a', teamId: CURRENT_TEAM }, { keyId: 'k-b', teamId: CURRENT_TEAM }, { keyId: 'k-1', teamId: CURRENT_TEAM }]);
+      mockDelete.mockResolvedValueOnce({ data: key }).mockRejectedValueOnce(new Error('boom'));
 
       await login(['--name', 'laptop']);
 
-      expect(everythingPrinted()).toContain('Revoked 1 earlier login key from this machine.');
-      expect(everythingPrinted()).toContain('Could not revoke 1 earlier login key.');
+      // The new key's own id is never revoked, even if it was recorded already.
+      expect(mockDelete).toHaveBeenCalledTimes(2);
+      expect(printedJson()).toMatchObject({ previous_key_revoked: false });
+      expect(printedJson().previous_key_message).toBe('Revoked the key the earlier login here made. Could not revoke an earlier login key (boom); the next login will try again.');
     });
 
-    it('warn in the plural when several cannot be revoked', async () => {
-      earlierKeys = [earlier('k-old-1', `${PREFIX}20261001-100000`), earlier('k-old-2', `${PREFIX}20260901-100000`)];
-      mockDelete.mockRejectedValue(new ApiError(500, 'boom'));
+    it('says so, and reports it in JSON, when the new key cannot be recorded', async () => {
+      writeFails = true;
+
+      await login(['--name', 'laptop']);
+      expect(errSpy.mock.calls.flat().join('\n')).toContain('Could not record this key, so the next login will not revoke it.');
+
+      setJsonMode(true);
+      logSpy.mockClear();
+      await login(['--name', 'laptop']);
+      expect(printedJson()).toMatchObject({ key_recorded: false });
+    });
+
+    it('names how many when several earlier keys are revoked', async () => {
+      store.set(`/home/u/.docker|${HOST}`, [{ keyId: 'k-a', teamId: CURRENT_TEAM }, { keyId: 'k-b', teamId: CURRENT_TEAM }]);
+      mockDelete.mockResolvedValue({ data: key });
 
       await login(['--name', 'laptop']);
 
-      expect(everythingPrinted()).toContain('Could not revoke 2 earlier login keys.');
-      expect(everythingPrinted()).not.toContain('Revoked');
+      expect(everythingPrinted()).toContain('Revoked the 2 keys the earlier login here made.');
     });
 
-    it('are not touched when docker login failed', async () => {
-      earlierKeys = [earlier('k-old-1', `${PREFIX}20261001-100000`)];
+    it('warns in the plural when several cannot be revoked', async () => {
+      store.set(`/home/u/.docker|${HOST}`, [{ keyId: 'k-a', teamId: CURRENT_TEAM }, { keyId: 'k-b', teamId: CURRENT_TEAM }]);
+      mockDelete.mockRejectedValue(new Error('no'));
+
+      await login(['--name', 'laptop']);
+
+      expect(errSpy.mock.calls.flat().join('\n')).toContain('Could not revoke 2 earlier login keys (no; no)');
+    });
+
+    it('is not done when docker login failed: nothing recorded changes', async () => {
+      store.set(`/home/u/.docker|${HOST}`, [{ keyId: 'k-old', teamId: CURRENT_TEAM }]);
       mockDocker.mockResolvedValueOnce({ code: 0, stdout: '', stderr: '', timedOut: false }).mockResolvedValueOnce({ code: 1, stdout: '', stderr: 'no', timedOut: false });
 
       await login(['--name', 'laptop']).catch(() => undefined);
 
       expect(mockDelete.mock.calls.map((c) => c[0])).toEqual(['/api/v1/registry/access-keys/k-1']);
+      expect(recorded()).toEqual([{ keyId: 'k-old', teamId: CURRENT_TEAM }]);
     });
   });
 

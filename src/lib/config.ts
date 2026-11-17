@@ -15,7 +15,7 @@ export interface DanubeConfig {
   autoUpdate?: boolean;
 }
 
-const CONFIG_DIR = join(homedir(), '.danube');
+export const CONFIG_DIR = join(homedir(), '.danube');
 const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
 
 export function getApiBase(): string {

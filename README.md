@@ -146,12 +146,17 @@ travels on Docker's standard input only: it is never an argument, never printed,
 the CLI. Docker keeps it in its own credential store, so it cannot be shown again; each run makes a
 new key (`--name` defaults to this machine and the time). A key from `login` expires after 90 days
 unless you pass `--expires-in` or `--expires-at`. Run `danube registry login` again to renew: once Docker is
-signed in with the new key, it revokes the earlier keys that `login` made on this machine (active ones
-named `danube-cli-<this host>-…`; keys with any other name are never touched) and says how many. For CI,
-create a key with an expiry (`registry keys create`) rather than using `login`. It takes the same `--scope`,
+signed in with the new key, it revokes the key the previous `login` made for the same Docker config
+directory (`DOCKER_CONFIG` or `~/.docker`) and registry. The CLI remembers that key's id, and the project
+it belongs to, in `~/.danube/registry-logins.json` (private to you, ids only, never a token), and revokes
+only ids it recorded itself, in their own project, whatever the key is named: other keys, other machines'
+keys and keys made with `keys create` are never touched. A revoke that fails is a warning (and is tried
+again at the next login); `--json` reports `previous_key_revoked` (`true`, `false` or `null` for none
+recorded), `previous_key_message` and `key_recorded`. For CI, create a key with an expiry
+(`registry keys create`) rather than using `login`. It takes the same `--scope`,
 `--expires-in` (`90m`, `24h`, `30d`) and `--expires-at` as `registry keys create`, and creates the key
 the same way. A `404` means the platform is too old for the key API, a `403` that the token is not
-the owner's or lacks `registry:credentials`. `login` checks that the Docker daemon answers before it
+the owner's or lacks `registry:credentials`. `login` checks that `docker` runs before it
 creates the key, and stops a `docker login` that has not finished after two minutes. If `docker login` fails after the key exists, the CLI
 revokes the key again (and names it for `registry keys rm` if that fails too). Docker's own warnings
 (for instance that it stores the login unencrypted) are passed through.
