@@ -35,6 +35,10 @@ describe('parseDotenv', () => {
     expect(parseDotenv('A=${B}\nB=$HOME', '.env')).toEqual({ A: '${B}', B: '$HOME' });
   });
 
+  it('keeps a quoted value exactly, hash, spaces and escapes included, and an empty value empty', () => {
+    expect(parseDotenv('A="  x # y  "\nB=\'  z \'\nC=\nD=""', '.env')).toEqual({ A: '  x # y  ', B: '  z ', C: '', D: '' });
+  });
+
   it('reads Windows line endings', () => {
     expect(parseDotenv('A=1\r\nB=2\r\n', '.env')).toEqual({ A: '1', B: '2' });
   });
@@ -57,6 +61,10 @@ describe('parseDotenv', () => {
 describe('parsePairs', () => {
   it('takes KEY=VALUE as given, splitting at the first equals sign', () => {
     expect(parsePairs(['A=b=c', 'EMPTY='], '--env', {})).toEqual({ A: 'b=c', EMPTY: '' });
+  });
+
+  it('takes KEY= as the empty string, not as a removal', () => {
+    expect(parsePairs(['EMPTY='], '--secret', {})).toStrictEqual({ EMPTY: '' });
   });
 
   it('takes a bare KEY from the environment, an empty value included', () => {

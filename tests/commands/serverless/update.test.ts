@@ -303,6 +303,24 @@ describe('serverless update command', () => {
     });
   });
 
+  it('sends an empty secret as "", never null, which removes', async () => {
+    mockGet.mockResolvedValue(listResponse({ secret_environment_keys: ['OLD'] }));
+    mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer({ spec_generation: 2 }) });
+
+    await updateCommand.parseAsync(['node', 'test', 'my-api', '--secret', 'EMPTY=', '--rm-secret', 'OLD']);
+
+    expect(mockPut.mock.calls[0]![1].secret_environment_variables).toStrictEqual({ EMPTY: '', OLD: null });
+  });
+
+  it('sends only the secrets when only secret flags are given', async () => {
+    mockGet.mockResolvedValue(listResponse({ secret_environment_keys: [] }));
+    mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer({ spec_generation: 2 }) });
+
+    await updateCommand.parseAsync(['node', 'test', 'my-api', '--secret', 'K=v']);
+
+    expect(Object.keys(mockPut.mock.calls[0]![1])).toEqual(['secret_environment_variables']);
+  });
+
   it('refuses a key that is set and removed as a secret, before any request', async () => {
     await expect(
       updateCommand.parseAsync(['node', 'test', 'my-api', '--secret', 'A=1', '--rm-secret', 'A']),

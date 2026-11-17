@@ -699,8 +699,15 @@ danube rapids update my-api --rm-secret OLD_KEY
   the same write and says `moved X from plain to secret` on stderr (also under `--json`). The reverse
   is never done quietly: `--env X` or an `--env-file` line for a key that is a secret is refused before
   anything is written, naming the key; pass `--rm-secret X` as well to turn it back into a plain variable.
-- Because a secret cannot be read, `rapids apply --secret` cannot compare it; it sends it on every run
-  and reports `unchanged` when the platform did not move the container's generation (no rollout).
+- Because a secret cannot be read, `rapids apply --secret` cannot compare it; it sends it on every run.
+  When nothing else differs it sends only the secrets (and the environment snapshot), which the platform
+  skips as a no-op when the secrets are unchanged, so the run reports `unchanged` (the generation did
+  not move) instead of rolling out a revision. If any other field differs, the request carries it too
+  and a rollout follows.
+- Secret values are stored byte for byte. `--secret KEY=` sets an empty secret (the empty string);
+  only `--rm-secret KEY` removes one. In a `--secret-file`, an unquoted value ends at whitespace plus
+  `#` and is trimmed, like any dotenv file; quote a value (`KEY="  keep spaces # and hashes  "`) to keep
+  it exactly.
 - Secrets need a platform that stores them. A platform without them would ignore the field and report
   success, so `update` and `apply` refuse before writing when the container does not list
   `secret_environment_keys` ("nothing was changed"), and `create` fails if the container comes back

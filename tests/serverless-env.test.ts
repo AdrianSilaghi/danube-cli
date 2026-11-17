@@ -97,6 +97,10 @@ describe('effectiveSecretChanges', () => {
     expect(effectiveSecretChanges({ NEW: 'v', HELD: null, ABSENT: null }, ['HELD'])).toEqual({ NEW: 'v', HELD: null });
   });
 
+  it('keeps an empty secret to set, which is not a removal', () => {
+    expect(effectiveSecretChanges({ EMPTY: '', GONE: null }, ['GONE'])).toEqual({ EMPTY: '', GONE: null });
+  });
+
   it('treats a platform without secret keys as holding none', () => {
     expect(effectiveSecretChanges({ GONE: null }, undefined)).toEqual({});
   });

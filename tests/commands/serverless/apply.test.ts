@@ -191,6 +191,54 @@ describe('apply --env/--rm-env', () => {
     expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('updated'));
   });
 
+  it('sends nothing but the secrets and the snapshot when no other field differs', async () => {
+    mockExisting(makeContainer({
+      image: 'nginx', environment_variables: { A: '1' }, environment_snapshot: 'snap-1', secret_environment_keys: ['K'], spec_generation: 6,
+    }));
+    mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer({ spec_generation: 6 }) });
+
+    // --image and --env both match what the container has already.
+    await applyCommand.parseAsync(['node', 'test', '--name', 'my-api', '--image', 'nginx', '--env', 'A=1', '--secret', 'K=same']);
+
+    expect(mockPut).toHaveBeenCalledWith('/api/v1/serverless/abc-123', {
+      secret_environment_variables: { K: 'same' },
+      environment_snapshot: 'snap-1',
+    });
+    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('unchanged'));
+  });
+
+  it('keeps sending what it sends today when a non-secret field differs', async () => {
+    mockExisting(makeContainer({ image: 'nginx', environment_variables: { A: '1' }, environment_snapshot: 'snap-1', secret_environment_keys: ['K'], spec_generation: 6 }));
+    mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer({ spec_generation: 7 }) });
+
+    await applyCommand.parseAsync(['node', 'test', '--name', 'my-api', '--image', 'node', '--env', 'A=2', '--secret', 'K=same']);
+
+    expect(mockPut).toHaveBeenCalledWith('/api/v1/serverless/abc-123', {
+      image: 'node',
+      environment_variables: { A: '2' },
+      secret_environment_variables: { K: 'same' },
+      environment_snapshot: 'snap-1',
+    });
+    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('updated'));
+  });
+
+  it('sends an empty secret as "" and keeps a quoted file value byte for byte', async () => {
+    mockExisting(makeContainer({ secret_environment_keys: [] }));
+    mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer({ spec_generation: 2 }) });
+    const dir = await mkdtemp(join(tmpdir(), 'danube-apply-secret-'));
+    await writeFile(join(dir, 's.env'), 'PADDED="  a # b\\n  "\nRAW=\'  keep \'\nEMPTY=\n');
+
+    try {
+      await applyCommand.parseAsync(['node', 'test', '--name', 'my-api', '--secret-file', join(dir, 's.env'), '--secret', 'FLAG=']);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+
+    expect(mockPut.mock.calls[0]![1].secret_environment_variables).toStrictEqual({
+      PADDED: '  a # b\n  ', RAW: '  keep ', EMPTY: '', FLAG: '',
+    });
+  });
+
   it('treats removing a secret the container does not hold as unchanged', async () => {
     mockExisting(makeContainer({ secret_environment_keys: ['KEEP'] }));
 

@@ -117,16 +117,21 @@ export const applyCommand = new Command('apply')
         // Snapshot BEFORE the write. Without it the first poll cannot tell the
         // previous operation's verdict from this one's.
         baseline = await captureBaseline(api, current.id);
-        // Only the fields actually supplied are sent, so apply converges the
+        // Nothing but the secrets differs: send only them (and the snapshot, which covers their
+        // names). The platform skips the rollout for exactly that request when the secret map is
+        // unchanged, which any other field in it would turn into a new revision.
+        const secretsOnly = drift.length === 0 && !envChanged;
+        // Otherwise only the fields actually supplied are sent, so apply converges the
         // stated configuration without silently resetting anything the caller
         // did not mention.
-        const body = secretsChanged ? { ...desired, secret_environment_variables: secretChanges } : desired;
-        // A secrets-only change still sends the environment snapshot, which covers secret names.
-        const res = envTouched || secretsChanged
+        const body = secretsOnly
+          ? { secret_environment_variables: secretChanges }
+          : secretsChanged ? { ...desired, secret_environment_variables: secretChanges } : desired;
+        const res = (envTouched && !secretsOnly) || secretsChanged
           ? await putMergedEnvironment<MutateResponse>(
               api,
               current,
-              envTouched ? (env) => mergeEnv(env, envPairs, rmEnv) : null,
+              envTouched && !secretsOnly ? (env) => mergeEnv(env, envPairs, rmEnv) : null,
               body,
             )
           : await api.put<MutateResponse>(`/api/v1/serverless/${current.id}`, body);
