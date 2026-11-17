@@ -438,6 +438,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/registry/access-keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List registry access keys
+         * @description Every access key of the project, newest first, revoked and expired ones included unless `active` says otherwise.
+         *     A key's token is never listed.
+         */
+        get: operations["v1.registry.access-keys.index"];
+        put?: never;
+        /**
+         * Create a registry access key
+         * @description Needs the `registry:credentials` ability: the key's token pushes and pulls, so `registry:write` alone does not create one.
+         *     Creates a key for the project's private registry and returns its `token` once: save it, it cannot be shown again.
+         *     Sign in with `echo "$TOKEN" | docker login cr.danubedata.ro -u <any name> --password-stdin`: the token alone identifies the key.
+         *     `GET /registry/context` (registry_context) names the namespace to push to.
+         *     The project owner is emailed about every new key. Give a key for one job an `expires_at`, and revoke it when done.
+         *     If the response is lost, the key exists but its token cannot be read again: list the keys, revoke that one and create another under a new name.
+         */
+        post: operations["v1.registry.access-keys.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/registry/access-keys/{accessKey}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke a registry access key
+         * @description Needs the `registry:credentials` ability. The key can no longer sign in; a registry session it already opened ends within 5 minutes.
+         *     Revoking a revoked key changes nothing and answers the same, so a retry is safe.
+         */
+        delete: operations["v1.registry.access-keys.destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/database/{databaseInstance}/logs": {
         parameters: {
             query?: never;
@@ -706,6 +757,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/database/{databaseInstance}/tls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read certificate authority status */
+        get: operations["v1.database.tls.show"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/database/{databaseInstance}/tls/ca/stage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stage a replacement certificate authority */
+        post: operations["v1.database.tls.ca.stage"];
+        /** Discard a staged certificate authority */
+        delete: operations["v1.database.tls.ca.destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/database/{databaseInstance}/tls/ca/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Activate the staged certificate authority */
+        post: operations["v1.database.tls.ca.activate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/database/{databaseInstance}/tls/ca/rollback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore the previous certificate authority */
+        post: operations["v1.database.tls.ca.rollback"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/database/{databaseInstance}/replicas": {
         parameters: {
             query?: never;
@@ -780,6 +900,29 @@ export interface paths {
          *     `seconds_behind_master`.
          */
         get: operations["v1.database.replicas.status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/database/{databaseInstance}/ca-certificate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the current database CA certificate
+         * @description Returns the current public PEM trust bundle for a CloudNativePG PostgreSQL
+         *     instance. Requires database:read. During CA rotation the bundle may include
+         *     the previous CA; expiry and SHA-256 fingerprint describe the first, active CA.
+         *     Private keys are never returned. Returns 503 while the current CA is unavailable.
+         */
+        get: operations["v1.database.ca-certificate"];
         put?: never;
         post?: never;
         delete?: never;
@@ -918,6 +1061,17 @@ export interface paths {
          *     exists in your team is refused with a 422 until you remove it from the rule; one saved
          *     without a type is listed with a `null` `type` in that case.
          *
+         *     A rule sent back with the `id` of one of the firewall's rules is that rule, updated in
+         *     place: its id stays valid across updates made here, so a listing can be written back
+         *     again after another update (a save from the console re-creates the rules, and their ids).
+         *     A rule with no `id`, no `port` and no port range whose label, direction, protocol and
+         *     action are those of a rule that has a port is refused with a 422: send its `id` or its
+         *     `port` to keep the port, or `"port": null` to apply the rule to every port.
+         *
+         *     Attachments and deployments have their own endpoints: a non-empty `attached_instances`
+         *     and `deploy: true` are refused here, so that a request does not report an attachment or
+         *     a deployment that did not happen (an empty list and `deploy: false` are ignored).
+         *
          *     Locked rules (`is_locked`: the default firewall's outbound SMTP blocks) are always
          *     kept. Leave them out or send them back, either way they stay as they are. A rule that
          *     would allow what a locked rule blocks (its port, or a range containing it) is rejected
@@ -929,8 +1083,8 @@ export interface paths {
         /**
          * Delete a firewall
          * @description A system firewall (the default firewall created with an instance, `is_system`) cannot
-         *     be deleted: the response is a 422. A firewall still attached to an instance cannot be
-         *     deleted either.
+         *     be deleted, and neither can a firewall still attached to an instance: the response is a
+         *     422 with an `error`.
          */
         delete: operations["v1.firewalls.destroy"];
         options?: never;
@@ -950,8 +1104,8 @@ export interface paths {
         /**
          * Attach firewall to an instance
          * @description Attaches the firewall to a VPS, cache, or database instance. The firewall rules will be deployed asynchronously.
-         *     A system firewall (`is_system`) belongs to the instance it was created with and cannot
-         *     be attached to another one: the response is a 422.
+         *     A system firewall (`is_system`) stays on the instance it was created with and is never
+         *     attached by hand, not even to that instance: the response is a 422 with a `message`.
          */
         post: operations["v1.firewalls.attach"];
         delete?: never;
@@ -973,7 +1127,7 @@ export interface paths {
          * Detach firewall from an instance
          * @description Removes the firewall from a VPS, cache, or database instance. A system firewall
          *     (`is_system`) cannot be detached from its instance: it carries the outbound SMTP block
-         *     and the inbound filtering, and the response is a 422.
+         *     and the inbound filtering, and the response is a 422 with a `message`.
          */
         post: operations["v1.firewalls.detach"];
         delete?: never;
@@ -993,6 +1147,98 @@ export interface paths {
         put?: never;
         /** Deploy firewall to instances */
         post: operations["v1.firewalls.deploy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/floating-ips": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Floating IPs
+         * @description List reserved and assigned addresses in your project. Reserved addresses continue to be billed while detached or their VPS is stopped.
+         */
+        get: operations["v1.floating-ips.index"];
+        put?: never;
+        /**
+         * Reserve a Floating IP
+         * @description Reserve one public IPv4 (/32) or IPv6 (/128) address. Billing begins on reservation and continues until release.
+         */
+        post: operations["v1.floating-ips.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/floating-ips/{floatingIp}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Floating IP details
+         * @description Return the address, requested and confirmed assignment, routing status, and current pricing excluding VAT.
+         */
+        get: operations["v1.floating-ips.show"];
+        /**
+         * Update Floating IP name and labels
+         * @description Change the address name and labels while preserving its reservation and assignment.
+         */
+        put: operations["v1.floating-ips.update"];
+        post?: never;
+        /**
+         * Release a Floating IP
+         * @description Release an unassigned address after routing cleanup is confirmed. The release runs in the background: the address reports status `releasing`, then disappears and billing ends once it completes. If it cannot complete, the address returns to `reserved` and the release can be requested again.
+         */
+        delete: operations["v1.floating-ips.destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/floating-ips/{floatingIp}/assign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Assign a Floating IP to a VPS
+         * @description Request assignment to one eligible VPS in the same project and network zone. The VPS must have a primary address of the same IP version. Configure the floating address inside the guest after routing is confirmed.
+         */
+        post: operations["v1.floating-ips.assign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/floating-ips/{floatingIp}/unassign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unassign a Floating IP from its VPS
+         * @description Request routing withdrawal from the VPS. The address remains reserved and continues to be billed.
+         */
+        post: operations["v1.floating-ips.unassign"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1111,7 +1357,14 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Read resource metrics */
+        /**
+         * Read resource metrics
+         * @description CPU usage and limits are percentages of one CPU core. Memory and persistent disk sizes
+         *     are bytes. Each component includes its mounted persistent volumes; a shared volume reports
+         *     the whole volume for each component that mounts it. Network traffic belongs to the shared
+         *     app pod. Missing readings have empty series; summary readings are null when unavailable.
+         *     storage_available is false when the pod's persistent mounts could not be discovered.
+         */
         get: operations["v1.apps.metrics"];
         put?: never;
         post?: never;
@@ -1505,6 +1758,7 @@ export interface paths {
         /**
          * List notifications
          * @description Returns a paginated list of notifications for the authenticated user's current team.
+         *     Omit category to list all notification categories. Notifications cannot be filtered by datacenter.
          */
         get: operations["v1.notifications.index"];
         put?: never;
@@ -1914,7 +2168,7 @@ export interface paths {
         /**
          * Create a parameter group
          * @description A named set of engine settings that cache, database and queue instances can use. For PostgreSQL,
-         *     each setting is checked against the settings a managed database allows.
+         *     each setting is checked against the settings a managed database allows. For MySQL and MariaDB, only the supported settings listed in the Database Parameter Groups documentation (https://docs.danubedata.ro/databases-parameters) are accepted, written exactly as listed; a value is one line of at most 1024 bytes, with no line breaks, control characters or Unicode line separators.
          */
         post: operations["v1.parameter-groups.store"];
         delete?: never;
@@ -1984,6 +2238,8 @@ export interface paths {
         /**
          * Get current partner tier and discount information
          * @description Returns the partner's current volume tier, discount rate, and progress to next tier.
+         *     Requires the `partner:read` ability, and the user behind the token must own the partner team or be one of its
+         *     administrators.
          */
         get: operations["v1.partner.tier"];
         put?: never;
@@ -2003,13 +2259,42 @@ export interface paths {
         };
         /**
          * List partner's sub-customer teams
-         * @description Returns a paginated list of all sub-customer teams managed by the partner.
+         * @description Returns a paginated list of all sub-customer teams managed by the partner. `owner.id` is null until the person
+         *     the team was set up for has accepted the invitation, or verified the account made for them, and `owner` is the
+         *     name and address you gave until then.
+         *     Requires the `partner:read` ability, and the user behind the token must own the partner team or be one of its
+         *     administrators.
          */
         get: operations["v1.partner.sub-teams.index"];
         put?: never;
         /**
          * Create a sub-customer team
-         * @description Creates a new team linked to the partner. The team owner will be created if they don't exist.
+         * @description Creates a new team linked to the partner. `owner_email` decides who the team belongs to, and nobody is attached to
+         *     it without having agreed.
+         *
+         *     An address with no DanubeData account gets one, which is not verified and has no password anyone knows, and an
+         *     email that lets its owner verify the address and choose a password. That person owns the team.
+         *
+         *     An address that already has an account is not attached. It is sent a team invitation as an administrator, which
+         *     it accepts or ignores, and accepting it makes that person the owner of the team. Until then the team is held by
+         *     the owner of the partner team, who answers for it. If the address is the partner team's own owner there is
+         *     nothing to accept and `members` says `owner`. `owner_name` is used only for a new account.
+         *
+         *     The response is the same whether or not the address had an account, so it cannot be used to find out which
+         *     addresses do: `owner` is the name and address you gave, without an id, and `members` has one entry that is
+         *     `pending` until that person has acted. The sub-customer team list and details show the same until then
+         *     (`owner.id` is null).
+         *
+         *     The response carries the team's API key, which reads every Secrets Manager value of the new team. The key is
+         *     shown only here. The owner of the partner team, the owner of the new team and its administrators, and the invited
+         *     person while the invitation is pending, are each emailed that a key was created, never the key itself.
+         *
+         *     An `owner_email` that sign-ups refuse is refused here too (422). A partner team that has lost its owner cannot
+         *     create teams, for any address (409). Each user may create 20 teams a minute and 200 an hour; beyond that the
+         *     answer is 429.
+         *
+         *     Requires the `partner:write` ability, and the user behind the token must own the partner team or be one of its
+         *     administrators.
          */
         post: operations["v1.partner.sub-teams.store"];
         delete?: never;
@@ -2027,7 +2312,10 @@ export interface paths {
         };
         /**
          * Get a specific sub-customer team
-         * @description Returns details of a specific sub-customer team.
+         * @description Returns details of a specific sub-customer team. `owner.id` is null until the person the team was set up for has
+         *     accepted the invitation, or verified the account made for them, and `owner` is the name and address you gave
+         *     until then. Requires the `partner:read` ability, and the user behind the token must own the partner team or be
+         *     one of its administrators.
          */
         get: operations["v1.partner.sub-teams.show"];
         put?: never;
@@ -2048,6 +2336,8 @@ export interface paths {
         /**
          * Get usage for a specific sub-customer team
          * @description Returns billing usage for a sub-customer team for the specified period.
+         *     Requires the `partner:read` ability, and the user behind the token must own the partner team or be one of its
+         *     administrators.
          */
         get: operations["v1.partner.sub-teams.usage"];
         put?: never;
@@ -2071,6 +2361,13 @@ export interface paths {
          * Regenerate API key for a sub-customer team
          * @description Generates a new API key for the specified sub-customer team.
          *     The previous key will be immediately invalidated.
+         *
+         *     The key reads every Secrets Manager value of the sub-customer team and is shown only in this response. The owner
+         *     of the partner team, the owner of the sub-customer team and its administrators are each emailed that the key
+         *     was regenerated, never the key itself.
+         *
+         *     Requires the `partner:write` ability, and the user behind the token must own the partner team or be one of its
+         *     administrators.
          */
         post: operations["v1.partner.sub-teams.regenerate-api-key"];
         delete?: never;
@@ -2089,10 +2386,144 @@ export interface paths {
         /**
          * Get aggregated usage across all sub-customer teams
          * @description Returns aggregated billing usage for all sub-customer teams for the specified period.
+         *     Requires the `partner:read` ability, and the user behind the token must own the partner team or be one of its
+         *     administrators.
          */
         get: operations["v1.partner.usage"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{team}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a project's owner and accepted members
+         * @description Requires `project:members:read` and project membership. Pending invitations
+         *     are not included. The owner appears first, followed by accepted members in
+         *     membership creation order. Member email addresses are included for account
+         *     automation that matches invitations to accepted members.
+         */
+        get: operations["v1.projects.members.index"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{team}/members/{user}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove an accepted member from a project
+         * @description Requires `project:members:delete` and project ownership. The project owner
+         *     cannot be removed. Tokens locked to this project are revoked with the
+         *     membership; account-wide and other-project tokens remain active.
+         */
+        delete: operations["v1.projects.members.destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List projects
+         * @description Requires `project:read`. Lists the projects you own or belong to, sorted by name.
+         *     A project-locked token lists only its project. No payment method is required.
+         */
+        get: operations["v1.projects.index"];
+        put?: never;
+        /**
+         * Create a project
+         * @description Requires `project:create`, a verified email address, and an account-wide API
+         *     token. You own the new project. No payment method is required, and your
+         *     current console project is unchanged. Project-locked tokens cannot create projects.
+         */
+        post: operations["v1.projects.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{team}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a project
+         * @description Requires `project:read` and membership of the project. A project-locked token
+         *     can only read its own project. This request does not switch your console project.
+         */
+        get: operations["v1.projects.show"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete an empty project
+         * @description Requires `project:delete`, a verified email address, and project ownership.
+         *     Personal projects cannot be deleted. All resources, including stopped or
+         *     deleting resources, retained backups, registry repositories, and
+         *     customer-managed secrets, must be removed first. Linked billing organizations
+         *     and outstanding or uninvoiced charges also prevent deletion. Refused
+         *     requests return validation errors.
+         *     Project-scoped API tokens are revoked; account-wide tokens are unchanged.
+         *     Infrastructure cleanup continues in the background after deletion.
+         */
+        delete: operations["v1.projects.destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * Rename a project
+         * @description Requires `project:write`, a verified email address, and project ownership.
+         *     Changes only the display name; the project ID and registry namespace are unchanged.
+         */
+        patch: operations["v1.projects.update"];
+        trace?: never;
+    };
+    "/projects/{team}/invitations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Invite someone to a project
+         * @description Requires `project:invite`, a verified email address, and project ownership.
+         *     Sends an email invitation as an administrator or editor. The recipient must
+         *     accept before joining. Existing members and pending invitations are rejected.
+         *     The inviting account receives a security notification.
+         */
+        post: operations["v1.projects.invitations.store"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2170,14 +2601,17 @@ export interface paths {
         };
         /**
          * List queue instances
-         * @description Your managed RabbitMQ brokers, newest first. Paginated: `per_page` defaults to 15.
+         * @description Your managed RabbitMQ brokers and Kafka clusters (Kafka is in early access), newest first. `provider`
+         *     narrows the list to one broker. Paginated: `per_page` defaults to 15.
          */
         get: operations["v1.queue.index"];
         put?: never;
         /**
          * Create a queue instance
-         * @description A managed RabbitMQ broker, built in the background. Poll `GET /api/v1/queue/{queueInstance}` and watch
-         *     `status_details.operation.terminal` rather than the `status` string.
+         * @description A managed RabbitMQ broker, or a Kafka cluster with `provider: kafka`, built in the background. Kafka is in early access and is refused unless it has been enabled for your account. Poll
+         *     `GET /api/v1/queue/{queueInstance}` and watch `status_details.operation.terminal` rather than the
+         *     `status` string. A Kafka cluster's endpoint is published while it is built; read it from
+         *     `GET /api/v1/queue/{queueInstance}/connection-info`.
          */
         post: operations["v1.queue.store"];
         delete?: never;
@@ -2197,7 +2631,9 @@ export interface paths {
          * Show a specific queue instance
          * @description `connection_info` is an AMQP URL, and a URL embeds the password, so it is
          *     `null` unless the token also holds `queue:credentials`. Everything else
-         *     stays available to `queue:read`.
+         *     stays available to `queue:read`. A Kafka cluster (early access) has no AMQP URL or management
+         *     console: both are `null`, and `GET /api/v1/queue/{queueInstance}/connection-info`
+         *     gives its bootstrap server and SASL settings.
          */
         get: operations["v1.queue.show"];
         /**
@@ -2208,7 +2644,9 @@ export interface paths {
         post?: never;
         /**
          * Delete a queue instance
-         * @description Only a `stopped` broker, or one in `error`, can be deleted. Deletion runs in the background.
+         * @description A RabbitMQ broker can be deleted when `stopped` or in `error`. A Kafka cluster (early access) cannot be
+         *     stopped, so it can be deleted when `provisioning`, `running`, `stopped` or in `error`, but
+         *     not while another operation on it is in progress. Deletion runs in the background and removes the stored data.
          */
         delete: operations["v1.queue.destroy"];
         options?: never;
@@ -2227,7 +2665,7 @@ export interface paths {
         put?: never;
         /**
          * Start a queue instance
-         * @description Starts a stopped broker in the background.
+         * @description Starts a stopped broker in the background. Not available for Kafka (early access) yet.
          */
         post: operations["v1.queue.start"];
         delete?: never;
@@ -2247,7 +2685,8 @@ export interface paths {
         put?: never;
         /**
          * Stop a queue instance
-         * @description Stops the broker in the background. Start it again with the start endpoint.
+         * @description Stops the broker in the background. Start it again with the start endpoint. Not available for
+         *     Kafka (early access) yet.
          */
         post: operations["v1.queue.stop"];
         delete?: never;
@@ -2265,11 +2704,20 @@ export interface paths {
         };
         /**
          * Get queue instance connection information
-         * @description Returns the broker's endpoint, vhost and username.
+         * @description Returns how to reach the broker. The fields depend on its `provider`.
+         *
+         *     RabbitMQ: `amqp_url`, `management_url`, `host`, `port`, `management_port`, `vhost`,
+         *     `username` and `password`.
+         *
+         *     Kafka (early access): `status` is `provisioning` until the cluster's public endpoint exists, and
+         *     `bootstrap_servers`, `host` and `port` are `null` until then; once `ready`,
+         *     `bootstrap_servers` is the `host:port` to give your client. Connect with
+         *     `security_protocol` `SASL_SSL` and `sasl_mechanism` `SCRAM-SHA-512` as `username`.
+         *     The certificate is publicly trusted, so no CA file is needed (`certificate` says so).
          *
          *     `password` and `amqp_url` (a URL, which embeds the password) are `null`
          *     unless the token also holds `queue:credentials`; `queue:read` alone
-         *     still gets the host, ports, vhost and username.
+         *     still gets the endpoint and username.
          */
         get: operations["v1.queue.connection-info"];
         put?: never;
@@ -2289,8 +2737,19 @@ export interface paths {
         };
         /**
          * Broker metrics
-         * @description Mirrors the cache and database metrics endpoints; the service behind it
-         *     already powered the dashboard and was simply never exposed to the API.
+         * @description The broker's current summary and health. `summary` depends on the `provider`.
+         *
+         *     RabbitMQ: `connections`, `channels`, `queues`, `memory_percent` and `health_status`.
+         *
+         *     Kafka (early access): `provider` is `kafka`, and `summary` holds `cpu_percent` (of the
+         *     plan's vCPUs), `memory_used_bytes`, `memory_limit_bytes`, `disk_used_bytes`,
+         *     `disk_capacity_bytes`, `messages_in_per_sec`, `bytes_in_per_sec`, `bytes_out_per_sec`,
+         *     `partitions`, `under_replicated_partitions`, `consumer_lag_total` (messages produced but
+         *     not yet consumed, over every consumer group) and `consumer_groups`, a list of
+         *     `{group, lag}` with the largest lag first (at most 50). A value is `null` while it is
+         *     unknown, for example in the first minutes after the cluster starts.
+         *
+         *     `health.status` is `healthy`, `warning`, `critical` or `unknown`; `health.issues` says why.
          */
         get: operations["v1.queue.metrics"];
         put?: never;
@@ -2351,6 +2810,14 @@ export interface paths {
          * @description Answers before the push what Distribution would only tell you afterwards,
          *     and never in terms you could act on. `permitted: false` always carries a
          *     machine-readable `code` and a concrete `hint`.
+         *
+         *     A bare name without the registry host (`gym-occupancy` or
+         *     `gym-occupancy:latest`) is read as a repository in this project's
+         *     namespace, and `repository` and `push_reference` answer with the full
+         *     path. With the host in front (`cr.danubedata.ro/gym-occupancy`) the name
+         *     is taken as the namespace, because that is where Docker would push it.
+         *     Preflight reads a bare name differently, as Docker Hub, because it
+         *     answers what a deploy will pull, and a deploy pulls a bare name from there.
          */
         get: operations["v1.registry.verify-push"];
         put?: never;
@@ -2375,6 +2842,12 @@ export interface paths {
          *     tag is actually present, and it was built for an architecture the cluster
          *     can run. Each answer that is `false` carries the code and remediation for
          *     that specific cause.
+         *
+         *     A bare name such as `nginx` or `gym-occupancy:latest` is a Docker Hub
+         *     image, because that is what a deploy pulls for it. Verify-push reads a
+         *     bare name as a repository in this project instead, because it answers
+         *     where to push. When the project's registry has a repository of that
+         *     name, the answer says how to deploy it from there.
          */
         get: operations["v1.registry.preflight"];
         put?: never;
@@ -2705,7 +3178,9 @@ export interface paths {
         /**
          * List a serverless container's events
          * @description Returns curated platform events for the container's Service, revisions
-         *     and pods.
+         *     and pods. Pod Events observed by the five-minute health scan are retained
+         *     for seven days, including after Pod deletion. Sampling can miss short-lived
+         *     events; an empty response does not establish that no event occurred.
          */
         get: operations["v1.serverless.events"];
         put?: never;
@@ -2809,6 +3284,30 @@ export interface paths {
         put?: never;
         /** Deploy a serverless container from uploaded ZIP file */
         post: operations["v1.serverless.deploy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/serverless/{serverlessContainer}/deploy-files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Deploy a serverless container from files sent as JSON
+         * @description For clients that cannot upload a ZIP, such as an AI agent: send the
+         *     project's files in the body and they are packed into a ZIP and built
+         *     exactly like an archive sent to `POST /serverless/{id}/deploy`. Only for
+         *     `zip_upload` and `git_repository` containers, and not while a build is
+         *     running. Answers 202 with an `operation` to poll.
+         */
+        post: operations["v1.serverless.deploy-files"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3276,6 +3775,34 @@ export interface paths {
         put?: never;
         /** Restore VPS snapshot */
         post: operations["v1.snapshots.vps.restore"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/snapshots/vps/{vpsSnapshot}/clone": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Clone VPS from snapshot
+         * @description Creates a new VPS from the exported copy of a VPS snapshot. The new VPS gets the plan, image, datacenter
+         *     and network tier of the VPS the snapshot was taken from, and starts in `provisioning` (`pending` while its disk is restored, when it takes a Floating IP): poll it with
+         *     `GET /vps/{id}` until it is `running`. Call it again with another name to create more VPS from the same
+         *     snapshot, one at a time. The snapshot must be `ready` and its exported copy completed; a request while a
+         *     clone from the same snapshot is still running is refused with 409. Counts against the project's VPS limit.
+         *     The API token needs both `snapshot:write` and `vps:write`. When the datacenter has no free public IPv4
+         *     address, send `primary_ipv4_floating_ip_id` (and optionally `primary_ipv6_floating_ip_id`) to use a reserved
+         *     Floating IP as the primary address, as when ordering a VPS; the token then also needs `floating-ips:write`.
+         *     Not available to every account: where it is not switched on for you, the endpoint answers 404.
+         */
+        post: operations["v1.snapshots.vps.clone"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4152,7 +4679,14 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get VPS metrics from Prometheus */
+        /**
+         * Get current VPS measurements
+         * @description Measured values are null when unavailable or stale. Configured memory and
+         *     storage capacities remain available. metadata.sources reports each metric
+         *     family's raw observation time and freshness; timestamp is response time.
+         *     uptime_seconds is guest OS uptime and remains null when unmeasured.
+         *     vm_running_duration_seconds is also null until a running-start source exists.
+         */
         get: operations["v1.vps.metrics"];
         put?: never;
         post?: never;
@@ -4366,6 +4900,26 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * ActivateDatabaseCaRequest
+         * @description Activate the prepared authority after every client trusts it.
+         */
+        ActivateDatabaseCaRequest: {
+            /** @description The revision returned by the last TLS status request. */
+            expected_revision: number;
+            /**
+             * Format: uuid
+             * @description The identifier of the prepared authority.
+             */
+            stage_id: string;
+            /** @description The SHA-256 fingerprint of the prepared authority, as 64 lowercase hexadecimal characters. */
+            fingerprint_sha256: string;
+            /**
+             * @description Confirm that all clients already trust the replacement authority.
+             * @enum {unknown}
+             */
+            clients_trust_ca: "yes" | "on" | "1" | 1 | "true" | true;
+        };
         /** AddApiDatabaseReplicasRequest */
         AddApiDatabaseReplicasRequest: {
             replica_count: number;
@@ -4412,6 +4966,12 @@ export interface components {
          * @enum {string}
          */
         AppInstanceStatus: "pending" | "provisioning" | "running" | "stopped" | "error" | "destroying" | "updating" | "restoring" | "restarting" | "upgrading" | "rolling_back";
+        /** AssignFloatingIpRequest */
+        AssignFloatingIpRequest: {
+            expected_generation: number;
+            /** Format: uuid */
+            vps_instance_id: string;
+        };
         /** CacheInstanceResource */
         CacheInstanceResource: {
             id: string;
@@ -4515,6 +5075,35 @@ export interface components {
             source_type: "volume_snapshot" | "velero_backup";
         };
         /**
+         * CloneApiVpsInstanceRequest
+         * @description Create a new VPS from an exported VPS snapshot. The new VPS has the same plan, image and datacenter as the VPS
+         *     the snapshot was taken from. The API token needs both `snapshot:write` and `vps:write`, as creating a VPS does.
+         *     The request is refused with 422 when the project is at its VPS limit, the plan is not available on the
+         *     account, or the plan or the datacenter has no capacity at the moment.
+         *
+         *     When the datacenter has no free public IPv4 address left, pick a reserved Floating IP as the primary address
+         *     with `primary_ipv4_floating_ip_id`, as when ordering a VPS: the address then does not come from the pool.
+         *     Picking either Floating IP also needs the `floating-ips:write` token ability.
+         */
+        CloneApiVpsInstanceRequest: {
+            /** @description Name of the new VPS: 3 to 32 characters, lowercase letters, digits and hyphens, starting and ending with a letter or digit. Must be unique among the project's VPS. */
+            name: string;
+            /**
+             * Format: uuid
+             * @description A reserved Floating IPv4 to use as the primary IPv4 of the new VPS, instead of an address from
+             *     the pool. It must belong to this project, be unassigned and match the network stack of the VPS
+             *     the snapshot was taken from. Omit it for automatic allocation.
+             */
+            primary_ipv4_floating_ip_id?: string | null;
+            /**
+             * Format: uuid
+             * @description A reserved single IPv6 address to use as the primary IPv6 of the new VPS. It must belong to this
+             *     project, be unassigned and match the network stack of the VPS the snapshot was taken from. Omit
+             *     it for automatic allocation.
+             */
+            primary_ipv6_floating_ip_id?: string | null;
+        };
+        /**
          * ComparisonOperator
          * @enum {string}
          */
@@ -4531,6 +5120,18 @@ export interface components {
             /** Format: email */
             owner_email: string;
             owner_name: string;
+        };
+        /** DatabaseCaCertificate */
+        DatabaseCaCertificate: {
+            /** @description Public PEM trust bundle. It may include the previous authority during rotation. */
+            ca_certificate: string;
+            /**
+             * Format: date-time
+             * @description Expiry of the active authority, the first certificate in the bundle.
+             */
+            expires_at: string;
+            /** @description SHA-256 fingerprint of the active or named CA certificate, as 64 lowercase hexadecimal characters. */
+            fingerprint_sha256: string;
         };
         /**
          * DatabaseCredentialRole
@@ -4681,6 +5282,73 @@ export interface components {
             created_at: string;
             updated_at: string;
         };
+        /** DatabaseTlsStatus */
+        DatabaseTlsStatus: {
+            /** @description Send this revision with the next mutation. Refresh after a 409 conflict. */
+            revision: number;
+            /** @enum {string} */
+            mode: "operator" | "managed" | "byo";
+            active: {
+                /** @description SHA-256 fingerprint of the active or named CA certificate, as 64 lowercase hexadecimal characters. */
+                fingerprint_sha256: string;
+                /** Format: date-time */
+                expires_at: string;
+            };
+            pending: {
+                /** Format: uuid */
+                id: string;
+                /** @enum {string} */
+                mode: "managed" | "byo";
+                /** @description SHA-256 fingerprint of the active or named CA certificate, as 64 lowercase hexadecimal characters. */
+                fingerprint_sha256: string;
+                /** Format: date-time */
+                expires_at: string;
+                /** @description The public PEM certificate of the staged authority. Never contains a private key. */
+                ca_certificate: string;
+                /** @description Public PEM certificates for the current and staged authorities. Install this bundle on every client before activation. */
+                trust_bundle: string;
+            } | null;
+            previous: {
+                /** @enum {string} */
+                mode: "operator" | "managed" | "byo";
+                /** @description SHA-256 fingerprint of the active or named CA certificate, as 64 lowercase hexadecimal characters. */
+                fingerprint_sha256: string;
+                /** Format: date-time */
+                expires_at: string;
+            } | null;
+            operation: {
+                /** Format: uuid */
+                id: string;
+                /**
+                 * @description Queued, applying and awaiting_overlap are in progress. Only completed confirms success. Failed requires review before retry or rollback.
+                 * @enum {string}
+                 */
+                phase: "queued" | "applying" | "awaiting_overlap" | "completed" | "failed";
+                /** @description A safe failure code, or null. No private key or infrastructure response is exposed. */
+                error_code: string | null;
+            } | null;
+        };
+        /**
+         * DeployServerlessContainerFilesRequest
+         * @description The source files to build, as JSON: for clients that cannot upload a ZIP,
+         *     such as an AI agent. Each file is a path inside the project and its
+         *     content, as text or base64. Up to 1000 files and 8 MiB of content in total;
+         *     for a larger project, upload a ZIP with the danube CLI.
+         */
+        DeployServerlessContainerFilesRequest: {
+            /** @description The project's files, 1 to 1000 of them. A project wrapped in one top-level folder is unwrapped, as an uploaded ZIP is. */
+            files: {
+                /** @description Where the file goes in the project, e.g. `src/app.py`: relative, `/`-separated, at most 255 bytes, without empty, `.` or `..` segments, and different from every other path. */
+                path: string;
+                /** @description The file's content: text with `encoding` `utf8`, base64 with `encoding` `base64`. */
+                content: string | null;
+                /**
+                 * @description `utf8` (the default) for text, `base64` for anything else.
+                 * @enum {string}
+                 */
+                encoding?: "utf8" | "base64";
+            }[];
+        };
         /** DiagnosticEventResource */
         DiagnosticEventResource: {
             type: string;
@@ -4718,6 +5386,11 @@ export interface components {
             description: string | null;
             status: components["schemas"]["FirewallStatus"];
             is_default: string;
+            /**
+             * @description True for the default firewall created with an instance. It cannot be
+             *     attached to another instance, detached from its own or deleted.
+             */
+            is_system: boolean;
             default_action: string;
             rules?: {
                 id: string;
@@ -4768,6 +5441,64 @@ export interface components {
          * @enum {string}
          */
         FirewallStatus: "draft" | "active" | "applying" | "error";
+        /** FloatingIpGenerationRequest */
+        FloatingIpGenerationRequest: {
+            expected_generation: number;
+        };
+        /** FloatingIpPricingResource */
+        FloatingIpPricingResource: {
+            ip_version: number;
+            monthly_cost_cents: number;
+            hourly_cost_cents: number;
+            monthly_cost: number;
+            hourly_cost: number;
+            currency: string;
+            vat_included: boolean;
+        };
+        /** FloatingIpResource */
+        FloatingIpResource: {
+            id: string;
+            name: string;
+            labels: {
+                [key: string]: string;
+            };
+            ip_version: number;
+            ip_address: string;
+            /** @enum {integer} */
+            prefix_length: 128 | 32;
+            datacenter: string;
+            network_zone: string;
+            status: components["schemas"]["FloatingIpStatus"];
+            generation: number;
+            applied_generation: number;
+            desired_vps_instance_id: string | null;
+            /** Format: date-time */
+            cleanup_confirmed_at: string | null;
+            is_primary: string;
+            can_release: boolean;
+            applied_vps_instance_id: string | null;
+            desired_vps_instance?: {
+                id: string;
+                name: string;
+            } | null;
+            applied_vps_instance?: {
+                id: string;
+                name: string;
+            } | null;
+            /** @enum {string|null} */
+            error_message: "The network change could not be completed. Retry the operation or contact support." | "The last release could not be completed. The address is still reserved and billed. Release it again or contact support." | null;
+            guest_configuration_required: boolean;
+            pricing: components["schemas"]["FloatingIpPricingResource"] | null;
+            /** Format: date-time */
+            created_at: string | null;
+            /** Format: date-time */
+            updated_at: string | null;
+        };
+        /**
+         * FloatingIpStatus
+         * @enum {string}
+         */
+        FloatingIpStatus: "reserved" | "assigning" | "attached" | "unassigning" | "releasing" | "error";
         /** InstanceLogEntryResource */
         InstanceLogEntryResource: {
             timestamp: string;
@@ -4776,6 +5507,22 @@ export interface components {
             pod: string;
             container: string;
             stream: string;
+        };
+        /**
+         * InviteProjectMemberRequest
+         * @description Invite someone by email. They join only after accepting the invitation.
+         */
+        InviteProjectMemberRequest: {
+            /**
+             * Format: email
+             * @description The email address to invite. Existing members and pending invitations are rejected.
+             */
+            email: string;
+            /**
+             * @description The role granted when the invitation is accepted: admin or editor.
+             * @enum {string}
+             */
+            role: "admin" | "editor";
         };
         /** KubernetesClusterResource */
         KubernetesClusterResource: {
@@ -4805,11 +5552,22 @@ export interface components {
             resource_type: string;
             resource_id: string;
             resource_name: string;
+            /** @description Fixed item identifiers; null identifies an explicitly supported whole-resource scope. */
+            selector: {
+                node_id?: string;
+                component?: string;
+                drive?: string;
+                mount_point?: string;
+                interface?: string;
+                vcpu?: string;
+                category?: string;
+                query_key?: string;
+            } | null;
+            selector_label: string;
             metric_type: string | components["schemas"]["MetricType"] | null;
-            /** @enum {string|null} */
-            metric_label: "CPU Usage" | "Memory Usage" | "Disk Usage" | "Network Receive Rate" | "Network Transmit Rate" | "CPU Steal" | "Load Ratio" | "Cache Connections" | "Cache Hit Ratio" | "Cache Ops/sec" | "DB Connections" | "DB Connection Usage" | "DB Replication Lag" | "DB Queries/sec" | "Request Rate" | "Request Latency (p99)" | "Error Rate" | null;
-            /** @enum {string|null} */
-            metric_unit: "%" | "bytes/s" | "ratio" | "connections" | "ops/s" | "seconds" | "req/s" | "ms" | null;
+            signal_key: string;
+            metric_label: string;
+            metric_unit: string;
             comparison_operator: string | components["schemas"]["ComparisonOperator"];
             /** @enum {string|null} */
             comparison_symbol: ">" | ">=" | "<" | "<=" | null;
@@ -4844,7 +5602,7 @@ export interface components {
          * NotificationCategory
          * @enum {string}
          */
-        NotificationCategory: "resource_provisioned" | "resource_failed" | "resource_destroyed" | "resource_status_changed" | "invoice_generated" | "payment_successful" | "payment_failed" | "credits_low" | "credits_expiring" | "pricing_contract_expiring_soon" | "pricing_contract_expired" | "budget_threshold_50" | "budget_threshold_80" | "budget_exceeded" | "api_key_created" | "api_key_revoked" | "firewall_changed" | "suspicious_activity" | "new_login" | "audit_finding_critical" | "audit_security_digest" | "database_credentials_rotated" | "snapshot_completed" | "snapshot_failed" | "restore_completed" | "restore_failed" | "backup_policy_breached" | "backup_policy_recovered" | "team_member_added" | "team_member_removed" | "team_invitation_sent" | "team_invitation_accepted" | "maintenance_scheduled" | "maintenance_started" | "maintenance_completed" | "incident_reported" | "incident_resolved" | "resource_alert_triggered" | "resource_alert_resolved" | "cpu_threshold_exceeded" | "memory_threshold_exceeded" | "disk_threshold_exceeded" | "connections_threshold_exceeded" | "uptime_check_down" | "uptime_check_recovered" | "ssl_certificate_expiring" | "pod_health_issue" | "storage_quota_threshold" | "registry_quota_threshold";
+        NotificationCategory: "resource_provisioned" | "resource_failed" | "resource_destroyed" | "resource_status_changed" | "invoice_generated" | "payment_successful" | "payment_failed" | "credits_low" | "credits_expiring" | "pricing_contract_expiring_soon" | "pricing_contract_expired" | "budget_threshold_50" | "budget_threshold_80" | "budget_exceeded" | "api_key_created" | "api_key_revoked" | "firewall_changed" | "suspicious_activity" | "new_login" | "audit_finding_critical" | "audit_security_digest" | "database_credentials_rotated" | "inbound_source_blocked" | "snapshot_completed" | "snapshot_failed" | "restore_completed" | "restore_failed" | "backup_policy_breached" | "backup_policy_recovered" | "team_member_added" | "team_member_removed" | "team_invitation_sent" | "team_invitation_accepted" | "maintenance_scheduled" | "maintenance_started" | "maintenance_completed" | "incident_reported" | "incident_resolved" | "resource_alert_triggered" | "resource_alert_resolved" | "cpu_threshold_exceeded" | "memory_threshold_exceeded" | "disk_threshold_exceeded" | "connections_threshold_exceeded" | "uptime_check_down" | "uptime_check_recovered" | "ssl_certificate_expiring" | "pod_health_issue" | "storage_quota_threshold" | "registry_quota_threshold";
         /**
          * NotificationChannel
          * @enum {string}
@@ -4867,6 +5625,20 @@ export interface components {
             created_at: string | null;
             updated_at: string | null;
         };
+        /** ProjectInvitationResource */
+        ProjectInvitationResource: {
+            id: number;
+            email: string;
+            role: string | null;
+            created_at: string | null;
+        };
+        /** ProjectMemberResource */
+        ProjectMemberResource: {
+            id: number;
+            name: string;
+            email: string;
+            role: string;
+        };
         /** QueueInstance */
         QueueInstance: {
             id: string;
@@ -4880,9 +5652,9 @@ export interface components {
             cpu_cores: number;
             storage_size_gb: number;
             port: number;
-            management_port: number;
+            management_port: number | null;
             host: string | null;
-            vhost: string;
+            vhost: string | null;
             configuration: unknown[] | null;
             parameter_group_id: number | null;
             resource_profile: string | null;
@@ -4914,12 +5686,33 @@ export interface components {
             /** Format: date-time */
             status_observed_at: string | null;
             failure_details: unknown[] | null;
+            provider: components["schemas"]["QueueProviderType"];
         };
         /**
          * QueueInstanceStatus
          * @enum {string}
          */
         QueueInstanceStatus: "pending" | "provisioning" | "running" | "stopped" | "restoring" | "updating" | "error" | "destroying";
+        /**
+         * QueueProviderType
+         * @description The broker a queue instance runs: `rabbitmq`, or `kafka`. Kafka is in early access and is refused unless it has been enabled for your account.
+         * @enum {string}
+         */
+        QueueProviderType: "rabbitmq" | "kafka";
+        /** RegistryAccessKeyResource */
+        RegistryAccessKeyResource: {
+            id: string;
+            name: string;
+            username: string;
+            /** @description `push_pull` pushes and pulls; `pull` only pulls. */
+            scope: string;
+            last_used_at: string | null;
+            /** @description After this moment the key no longer signs in. Null: it never expires. */
+            expires_at: string | null;
+            /** @description When the key was revoked. A revoked key no longer signs in. */
+            revoked_at: string | null;
+            created_at: string | null;
+        };
         /** RegistryRepositoryResource */
         RegistryRepositoryResource: {
             id: string;
@@ -5018,6 +5811,18 @@ export interface components {
             resource_name: string;
             resource_url: string | null;
             signal_key: string;
+            /** @description Fixed item identifiers; null identifies an explicitly supported whole-resource scope. */
+            selector: {
+                node_id?: string;
+                component?: string;
+                drive?: string;
+                mount_point?: string;
+                interface?: string;
+                vcpu?: string;
+                category?: string;
+                query_key?: string;
+            } | null;
+            selector_label: string | "Whole resource";
             trigger_value: string | null;
             trigger_threshold: string | null;
             trigger_comparison_operator: string | null;
@@ -5049,6 +5854,18 @@ export interface components {
             resource_label: string;
             resource_id: string;
             resource_name: string;
+            /** @description Fixed item identifiers; null identifies an explicitly supported whole-resource scope. */
+            selector: {
+                node_id?: string;
+                component?: string;
+                drive?: string;
+                mount_point?: string;
+                interface?: string;
+                vcpu?: string;
+                category?: string;
+                query_key?: string;
+            } | null;
+            selector_label: string;
             resource_url: string | null;
             signal_key: string;
             signal_label: string;
@@ -5081,6 +5898,21 @@ export interface components {
             created_by: number | null;
             created_at: string | null;
             updated_at: string | null;
+        };
+        /**
+         * RollbackDatabaseCaRequest
+         * @description Restore the previous authority after every client trusts it.
+         */
+        RollbackDatabaseCaRequest: {
+            /** @description The revision returned by the last TLS status request. */
+            expected_revision: number;
+            /** @description The previous authority SHA-256 fingerprint, as 64 lowercase hexadecimal characters. */
+            fingerprint_sha256: string;
+            /**
+             * @description Confirm that all clients trust the previous authority.
+             * @enum {unknown}
+             */
+            clients_trust_ca: "yes" | "on" | "1" | 1 | "true" | true;
         };
         /**
          * RotateDatabaseCredentialsRequest
@@ -5149,6 +5981,10 @@ export interface components {
              *     CLI moving to server-side merge semantics (Ticket 5).
              */
             environment_variables: unknown[] | null;
+            /** @description Opaque snapshot of this environment. Send with environment_variables on update; required for containers with service connections. A stale snapshot is refused with HTTP 422. */
+            environment_snapshot: string;
+            /** @description Names of the secret environment variables, sorted. Their values are write-only and never returned. */
+            secret_environment_keys: string[];
             /** @description --- state ------------------------------------------------- */
             status: string;
             /** @description The truthful state of this container. Read this rather than `status`. */
@@ -5494,6 +6330,23 @@ export interface components {
             team_id: null;
             user_id: number;
         };
+        /**
+         * StageDatabaseCaRequest
+         * @description Prepare a replacement certificate authority without changing the database certificate.
+         */
+        StageDatabaseCaRequest: {
+            /**
+             * @description The replacement authority: generated for you, or your own PEM certificate and key.
+             * @enum {string}
+             */
+            mode: "managed" | "byo";
+            /** @description The revision returned by the last TLS status request. */
+            expected_revision: number;
+            /** @description The PEM certificate for your own certificate authority. Required only for byo. */
+            ca_certificate?: string;
+            /** @description The unencrypted PEM private key matching your own authority. Required only for byo; never returned. */
+            ca_private_key?: string;
+        };
         /** StaticSiteBuildResource */
         StaticSiteBuildResource: {
             id: string;
@@ -5804,13 +6657,13 @@ export interface components {
             /** @description Lowercase letters, digits and hyphens, unique among the cache instances of the project. */
             name: string;
             /**
-             * @description The engine. Send this or `cache_provider_id`.
+             * @description The engine. Send this or `cache_provider_id`; when you send both, they must name the same engine.
              * @enum {string}
              */
             provider?: "redis" | "valkey" | "dragonfly";
             /** @description The engine by numeric ID. Prefer `provider`. */
             cache_provider_id?: number;
-            /** @description The engine version. Omit it for the default; a version that is not offered is refused with the list of the ones that are. */
+            /** @description The engine version, such as `8.4`. Omit it to get the engine's default version, the one we recommend for new instances of that engine; the `version` of the created instance says which one it is. A version that is not offered is refused with the list of the ones that are. */
             version?: string | null;
             /**
              * @description Engine settings, as an object of setting names and values. They override the parameter
@@ -5853,7 +6706,7 @@ export interface components {
             /**
              * @description Engine settings, as an object of setting names and values. They override the parameter
              *     group's settings; a setting the group locks is refused. For PostgreSQL, each setting is
-             *     checked against the ones a managed database allows.
+             *     checked against the ones a managed database allows. For MySQL and MariaDB, only the supported settings listed in the Database Parameter Groups documentation (https://docs.danubedata.ro/databases-parameters) are accepted, written exactly as listed; a value is one line of at most 1024 bytes, with no line breaks, control characters or Unicode line separators.
              */
             configuration?: {
                 [key: string]: unknown;
@@ -5879,13 +6732,28 @@ export interface components {
         };
         /**
          * StoreApiQueueInstanceRequest
-         * @description A new queue instance, a managed RabbitMQ broker. Its CPU, memory, storage and price come from the plan in `resource_profile`.
+         * @description A new queue instance: a managed RabbitMQ broker, or an Apache Kafka cluster when `provider` is `kafka`. Its CPU,
+         *     memory, storage and price come from the plan in `resource_profile`. Kafka is in early access and is refused unless it has been enabled for your account. A Kafka cluster takes
+         *     only the fields below.
          */
         StoreApiQueueInstanceRequest: {
+            /**
+             * @description The instance name: 2 to 63 lower-case letters, digits and hyphens, starting and ending with a letter
+             *     or digit, and not used by another queue in your project. A Kafka cluster's name (early access) is at
+             *     most 24 characters, fewer when your project's name is long: it becomes part of the cluster's hostname.
+             */
             name: string;
-            /** @description The plan's slug, such as `micro`, `small`, `medium` or `large`. */
+            /**
+             * @description The broker: `rabbitmq`, the default, or `kafka`. `kafka` is in early access and is refused unless it
+             *     has been enabled for your account.
+             */
+            provider?: components["schemas"]["QueueProviderType"] | null;
+            /**
+             * @description The plan's slug. RabbitMQ plans are `micro`, `small`, `medium` and `large`; Kafka plans (early
+             *     access) are `kafka-small`, `kafka-medium` and `kafka-large`. A plan of the other broker is refused.
+             */
             resource_profile: string;
-            /** @description The RabbitMQ version. Omit it for the default. */
+            /** @description The broker version. Omit it for the default. Kafka (early access) offers `4.3`. */
             version?: string | null;
             /**
              * @description `fsn1` (Falkenstein, Germany), the only location today and the default.
@@ -5971,13 +6839,23 @@ export interface components {
         StoreFirewallRequest: {
             name: string;
             description?: string | null;
-            /** @description Queue a deployment right after saving ("Save and deploy"). */
+            /**
+             * @description Console only: queue a deployment right after saving ("Save and deploy"). The API
+             *     deploys with POST /api/v1/firewalls/{firewall}/deploy and refuses `true` here.
+             */
             deploy?: boolean;
+            /**
+             * @description Console only: the instances of your team the firewall is attached to. The API
+             *     attaches with POST /api/v1/firewalls/{firewall}/attach and refuses a list here.
+             */
             attached_instances?: {
-                /** Format: uuid */
-                id?: string;
+                /**
+                 * Format: uuid
+                 * @description The id of an instance of your team.
+                 */
+                id: string;
                 /** @enum {string} */
-                type?: "database" | "cache" | "vps" | "queue" | "serverless";
+                type: "database" | "cache" | "vps" | "queue" | "serverless";
             }[];
             rules?: {
                 name?: string | null;
@@ -6000,6 +6878,17 @@ export interface components {
                 action?: "allow" | "deny" | null;
                 order?: number | null;
             }[] | null;
+        };
+        /** StoreFloatingIpRequest */
+        StoreFloatingIpRequest: {
+            name: string;
+            labels?: {
+                [key: string]: string;
+            };
+            /** @enum {integer} */
+            ip_version: 4 | 6;
+            /** @enum {string} */
+            datacenter: "fsn1" | "nbg1" | "hel1" | "ash1" | "hil1" | "sin1";
         };
         /** StoreKubernetesClusterRequest */
         StoreKubernetesClusterRequest: {
@@ -6062,15 +6951,53 @@ export interface components {
             notification_channels?: ("database" | "mail" | "webhook")[] | null;
         };
         /**
+         * StoreProjectRequest
+         * @description Create a project owned by your account without changing your current console project.
+         */
+        StoreProjectRequest: {
+            /** @description A display name for the new project, up to 255 characters. */
+            name: string;
+        };
+        /**
+         * StoreRegistryAccessKeyRequest
+         * @description A new access key for the project's container registry. Only the project owner creates keys.
+         */
+        StoreRegistryAccessKeyRequest: {
+            /** @description A name for the key, unique in the project. A revoked key keeps its name. */
+            name: string;
+            /**
+             * @description `push_pull` pushes and pulls; `pull` only pulls.
+             * @enum {string}
+             */
+            scope: "push_pull" | "pull";
+            /**
+             * Format: date-time
+             * @description When the key stops signing in. Leave it out for a key that lasts until it is revoked.
+             */
+            expires_at?: string | null;
+        };
+        /**
          * StoreRuleRequest
-         * @description Shape only (§14: "validated at the boundary"). Ownership, catalog bounds,
-         *     operators, limits and channels are the rule service's, re-checked against
-         *     the latest catalog at submission time (§15) so a change between page load
-         *     and save fails with a clear message rather than a 500.
+         * @description Configure an alert for a resource and measurement returned by the alert catalog.
+         *     The selector fixes the node, component, disk, interface or other item being watched.
+         *     Thresholds use the catalog's canonical unit; duration is sustained observation time in minutes.
+         *     Omit selector only for a whole-resource measurement supported by the catalog.
          */
         StoreRuleRequest: {
             resource_type: string;
+            /** Format: uuid */
             resource_id: string;
+            /** @description Fixed item identifiers; null identifies an explicitly supported whole-resource scope. */
+            selector: {
+                node_id?: string;
+                component?: string;
+                drive?: string;
+                mount_point?: string;
+                interface?: string;
+                vcpu?: string;
+                category?: string;
+                query_key?: string;
+            } | null;
             signal_key: string;
             /** @enum {string} */
             comparison_operator: "gt" | "gte" | "lt" | "lte";
@@ -6136,7 +7063,7 @@ export interface components {
         };
         /** StoreStorageBucketRequest */
         StoreStorageBucketRequest: {
-            /** @description Lowercase letters, digits and hyphens, unique in the project. The bucket's S3 name carries a project prefix, so a project's longest name is a little under 63 characters; a longer one is refused with the project's limit. */
+            /** @description Lowercase letters, digits and hyphens, unique in the project. The name nc-backups is reserved for Storage Share backups. The bucket's S3 name carries a project prefix, so a project's longest name is a little under 63 characters; a longer one is refused with the project's limit. */
             name: string;
             /** @description A label shown instead of the name. */
             display_name?: string | null;
@@ -6219,7 +7146,7 @@ export interface components {
             subject: string;
             message: string;
             /** @enum {string|null} */
-            resource_type?: "cache" | "database" | "vps" | "storage" | "queue" | "serverless" | "static_site" | "app" | null;
+            resource_type?: "cache" | "database" | "vps" | "storage" | "queue" | "serverless" | "static_site" | "app" | "kubernetes" | null;
             /** Format: uuid */
             resource_id?: string | null;
         };
@@ -6256,11 +7183,11 @@ export interface components {
              */
             resource_profile: string;
             /**
-             * @description Defaults to `shared`. Send `dedicated` for a dedicated plan: when sent, it must match the plan's `type` in `GET /api/v1/vps/plans`.
+             * @description Uses the selected plan's type when omitted or null. When sent, it must match the plan's `type` in `GET /api/v1/vps/plans`.
              * @enum {string|null}
              */
             cpu_allocation_type?: "shared" | "dedicated" | null;
-            /** @description The processor platform. There is no default and no fallback: the VPS is created only on the platform you choose. */
+            /** @description The processor platform. Intel supports dedicated VPS plans only. There is no default and no fallback: the VPS is created only on the platform you choose. */
             cpu_platform: components["schemas"]["CpuPlatform"];
             /**
              * @description The operating system: an `id` from `GET /api/v1/vps/images`, such as `ubuntu-24.04`.
@@ -6272,6 +7199,18 @@ export interface components {
              * @enum {string|null}
              */
             network_stack?: "ipv4_only" | "ipv6_only" | "dual_stack" | null;
+            /**
+             * Format: uuid
+             * @description A reserved Floating IPv4 to use as the VPS primary IPv4. It must belong to this project,
+             *     be unassigned and match the network stack. Omit it for automatic allocation.
+             */
+            primary_ipv4_floating_ip_id?: string | null;
+            /**
+             * Format: uuid
+             * @description A reserved single IPv6 address to use as the VPS primary IPv6. It must belong to this
+             *     project, be unassigned and match the network stack. Omit it for automatic allocation.
+             */
+            primary_ipv6_floating_ip_id?: string | null;
             /**
              * @description The network tier: `standard` when omitted or null, or `10g`. `10g` is refused unless your
              *     account is enrolled in 10 Gb networking and it is available for this product, location and
@@ -6403,7 +7342,7 @@ export interface components {
             name?: string;
             /**
              * @description Engine settings, as an object of setting names and values. They override the parameter
-             *     group's settings, except the ones the group locks. Refused for a database type that
+             *     group's settings, except the ones the group locks. For MySQL and MariaDB, only the supported settings listed in the Database Parameter Groups documentation (https://docs.danubedata.ro/databases-parameters) are accepted, written exactly as listed; a value is one line of at most 1024 bytes, with no line breaks, control characters or Unicode line separators. Refused for a database type that
              *     cannot apply configuration changes yet.
              */
             configuration?: {
@@ -6426,19 +7365,20 @@ export interface components {
         };
         /**
          * UpdateApiQueueInstanceRequest
-         * @description Changes to a queue instance. A new plan in `resource_profile` sets its size and price.
+         * @description Changes to a queue instance. A new plan in `resource_profile` sets its size and price. A Kafka cluster (early
+         *     access) cannot change its plan, broker settings or snapshots yet: each is refused, and nothing is changed.
          */
         UpdateApiQueueInstanceRequest: {
             /** @description The plan to move to, such as `micro`, `small`, `medium` or `large`. */
             resource_profile?: string;
             /**
              * @description Broker settings, as an object of setting names and values. They override the parameter
-             *     group's settings, except the ones the group locks.
+             *     group's settings, except the ones the group locks. RabbitMQ only.
              */
             configuration?: {
                 [key: string]: unknown;
             };
-            /** @description Turns the broker's automated snapshots on or off. */
+            /** @description Turns the broker's automated snapshots on or off. RabbitMQ only. */
             automated_snapshots_enabled?: boolean;
         };
         /** UpdateAppInstanceRequest */
@@ -6471,15 +7411,26 @@ export interface components {
         UpdateFirewallRequest: {
             name?: string;
             description?: string | null;
-            /** @description Queue a deployment right after saving ("Save and deploy"). */
+            /**
+             * @description Console only: queue a deployment right after saving ("Save and deploy"). The API
+             *     deploys with POST /api/v1/firewalls/{firewall}/deploy and refuses `true` here.
+             */
             deploy?: boolean;
             /** @enum {string} */
             status?: "draft" | "active" | "applying" | "error";
+            /**
+             * @description Console only: the instances of your team the firewall is attached to. The API
+             *     attaches and detaches with POST /api/v1/firewalls/{firewall}/attach and /detach
+             *     and refuses a list here.
+             */
             attached_instances?: {
-                /** Format: uuid */
-                id?: string;
+                /**
+                 * Format: uuid
+                 * @description The id of an instance of your team.
+                 */
+                id: string;
                 /** @enum {string} */
-                type?: "database" | "cache" | "vps" | "queue" | "serverless";
+                type: "database" | "cache" | "vps" | "queue" | "serverless";
             }[];
             rules?: {
                 /**
@@ -6508,6 +7459,21 @@ export interface components {
                 action?: "allow" | "deny" | null;
                 order?: number | null;
             }[] | null;
+        };
+        /** UpdateFloatingIpRequest */
+        UpdateFloatingIpRequest: {
+            name: string;
+            labels?: {
+                [key: string]: string;
+            };
+        };
+        /**
+         * UpdateProjectRequest
+         * @description Rename a project you own. Its ID and registry namespace stay the same.
+         */
+        UpdateProjectRequest: {
+            /** @description The project's new display name, up to 255 characters. */
+            name: string;
         };
         /**
          * UpdateRuleRequest
@@ -6566,6 +7532,20 @@ export interface components {
             /** @description Environment variables as NAME: value pairs, e.g. `{"API_KEY": "..."}`. */
             environment_variables?: {
                 [key: string]: string;
+            } | null;
+            /**
+             * @description Write-only environment variables as NAME: value pairs. Merged into
+             *     the stored ones: a string sets a variable (an empty string
+             *     included), null removes it, and a name left out stays as it is.
+             *     Send it in a JSON body (a form-encoded body is refused). Values
+             *     are stored exactly as sent and never returned; responses
+             *     list the names in `secret_environment_keys`. A name cannot be both
+             *     here and in `environment_variables`. A change rolls out a new
+             *     revision, like an environment change; a request with only this
+             *     field, holding what is stored already, rolls nothing out.
+             */
+            secret_environment_variables?: {
+                [key: string]: string | null;
             } | null;
             /** @description Requests each instance handles at once before another instance starts. */
             concurrency_target?: number | null;
@@ -6831,6 +7811,10 @@ export interface components {
             datacenter: string;
             public_ip: string | null;
             ipv6_address: string | null;
+            /** Format: uuid */
+            primary_ipv4_floating_ip_id: string | null;
+            /** Format: uuid */
+            primary_ipv6_floating_ip_id: string | null;
             vnc_access_url: string | null;
             monthly_cost_cents: number;
             monthly_cost_dollars: number;
@@ -6931,6 +7915,18 @@ export interface components {
         };
     };
     responses: {
+        /** @description Authorization error */
+        AuthorizationException: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @description Error overview. */
+                    message: string;
+                };
+            };
+        };
         /** @description Unauthenticated */
         AuthenticationException: {
             headers: {
@@ -6956,18 +7952,6 @@ export interface components {
                     errors: {
                         [key: string]: string[];
                     };
-                };
-            };
-        };
-        /** @description Authorization error */
-        AuthorizationException: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
-                "application/json": {
-                    /** @description Error overview. */
-                    message: string;
                 };
             };
         };
@@ -7079,6 +8063,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -7155,6 +8140,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             /**
              * @description A 404 for another project's approval as much as for none at all:
              *     whether an id exists is not something a token gets to learn.
@@ -7440,6 +8426,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "v1.cache.store": {
@@ -7498,6 +8485,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             422: components["responses"]["ValidationException"];
         };
     };
@@ -7892,28 +8880,38 @@ export interface operations {
                 content: {
                     "application/json": {
                         summary: {
-                            memory_used_bytes: string;
-                            memory_used_mb: number;
-                            connected_clients: string;
-                            total_commands_processed: string;
-                            keyspace_hits: string;
-                            keyspace_misses: string;
-                            hit_ratio_percentage: number;
-                            uptime_seconds: string;
-                            total_keys: string;
+                            memory_used_bytes: number | null;
+                            memory_used_mb: number | null;
+                            connected_clients: number | null;
+                            total_commands_processed: number | null;
+                            keyspace_hits: number | null;
+                            keyspace_misses: number | null;
+                            hit_ratio_percentage: number | null;
+                            uptime_seconds: number | null;
+                            total_keys: number | null;
                             fragmentation_ratio: number | null;
                             last_save_age_seconds: Record<string, never> | null;
                             last_bgsave_ok: boolean | null;
                             aof_rewrite_in_progress: boolean | null;
                             slowlog_length: number | null;
                             connected_replicas: number | null;
+                            /** @description Instant-query evaluation times do not establish scrape freshness. */
+                            observed_at: null;
                             retrieved_at: string | null;
                         };
                         health: {
-                            is_healthy: string;
-                            up_status: string;
-                            redis_up: string;
+                            is_healthy: boolean | null;
+                            up_status: boolean | null;
+                            redis_up: boolean | null;
+                            /** @enum {string} */
+                            status: "unknown" | "healthy" | "unhealthy";
+                            observed_at: string | null;
                             checked_at: string | null;
+                        };
+                        capabilities: {
+                            engine_internals: boolean;
+                            replication: boolean;
+                            has_replicas: boolean;
                         };
                         instance: {
                             id: string;
@@ -7955,6 +8953,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "v1.registry.repositories.index": {
@@ -7988,6 +8987,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "v1.registry.repositories.show": {
@@ -8146,6 +9146,140 @@ export interface operations {
                         /** @constant */
                         error: "The registry did not confirm the delete, so nothing was removed.";
                         retryable: boolean;
+                    };
+                };
+            };
+        };
+    };
+    "v1.registry.access-keys.index": {
+        parameters: {
+            query?: {
+                /** @description `true`: only keys that can still sign in, neither revoked nor expired. `false`: only those that cannot. Leave it out for every key. */
+                active?: "true" | "false";
+                /** @description How many items a page holds. */
+                per_page?: number;
+                /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
+                page?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["RegistryAccessKeyResource"][];
+                        pagination: {
+                            current_page: number;
+                            last_page: number;
+                            per_page: number;
+                            total: number;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            /** @description This token lacks `registry:read`, or you are not the project owner. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.registry.access-keys.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoreRegistryAccessKeyRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        key: components["schemas"]["RegistryAccessKeyResource"];
+                        /** @description The secret to sign in with. Returned only in this response. */
+                        token: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            /** @description This token lacks `registry:credentials`, or you are not the project owner. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.registry.access-keys.destroy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The key's `id`, from registry_access_keys_list (`GET /registry/access-keys`) or the create response. */
+                accessKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["RegistryAccessKeyResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            /** @description This token lacks `registry:credentials`, or you are not the project owner. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
+            /** @description No access key with this id in the project. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
                     };
                 };
             };
@@ -8404,6 +9538,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "v1.database.store": {
@@ -8460,6 +9595,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "v1.database.show": {
@@ -8878,6 +10014,289 @@ export interface operations {
             404: components["responses"]["ModelNotFoundException"];
         };
     };
+    "v1.database.tls.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The database instance ID */
+                databaseInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current public certificate authority state. Null pending means no staged candidate. Null previous means rollback is unavailable. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {boolean} */
+                        success: true;
+                        data: components["schemas"]["DatabaseTlsStatus"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
+            /** @description The current certificate or required TLS state is unavailable. Retry later; no private key or upstream response is returned. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                        error: string;
+                    };
+                };
+            };
+        };
+    };
+    "v1.database.tls.ca.stage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The database instance ID */
+                databaseInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StageDatabaseCaRequest"];
+            };
+        };
+        responses: {
+            /** @description Candidate prepared without changing the live certificate. Install pending.trust_bundle on all clients before activation. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {boolean} */
+                        success: true;
+                        data: components["schemas"]["DatabaseTlsStatus"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            /** @description The revision, candidate or live certificate changed, or the database cannot safely perform this action. Refresh TLS status before retrying. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                        error: string;
+                    };
+                };
+            };
+            422: components["responses"]["ValidationException"];
+            /** @description The current certificate or required TLS state is unavailable. Retry later; no private key or upstream response is returned. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                        error: string;
+                    };
+                };
+            };
+        };
+    };
+    "v1.database.tls.ca.destroy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The database instance ID */
+                databaseInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    expected_revision: number;
+                    /** Format: uuid */
+                    stage_id: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Pending candidate discarded. The live certificate is unchanged. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {boolean} */
+                        success: true;
+                        data: components["schemas"]["DatabaseTlsStatus"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            /** @description The revision, candidate or live certificate changed, or the database cannot safely perform this action. Refresh TLS status before retrying. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                        error: string;
+                    };
+                };
+            };
+            422: components["responses"]["ValidationException"];
+            /** @description The current certificate or required TLS state is unavailable. Retry later; no private key or upstream response is returned. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                        error: string;
+                    };
+                };
+            };
+        };
+    };
+    "v1.database.tls.ca.activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The database instance ID */
+                databaseInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ActivateDatabaseCaRequest"];
+            };
+        };
+        responses: {
+            /** @description The change is queued. Poll TLS status until operation.phase is completed or failed; a successful HTTP response does not confirm completion. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {boolean} */
+                        success: true;
+                        data: components["schemas"]["DatabaseTlsStatus"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            /** @description The revision, candidate or live certificate changed, or the database cannot safely perform this action. Refresh TLS status before retrying. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                        error: string;
+                    };
+                };
+            };
+            422: components["responses"]["ValidationException"];
+            /** @description The current certificate or required TLS state is unavailable. Retry later; no private key or upstream response is returned. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                        error: string;
+                    };
+                };
+            };
+        };
+    };
+    "v1.database.tls.ca.rollback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The database instance ID */
+                databaseInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RollbackDatabaseCaRequest"];
+            };
+        };
+        responses: {
+            /** @description The change is queued. Poll TLS status until operation.phase is completed or failed; a successful HTTP response does not confirm completion. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {boolean} */
+                        success: true;
+                        data: components["schemas"]["DatabaseTlsStatus"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            /** @description The revision, candidate or live certificate changed, or the database cannot safely perform this action. Refresh TLS status before retrying. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                        error: string;
+                    };
+                };
+            };
+            422: components["responses"]["ValidationException"];
+            /** @description The current certificate or required TLS state is unavailable. Retry later; no private key or upstream response is returned. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                        error: string;
+                    };
+                };
+            };
+        };
+    };
     "v1.database.replicas.index": {
         parameters: {
             query?: never;
@@ -8951,16 +10370,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        message: string | "Replica added successfully";
-                        replicas: {
-                            /** @constant */
-                            status: "success";
-                            replica_name: string;
-                            replica_index: number;
-                            /** @constant */
-                            message: "Replica StatefulSet, Service, and ConfigMap created via GitOps. ArgoCD will sync changes in ~3 minutes.";
-                        }[];
-                    } | {
                         message: string | "Replica added successfully";
                         replicas: {
                             operation_id: string;
@@ -9108,6 +10517,10 @@ export interface operations {
                 content: {
                     "application/json": {
                         is_replicating: boolean;
+                        /**
+                         * @description The list keeps removed rows, terminated, in their places: the
+                         *     count is of the replicas the database has.
+                         */
                         replica_count: number;
                         replicas: unknown[];
                     };
@@ -9125,6 +10538,48 @@ export interface operations {
                         /** @constant */
                         error: "Failed to get replication status";
                         message: string | "An unexpected error occurred.";
+                    };
+                };
+            };
+        };
+    };
+    "v1.database.ca-certificate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The database instance ID */
+                databaseInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current public CA trust bundle and metadata. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {boolean} */
+                        success: true;
+                        data: components["schemas"]["DatabaseCaCertificate"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            /** @description The current certificate or required TLS state is unavailable. Retry later; no private key or upstream response is returned. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                        error: string;
                     };
                 };
             };
@@ -9268,6 +10723,9 @@ export interface operations {
                     "application/json": {
                         /** @constant */
                         message: "Cache instance must be deployed to a node before DNS can be enabled";
+                    } | {
+                        /** @constant */
+                        message: "A Valkey cache on the operator runs in cluster mode and cannot be published on the shared public endpoint yet. Connect from inside your project, with a cluster-aware client.";
                     };
                 };
             };
@@ -9463,21 +10921,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
-            /** @description An error */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /**
-                         * @description Error overview.
-                         * @example
-                         */
-                        message: string;
-                    };
-                };
-            };
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "v1.firewalls.store": {
@@ -9713,6 +11157,227 @@ export interface operations {
             404: components["responses"]["ModelNotFoundException"];
         };
     };
+    "v1.floating-ips.index": {
+        parameters: {
+            query?: {
+                /** @description How many items a page holds. */
+                per_page?: number;
+                /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
+                page?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Array of `FloatingIpResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: (components["schemas"]["FloatingIpResource"] & Record<string, never>)[];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+        };
+    };
+    "v1.floating-ips.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoreFloatingIpRequest"];
+            };
+        };
+        responses: {
+            /** @description Floating IP resource and operation message. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["FloatingIpResource"];
+                        message: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.floating-ips.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The floating ip ID */
+                floatingIp: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `FloatingIpResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["FloatingIpResource"] & Record<string, never>;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.floating-ips.update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The floating ip ID */
+                floatingIp: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateFloatingIpRequest"];
+            };
+        };
+        responses: {
+            /** @description Floating IP resource and operation message. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["FloatingIpResource"];
+                        message: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.floating-ips.destroy": {
+        parameters: {
+            query: {
+                expected_generation: number;
+            };
+            header?: never;
+            path: {
+                /** @description The floating ip ID */
+                floatingIp: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Floating IP resource and operation message. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["FloatingIpResource"];
+                        message: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.floating-ips.assign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The floating ip ID */
+                floatingIp: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssignFloatingIpRequest"];
+            };
+        };
+        responses: {
+            /** @description Floating IP resource and operation message. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["FloatingIpResource"];
+                        message: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.floating-ips.unassign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The floating ip ID */
+                floatingIp: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FloatingIpGenerationRequest"];
+            };
+        };
+        responses: {
+            /** @description Floating IP resource and operation message. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["FloatingIpResource"];
+                        message: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
     "v1.health": {
         parameters: {
             query?: never;
@@ -9731,21 +11396,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
-            /** @description An error */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /**
-                         * @description Error overview.
-                         * @example Insufficient permissions to access health check
-                         */
-                        message: string;
-                    };
-                };
-            };
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "v1.apps.catalog": {
@@ -9782,6 +11433,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "v1.apps.index": {
@@ -9815,6 +11467,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "v1.apps.store": {
@@ -9870,6 +11523,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -9948,6 +11602,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             422: {
                 headers: {
@@ -9989,6 +11644,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             422: {
                 headers: {
@@ -10026,22 +11682,185 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: {
-                            metrics: string;
+                            metrics: {
+                                cpu_usage: {
+                                    cpu_total_percentage: {
+                                        metric: {
+                                            [key: string]: string;
+                                        };
+                                        values: {
+                                            timestamp: number;
+                                            value: number | null;
+                                            formatted_time: string;
+                                        }[];
+                                    }[];
+                                    cpu_app_percentage: {
+                                        metric: {
+                                            [key: string]: string;
+                                        };
+                                        values: {
+                                            timestamp: number;
+                                            value: number | null;
+                                            formatted_time: string;
+                                        }[];
+                                    }[];
+                                    cpu_db_percentage: {
+                                        metric: {
+                                            [key: string]: string;
+                                        };
+                                        values: {
+                                            timestamp: number;
+                                            value: number | null;
+                                            formatted_time: string;
+                                        }[];
+                                    }[];
+                                };
+                                memory_usage: {
+                                    memory_total: {
+                                        metric: {
+                                            [key: string]: string;
+                                        };
+                                        values: {
+                                            timestamp: number;
+                                            value: number | null;
+                                            formatted_time: string;
+                                        }[];
+                                    }[];
+                                    memory_app: {
+                                        metric: {
+                                            [key: string]: string;
+                                        };
+                                        values: {
+                                            timestamp: number;
+                                            value: number | null;
+                                            formatted_time: string;
+                                        }[];
+                                    }[];
+                                    memory_db: {
+                                        metric: {
+                                            [key: string]: string;
+                                        };
+                                        values: {
+                                            timestamp: number;
+                                            value: number | null;
+                                            formatted_time: string;
+                                        }[];
+                                    }[];
+                                };
+                                network: {
+                                    bytes_received_per_sec: {
+                                        metric: {
+                                            [key: string]: string;
+                                        };
+                                        values: {
+                                            timestamp: number;
+                                            value: number | null;
+                                            formatted_time: string;
+                                        }[];
+                                    }[];
+                                    bytes_sent_per_sec: {
+                                        metric: {
+                                            [key: string]: string;
+                                        };
+                                        values: {
+                                            timestamp: number;
+                                            value: number | null;
+                                            formatted_time: string;
+                                        }[];
+                                    }[];
+                                };
+                                components: {
+                                    id: string;
+                                    label: string;
+                                    cpu_usage: {
+                                        usage: {
+                                            metric: {
+                                                [key: string]: string;
+                                            };
+                                            values: {
+                                                timestamp: number;
+                                                value: number | null;
+                                                formatted_time: string;
+                                            }[];
+                                        }[];
+                                        limit: {
+                                            metric: {
+                                                [key: string]: string;
+                                            };
+                                            values: {
+                                                timestamp: number;
+                                                value: number | null;
+                                                formatted_time: string;
+                                            }[];
+                                        }[];
+                                    };
+                                    memory_usage: {
+                                        used_bytes: {
+                                            metric: {
+                                                [key: string]: string;
+                                            };
+                                            values: {
+                                                timestamp: number;
+                                                value: number | null;
+                                                formatted_time: string;
+                                            }[];
+                                        }[];
+                                        limit_bytes: {
+                                            metric: {
+                                                [key: string]: string;
+                                            };
+                                            values: {
+                                                timestamp: number;
+                                                value: number | null;
+                                                formatted_time: string;
+                                            }[];
+                                        }[];
+                                    };
+                                    storage_available: boolean;
+                                    disks: {
+                                        id: string;
+                                        label: string;
+                                        usage: {
+                                            used_bytes: {
+                                                metric: {
+                                                    [key: string]: string;
+                                                };
+                                                values: {
+                                                    timestamp: number;
+                                                    value: number | null;
+                                                    formatted_time: string;
+                                                }[];
+                                            }[];
+                                            capacity_bytes: {
+                                                metric: {
+                                                    [key: string]: string;
+                                                };
+                                                values: {
+                                                    timestamp: number;
+                                                    value: number | null;
+                                                    formatted_time: string;
+                                                }[];
+                                            }[];
+                                        };
+                                    }[];
+                                }[];
+                            };
                             summary: {
-                                cpu_percentage: number;
-                                memory_bytes: string;
-                                memory_mb: number;
-                                retrieved_at: string | null;
+                                cpu_percentage: number | null;
+                                memory_bytes: number | null;
+                                memory_mb: number | null;
+                                retrieved_at: string;
                             };
                         };
                         meta: {
-                            hours: Record<string, never> | null;
+                            hours: number;
                             step: string;
                         };
                     };
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             422: components["responses"]["ValidationException"];
         };
@@ -10073,6 +11892,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -10329,6 +12149,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "v1.kubernetes.store": {
@@ -10382,6 +12203,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -10410,6 +12232,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -10448,9 +12271,12 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             /**
              * @description An error
+             *
+             *     An error
              *
              *     An error
              */
@@ -10463,6 +12289,12 @@ export interface operations {
                         /**
                          * @description Error overview.
                          * @example The cluster must finish provisioning before it can be scaled.
+                         */
+                        message: string;
+                    } | {
+                        /**
+                         * @description Error overview.
+                         * @example This cluster is suspended. Contact support to bring it back.
                          */
                         message: string;
                     } | {
@@ -10514,8 +12346,13 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
-            /** @description An error */
+            /**
+             * @description An error
+             *
+             *     An error
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10525,6 +12362,12 @@ export interface operations {
                         /**
                          * @description Error overview.
                          * @example The cluster must finish provisioning before node pools can change.
+                         */
+                        message: string;
+                    } | {
+                        /**
+                         * @description Error overview.
+                         * @example This cluster is suspended. Contact support to bring it back.
                          */
                         message: string;
                     };
@@ -10557,9 +12400,12 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             /**
              * @description An error
+             *
+             *     An error
              *
              *     An error
              */
@@ -10572,6 +12418,12 @@ export interface operations {
                         /**
                          * @description Error overview.
                          * @example The cluster must finish provisioning before node pools can change.
+                         */
+                        message: string;
+                    } | {
+                        /**
+                         * @description Error overview.
+                         * @example This cluster is suspended. Contact support to bring it back.
                          */
                         message: string;
                     } | {
@@ -10631,6 +12483,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "v1.metric-alerts.store": {
@@ -10695,6 +12548,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "v1.metric-alerts.show": {
@@ -10720,6 +12574,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -10855,6 +12710,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -10891,6 +12747,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -11005,6 +12862,7 @@ export interface operations {
     "v1.notifications.index": {
         parameters: {
             query?: {
+                /** @description Optional notification category prefix: resource, billing, security, or a specific prefix such as resource_provisioned. Omit to list all categories. This is not a datacenter filter; fsn1 is not a category. */
                 category?: string;
                 unread?: "0" | "1" | "true" | "false";
                 /** @description How many items a page holds. */
@@ -11166,6 +13024,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "v1.storage.buckets.store": {
@@ -11194,14 +13053,14 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            /** @description Your role or this token may not create buckets, or the account is suspended for an unpaid invoice: `message` says which. */
             403: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        /** @constant */
-                        message: "Your account is suspended for an unpaid invoice. Settle your balance to create storage.";
+                        message: string;
                     };
                 };
             };
@@ -11243,6 +13102,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -11275,6 +13135,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             422: components["responses"]["ValidationException"];
         };
@@ -11305,6 +13166,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             422: {
                 headers: {
@@ -11365,6 +13227,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -11462,6 +13325,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -11502,6 +13366,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -11535,6 +13400,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -11748,6 +13614,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "v1.storage.access-keys.store": {
@@ -11803,14 +13670,14 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            /** @description Your role or this token may not create access keys, or the account is suspended for an unpaid invoice: `message` says which. */
             403: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        /** @constant */
-                        message: "Your account is suspended for an unpaid invoice. Settle your balance to create access keys.";
+                        message: string;
                     };
                 };
             };
@@ -11851,6 +13718,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -11878,6 +13746,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             422: {
                 headers: {
@@ -11985,6 +13854,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             /**
              * @description A 404 rather than a 403: whether an id exists is itself
              *     information, and an id is guessable in a way a name is not.
@@ -12048,6 +13918,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "v1.parameter-groups.store": {
@@ -12063,12 +13934,15 @@ export interface operations {
                     name: string;
                     /** @enum {string} */
                     type: "cache" | "database" | "queue";
-                    /** @description The engine the group is for, such as `redis`, `valkey`, `postgresql`, `mysql` or `mariadb`. */
-                    provider_type: string;
+                    /**
+                     * @description The engine the group is for: `redis`, `valkey`, `dragonfly`, `mysql`, `mariadb`, `postgresql` or `rabbitmq`.
+                     * @enum {string}
+                     */
+                    provider_type: "redis" | "valkey" | "dragonfly" | "mysql" | "mariadb" | "postgresql" | "rabbitmq";
                     /** @description The engine version family, such as `postgres16` or `redis7.x`. */
                     family?: string | null;
                     description?: string | null;
-                    /** @description The settings, as an object of setting names and values, with at least one setting. */
+                    /** @description The settings, as an object of setting names and values, with at least one setting. For MySQL and MariaDB, only the supported settings listed in the Database Parameter Groups documentation (https://docs.danubedata.ro/databases-parameters) are accepted, written exactly as listed; a value is one line of at most 1024 bytes, with no line breaks, control characters or Unicode line separators. */
                     parameters: {
                         [key: string]: unknown;
                     };
@@ -12092,6 +13966,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             422: components["responses"]["ValidationException"];
         };
     };
@@ -12118,6 +13993,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -12136,7 +14012,7 @@ export interface operations {
                 "application/json": {
                     name?: string;
                     description?: string | null;
-                    /** @description The settings, as an object of setting names and values. */
+                    /** @description The settings, as an object of setting names and values. For MySQL and MariaDB, only the supported settings listed in the Database Parameter Groups documentation (https://docs.danubedata.ro/databases-parameters) are accepted, written exactly as listed; a value is one line of at most 1024 bytes, with no line breaks, control characters or Unicode line separators. */
                     parameters?: {
                         [key: string]: unknown;
                     };
@@ -12164,6 +14040,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             422: components["responses"]["ValidationException"];
         };
@@ -12192,6 +14069,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             422: {
                 headers: {
@@ -12240,6 +14118,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             422: components["responses"]["ValidationException"];
         };
@@ -12291,6 +14170,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "v1.partner.sub-teams.index": {
@@ -12314,7 +14194,7 @@ export interface operations {
                             tenant_name: string;
                             created_at: string;
                             owner: {
-                                id: string;
+                                id: number | null;
                                 name: string;
                                 email: string;
                             } | null;
@@ -12330,6 +14210,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "v1.partner.sub-teams.store": {
@@ -12359,17 +14240,45 @@ export interface operations {
                             tenant_name: string | null;
                             created_at: string;
                         };
+                        /** @description What the partner asked for, whether or not the address had an account: this must not tell. */
                         owner: {
-                            id: number;
                             name: string;
                             email: string;
                         };
                         api_key: string;
-                        user_created: boolean;
+                        members: {
+                            email: string;
+                            role: string;
+                            status: string;
+                        }[];
                     };
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            /** @description Only the partner team's owner or an administrator may create teams, and the token needs `partner:write`: `message` says which. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "This partner team has no owner, so it cannot create teams. Contact support.";
+                        /** @constant */
+                        error: "Conflict";
+                    };
+                };
+            };
             422: components["responses"]["ValidationException"];
         };
     };
@@ -12394,6 +14303,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -12420,6 +14330,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             422: components["responses"]["ValidationException"];
         };
@@ -12445,6 +14356,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -12487,6 +14399,225 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.projects.members.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The team ID */
+                team: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Array of `ProjectMemberResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ProjectMemberResource"][];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.projects.members.destroy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The team ID */
+                team: number;
+                /** @description The ID of the accepted project member to remove. */
+                user: string | number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.projects.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Array of `UserTeamResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["UserTeamResource"][];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "v1.projects.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoreProjectRequest"];
+            };
+        };
+        responses: {
+            /** @description `UserTeamResource` */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["UserTeamResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.projects.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The team ID */
+                team: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `UserTeamResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["UserTeamResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.projects.destroy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The team ID */
+                team: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.projects.update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The team ID */
+                team: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateProjectRequest"];
+            };
+        };
+        responses: {
+            /** @description `UserTeamResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["UserTeamResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.projects.invitations.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The team ID */
+                team: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InviteProjectMemberRequest"];
+            };
+        };
+        responses: {
+            /** @description `ProjectInvitationResource` */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ProjectInvitationResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
             422: components["responses"]["ValidationException"];
         };
     };
@@ -12715,6 +14846,8 @@ export interface operations {
     "v1.queue.index": {
         parameters: {
             query?: {
+                /** @description Only `rabbitmq` brokers or only `kafka` clusters (early access). Omit it for both. */
+                provider?: components["schemas"]["QueueProviderType"] | null;
                 /** @description How many items a page holds. */
                 per_page?: number;
                 /** @description The page to return, from 1. The answer's `last_page` says how many pages there are. */
@@ -12743,6 +14876,8 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
         };
     };
     "v1.queue.store": {
@@ -12795,7 +14930,7 @@ export interface operations {
                     "application/json": {
                         instance: components["schemas"]["QueueInstance"];
                         connection_info: string | null;
-                        management_url: string;
+                        management_url: string | null;
                         monthly_cost: number;
                         /** @description Poll `operation.terminal`, never the `status` string. */
                         status_details: components["schemas"]["StatusDetailsResource"];
@@ -12889,8 +15024,8 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        /** @constant */
-                        error: "Cannot destroy instance in current status. Please stop the instance first.";
+                        /** @enum {string} */
+                        error: "Cannot delete this Kafka queue while an operation on it is in progress. Try again once it has finished." | "Cannot destroy instance in current status. Please stop the instance first.";
                     };
                 };
             };
@@ -12931,6 +15066,8 @@ export interface operations {
                     "application/json": {
                         /** @constant */
                         error: "Cannot start instance in current status.";
+                    } | {
+                        error: string;
                     };
                 };
             };
@@ -12971,6 +15108,8 @@ export interface operations {
                     "application/json": {
                         /** @constant */
                         error: "Cannot stop instance in current status.";
+                    } | {
+                        error: string;
                     };
                 };
             };
@@ -12994,15 +15133,30 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
+                        provider: components["schemas"]["QueueProviderType"];
                         amqp_url: string | null;
                         management_url: string;
                         host: string | null;
                         port: number;
-                        management_port: number;
-                        vhost: string;
-                        /** @constant */
-                        username: "admin";
+                        management_port: number | null;
+                        vhost: string | null;
+                        username: string;
                         password: string | null;
+                    } | {
+                        provider: components["schemas"]["QueueProviderType"];
+                        /** @enum {string} */
+                        status: "ready" | "provisioning";
+                        bootstrap_servers: string | null;
+                        host: string | null;
+                        port: number | null;
+                        /** @constant */
+                        security_protocol: "SASL_SSL";
+                        /** @constant */
+                        sasl_mechanism: "SCRAM-SHA-512";
+                        username: string;
+                        password: string | null;
+                        /** @constant */
+                        certificate: "The broker's certificate is issued by Let's Encrypt, a publicly trusted authority: clients need no CA file.";
                     };
                 };
             };
@@ -13057,6 +15211,40 @@ export interface operations {
                             id: string;
                             name: string;
                         };
+                    } | {
+                        provider: components["schemas"]["QueueProviderType"];
+                        summary: {
+                            cpu_percent: number | null;
+                            memory_used_bytes: number | null;
+                            memory_limit_bytes: number | null;
+                            disk_used_bytes: number | null;
+                            disk_capacity_bytes: number | null;
+                            messages_in_per_sec: number | null;
+                            bytes_in_per_sec: number | null;
+                            bytes_out_per_sec: number | null;
+                            partitions: number | null;
+                            under_replicated_partitions: number | null;
+                            consumer_lag_total: number | null;
+                            consumer_groups: {
+                                group: string | null;
+                                lag: number;
+                            }[];
+                        };
+                        health: {
+                            /** @enum {string} */
+                            status: "critical" | "healthy" | "warning";
+                            issues: ("Memory usage critical (>95%)" | "Memory usage above 80%" | "Disk usage critical (>90%)" | "Disk usage above 80%" | "Some partitions are under-replicated")[];
+                        } | {
+                            /** @constant */
+                            status: "unknown";
+                            issues: [
+                                "Unable to fetch metrics"
+                            ];
+                        };
+                        instance: {
+                            id: string;
+                            name: string;
+                        };
                     };
                 };
             };
@@ -13094,21 +15282,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
-            /** @description An error */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /**
-                         * @description Error overview.
-                         * @example Insufficient permissions to read recovery capabilities
-                         */
-                        message: string;
-                    };
-                };
-            };
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "v1.registry.context": {
@@ -13490,6 +15664,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             422: components["responses"]["ValidationException"];
         };
     };
@@ -13515,6 +15690,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -13549,11 +15725,16 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "v1.resource-alerts.catalog": {
         parameters: {
-            query?: never;
+            query?: {
+                resource_type?: string;
+                resource_id?: string;
+                "chart_metrics[]"?: string[];
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -13572,7 +15753,7 @@ export interface operations {
                                 label: string;
                                 creatable: string;
                                 /** @enum {string|null} */
-                                availability: "Alerts for this family become available once its evaluation is switched on." | null;
+                                availability: "Create these alerts from a resource chart to select the measurement and item." | "Alerts for this family become available once its evaluation is switched on." | null;
                                 resources: {
                                     [key: string]: unknown;
                                 }[];
@@ -13594,6 +15775,8 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
         };
     };
     "v1.resource-alerts.rules.index": {
@@ -13643,6 +15826,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             422: components["responses"]["ValidationException"];
         };
     };
@@ -13699,6 +15883,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -13856,6 +16041,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "v1.ssh-keys.store": {
@@ -13884,6 +16070,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             422: components["responses"]["ValidationException"];
         };
     };
@@ -14273,6 +16460,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "v1.serverless.store": {
@@ -14327,6 +16515,8 @@ export interface operations {
                     auto_deploy?: boolean;
                     /** @description Object of string key/value pairs injected into the container. */
                     environment_variables?: Record<string, never>;
+                    /** @description Write-only environment variables: an object of string key/value pairs injected into the container and its runs like `environment_variables`, but never returned. Send it in a JSON body; values are stored exactly as sent. Responses list their names in `secret_environment_keys`. A name cannot be in both objects. */
+                    secret_environment_variables?: Record<string, never>;
                     /** @description Requests handled concurrently per replica before scaling out. */
                     concurrency_target?: number;
                     /** @description Autoscaling signal: `rps` or `concurrency`. */
@@ -14434,7 +16624,10 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["UpdateServerlessContainerRequest"];
+                "application/json": components["schemas"]["UpdateServerlessContainerRequest"] & {
+                    /** @description Opaque value from the latest container response. Send it with environment_variables to prevent stale writes. Required when the container has service connections; a stale or missing snapshot is refused with HTTP 422. Omit environment_variables to leave the environment unchanged. A change to secret_environment_variables alone needs no snapshot, but a stale one sent with it is refused too. */
+                    environment_snapshot?: string;
+                };
             };
         };
         responses: {
@@ -14580,6 +16773,54 @@ export interface operations {
                      */
                     file: string;
                 };
+            };
+        };
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "Deployment initiated.";
+                        container_id: string;
+                        /** @constant */
+                        status: "building";
+                        operation: {
+                            operation_id: string;
+                            resource_id: string;
+                            /** @constant */
+                            resource_type: "serverless_container";
+                            /** @constant */
+                            state: "queued";
+                            terminal: boolean;
+                            /** @constant */
+                            poll_after_ms: 3000;
+                            poll_url: string;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.serverless.deploy-files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The serverless container ID */
+                serverlessContainer: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeployServerlessContainerFilesRequest"];
             };
         };
         responses: {
@@ -16150,21 +18391,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
-            /** @description An error */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /**
-                         * @description Error overview.
-                         * @example Insufficient permissions to read snapshots
-                         */
-                        message: string;
-                    };
-                };
-            };
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "v1.snapshots.vps.store": {
@@ -16248,21 +18475,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
-            /** @description An error */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /**
-                         * @description Error overview.
-                         * @example Insufficient permissions to restore snapshots
-                         */
-                        message: string;
-                    };
-                };
-            };
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             /** @description Conflict */
             409: {
@@ -16281,6 +18494,64 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
+                        message: string;
+                    };
+                };
+            };
+        };
+    };
+    "v1.snapshots.vps.clone": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The vps snapshot ID */
+                vpsSnapshot: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CloneApiVpsInstanceRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "VPS clone initiated";
+                        instance: components["schemas"]["VpsInstanceResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                        errors: {
+                            [key: string]: string[];
+                        };
+                    } | {
                         message: string;
                     };
                 };
@@ -16321,21 +18592,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
-            /** @description An error */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /**
-                         * @description Error overview.
-                         * @example Insufficient permissions to delete snapshots
-                         */
-                        message: string;
-                    };
-                };
-            };
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             /** @description Conflict */
             409: {
@@ -16381,21 +18638,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
-            /** @description An error */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /**
-                         * @description Error overview.
-                         * @example Insufficient permissions to read snapshots
-                         */
-                        message: string;
-                    };
-                };
-            };
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "v1.snapshots.cache.store": {
@@ -16479,21 +18722,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
-            /** @description An error */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /**
-                         * @description Error overview.
-                         * @example Insufficient permissions to restore snapshots
-                         */
-                        message: string;
-                    };
-                };
-            };
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             /** @description Conflict */
             409: {
@@ -16615,21 +18844,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
-            /** @description An error */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /**
-                         * @description Error overview.
-                         * @example Insufficient permissions to delete snapshots
-                         */
-                        message: string;
-                    };
-                };
-            };
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             /** @description Conflict */
             409: {
@@ -16675,21 +18890,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
-            /** @description An error */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /**
-                         * @description Error overview.
-                         * @example Insufficient permissions to read snapshots
-                         */
-                        message: string;
-                    };
-                };
-            };
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "v1.snapshots.database.store": {
@@ -16788,21 +18989,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
-            /** @description An error */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /**
-                         * @description Error overview.
-                         * @example Insufficient permissions to restore snapshots
-                         */
-                        message: string;
-                    };
-                };
-            };
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             /** @description Conflict */
             409: {
@@ -16911,21 +19098,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
-            /** @description An error */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /**
-                         * @description Error overview.
-                         * @example Insufficient permissions to delete snapshots
-                         */
-                        message: string;
-                    };
-                };
-            };
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             /** @description Conflict */
             409: {
@@ -17124,6 +19297,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "v1.static-sites.store": {
@@ -17179,6 +19353,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -17206,6 +19381,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             422: {
                 headers: {
@@ -17258,6 +19434,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             422: components["responses"]["ValidationException"];
         };
@@ -17287,6 +19464,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -17316,6 +19494,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             422: {
                 headers: {
@@ -17364,6 +19543,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -17392,6 +19572,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             422: {
                 headers: {
@@ -17432,6 +19613,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -17466,6 +19648,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             422: components["responses"]["ValidationException"];
         };
@@ -17496,6 +19679,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -17525,6 +19709,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -17628,6 +19813,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             /** @description No such ticket among yours in the current project. */
             404: {
                 headers: {
@@ -17723,6 +19909,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             /** @description No such ticket among yours in the current project. */
             404: {
                 headers: {
@@ -17780,6 +19967,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "v1.uptime-checks.store": {
@@ -17835,6 +20023,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -17896,6 +20085,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -17924,6 +20114,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -17966,6 +20157,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -18003,6 +20195,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -18038,6 +20231,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -18287,6 +20481,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "v1.vps.store": {
@@ -18363,6 +20558,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "v1.vps.images.grouped": {
@@ -18397,11 +20593,29 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "v1.vps.plans": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The location to check. Defaults to fsn1 (Falkenstein, Germany). */
+                datacenter?: "fsn1";
+                /** @description Which IP versions the VPS needs. Defaults to dual_stack. */
+                network_stack?: "dual_stack" | "ipv4_only" | "ipv6_only" | null;
+                /** @description The network tier to check. Defaults to standard. */
+                network_tier?: components["schemas"]["NetworkTier"] | null;
+                /**
+                 * @description A reserved Floating IPv4 in this project to use as the primary IPv4.
+                 *     Omit it to check automatic address allocation.
+                 */
+                primary_ipv4_floating_ip_id?: string | null;
+                /**
+                 * @description A reserved single IPv6 address in this project to use as the primary IPv6.
+                 *     Omit it to check automatic address allocation.
+                 */
+                primary_ipv6_floating_ip_id?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -18423,6 +20637,8 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
         };
     };
     "v1.vps.show": {
@@ -18457,6 +20673,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -18489,6 +20706,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             422: components["responses"]["ValidationException"];
         };
@@ -18519,6 +20737,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             422: {
                 headers: {
@@ -18563,6 +20782,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             422: {
                 headers: {
@@ -18604,6 +20824,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             422: {
                 headers: {
@@ -18645,6 +20866,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             422: {
                 headers: {
@@ -18693,6 +20915,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             422: components["responses"]["ValidationException"];
         };
@@ -18731,6 +20954,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -18753,36 +20977,54 @@ export interface operations {
                 content: {
                     "application/json": {
                         cpu: {
-                            usage_percent: number;
+                            usage_percent: number | null;
                             cores: number;
                             sockets: number;
                             threads: number;
                         };
                         memory: {
-                            used_gb: number;
+                            used_gb: number | null;
                             total_gb: number;
-                            usage_percent: number;
+                            usage_percent: number | null;
                         };
                         storage: {
-                            used_gb: number;
+                            used_gb: number | null;
                             total_gb: number;
-                            usage_percent: number;
+                            usage_percent: number | null;
                         };
                         network: {
-                            /** @description Network throughput */
-                            rx_bytes_per_sec: number;
-                            tx_bytes_per_sec: number;
-                            /** @description Network health metrics */
-                            error_rate: number;
+                            rx_bytes_per_sec: number | null;
+                            tx_bytes_per_sec: number | null;
+                            error_rate: number | null;
                             /** @enum {string} */
-                            status: "Healthy" | "Warning" | "Critical";
+                            status: "Critical" | "Warning" | "Healthy" | "Unknown";
                         };
-                        uptime_seconds: number;
+                        /** @description Neither VM state transitions nor creation timestamps measure guest uptime. */
+                        uptime_seconds: null;
+                        vm_running_duration_seconds: null;
+                        metadata: {
+                            /** @enum {string} */
+                            collection_status: "empty" | "available" | "error" | "partial";
+                            sources: {
+                                [key: string]: {
+                                    observed_at: string | null;
+                                    /** @enum {string} */
+                                    freshness: "fresh" | "stale" | "unknown";
+                                };
+                            };
+                            capabilities: {
+                                /** @constant */
+                                guest_uptime: "unavailable";
+                                /** @constant */
+                                vm_running_duration: "unavailable";
+                            };
+                        };
                         timestamp: string | null;
                     };
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             503: {
                 headers: {
@@ -18826,6 +21068,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             422: {
                 headers: {
@@ -18874,6 +21117,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -18909,6 +21153,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             422: components["responses"]["ValidationException"];
         };
@@ -18938,6 +21183,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
         };
     };
@@ -18974,6 +21220,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             422: components["responses"]["ValidationException"];
         };
@@ -19006,6 +21253,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             422: {
                 headers: {
@@ -19199,6 +21447,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "v1.webhooks.config.show": {
@@ -19223,21 +21472,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
-            /** @description An error */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /**
-                         * @description Error overview.
-                         * @example Insufficient permissions to read webhook configuration
-                         */
-                        message: string;
-                    };
-                };
-            };
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "v1.webhooks.config.update": {
@@ -19273,21 +21508,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
-            /** @description An error */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /**
-                         * @description Error overview.
-                         * @example Insufficient permissions to update webhook configuration
-                         */
-                        message: string;
-                    };
-                };
-            };
+            403: components["responses"]["AuthorizationException"];
             422: components["responses"]["ValidationException"];
         };
     };
@@ -19313,21 +21534,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
-            /** @description An error */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /**
-                         * @description Error overview.
-                         * @example Insufficient permissions to regenerate webhook secret
-                         */
-                        message: string;
-                    };
-                };
-            };
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "v1.webhooks.deliveries": {
@@ -19361,21 +21568,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
-            /** @description An error */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /**
-                         * @description Error overview.
-                         * @example Insufficient permissions to read webhook deliveries
-                         */
-                        message: string;
-                    };
-                };
-            };
+            403: components["responses"]["AuthorizationException"];
         };
     };
 }
