@@ -36,6 +36,8 @@ async function writeSecretFile(file: string, content: string, force: boolean | u
       if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
         throw new UsageError(`${file} appeared while writing. Run again, or pick another file with -o.`);
       }
+      // A write that failed midway (e.g. a full disk) must not leave a partial credentials file behind.
+      await unlink(file).catch(() => undefined);
       throw err;
     }
     return;

@@ -103,7 +103,7 @@ const disableCommand = new Command('disable')
       jsonOutput({ disabled: true, queue: name });
       return;
     }
-    console.log(chalk.green(`Schema Registry is disabled on '${name}' (billing stops).`));
+    console.log(chalk.green(`Schema Registry is being disabled on '${name}'; billing stops once it is removed.`));
   });
 
 const rotateCommand = new Command('rotate-password')

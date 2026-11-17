@@ -459,7 +459,7 @@ describe('queue schema-registry', () => {
 
     expect(mockDelete).toHaveBeenCalledWith(`${Q}/schema-registry`);
     expect(mockGet.mock.calls.some(([path]) => String(path).endsWith('/schema-registry'))).toBe(false);
-    expect(out()).toContain("Schema Registry is disabled on 'ev' (billing stops).");
+    expect(out()).toContain("Schema Registry is being disabled on 'ev'; billing stops once it is removed.");
   });
 
   it('disables with --yes', async () => {
