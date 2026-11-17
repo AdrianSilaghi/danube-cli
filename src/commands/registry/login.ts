@@ -141,13 +141,16 @@ export const loginCommand = new Command('login')
     const api = await ApiClient.create();
     const registryHost = (await api.get<RegistryContextResponse>('/api/v1/registry/context')).data.registry_host;
 
-    const { key, token } = await createRegistryAccessKey(api, { name, scope, expiresAt });
-    // Held from just before docker login to the record write: two logins into one Docker config
-    // must not each revoke the key the other left in Docker. Without it, nothing is revoked or recorded.
+    // Taken before the key exists, so nothing about the lock can strand a key that was created, and held
+    // to the record write: two logins into one Docker config must not each revoke the key the other left
+    // in Docker. Without it the login still runs, but nothing is revoked or recorded.
     const lock = await acquireLoginLock();
+    let created: { key: RegistryAccessKey; token: string };
     let renewal: Renewal;
     let warnings: string;
     try {
+      created = await createRegistryAccessKey(api, { name, scope, expiresAt });
+      const { key, token } = created;
       // The token travels on docker's standard input only: not argv, not its environment, not our output.
       const login = await runDocker(['login', registryHost, '-u', key.username, '--password-stdin'], token, { timeoutMs: DOCKER_LOGIN_TIMEOUT_MS }).catch((err: Error) => ({
         code: null as number | null,
@@ -178,6 +181,8 @@ export const loginCommand = new Command('login')
     } finally {
       await lock?.release();
     }
+
+    const { key } = created;
 
     // Docker's own warnings (where it keeps the login, whether that is encrypted) are the user's to read.
     if (warnings) console.error(chalk.dim(warnings));

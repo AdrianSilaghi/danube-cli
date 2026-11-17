@@ -328,7 +328,11 @@ describe('danube registry login', () => {
       expect(errSpy.mock.calls.flat().join('\n')).toContain('(plain string failure)');
     });
 
-    it('holds the lock from before docker login until the record is written', async () => {
+    it('holds the lock from before the key is created until the record is written', async () => {
+      mockPost.mockImplementation(() => {
+        events.push('create-key');
+        return Promise.resolve({ key, token: TOKEN });
+      });
       mockDocker.mockImplementation((args: string[]) => {
         events.push(args[0] === 'login' ? 'docker-login' : 'docker-check');
         return Promise.resolve({ code: 0, stdout: '', stderr: '', timedOut: false });
@@ -336,7 +340,15 @@ describe('danube registry login', () => {
 
       await login(['--name', 'laptop']);
 
-      expect(events).toEqual(['docker-check', 'lock', 'docker-login', 'record', 'release']);
+      expect(events).toEqual(['docker-check', 'lock', 'create-key', 'docker-login', 'record', 'release']);
+    });
+
+    it('releases the lock when the key cannot be created', async () => {
+      mockPost.mockRejectedValue(new ApiError(403, 'no'));
+
+      await login(['--name', 'laptop']).catch(() => undefined);
+
+      expect(events).toEqual(['lock', 'release']);
     });
 
     it('releases the lock when docker login fails', async () => {

@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir, rename, rm, open, stat, realpath } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, rename, rm, open, lstat, realpath } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -92,16 +92,18 @@ export interface LoginLock {
 }
 
 const LOCK_WAIT_MS = 15_000;
-/** A `docker login` may take two minutes, so a lock younger than three belongs to a login that is still running. */
-const LOCK_STALE_MS = 180_000;
+/** The longest a login holds the lock is a two minute `docker login` plus its API calls, so a lock older than five minutes is the leftover of a login that died. */
+const LOCK_STALE_MS = 300_000;
 const LOCK_POLL_MS = 100;
 
 /**
- * Serialise logins: from just before `docker login` to the write of the record, so two logins into
- * the same slot cannot each revoke the key the other one left in Docker. A lock file created
- * exclusively next to the store. Resolves null when it cannot be had within `waitMs` (or at all): the
- * caller must then not revoke or record anything. A lock older than `staleMs` is the leftover of a
- * login that died, and is broken.
+ * Serialise logins: the caller takes the lock before it creates a key and keeps it to the write of the
+ * record, so two logins into the same slot cannot each revoke the key the other one left in Docker.
+ * A lock file created exclusively next to the store, holding a random token. Resolves null when it
+ * cannot be had within `waitMs`, or at all (any unexpected error: a directory or a dangling symlink at
+ * the lock path, no permission): the caller then logs in without renewing, and revokes and records
+ * nothing. A lock older than `staleMs` is broken. `release()` removes the lock only while it still holds
+ * this login's token, so a lock someone else took after ours was broken is never deleted.
  */
 export async function acquireLoginLock(
   file: string = DEFAULT_FILE,
@@ -109,31 +111,44 @@ export async function acquireLoginLock(
 ): Promise<LoginLock | null> {
   const { waitMs = LOCK_WAIT_MS, staleMs = LOCK_STALE_MS, pollMs = LOCK_POLL_MS } = options;
   const path = `${file}.lock`;
+  const token = randomUUID();
   const startedAt = Date.now();
 
   try {
     await mkdir(dirname(file), { recursive: true });
+
+    for (;;) {
+      try {
+        const handle = await open(path, 'wx', 0o600);
+        await handle.writeFile(token);
+        await handle.close();
+        return {
+          release: async () => {
+            const holder = await readFile(path, 'utf-8').catch(() => null);
+            if (holder === token) await rm(path, { force: true });
+          },
+        };
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'EEXIST') return null;
+      }
+
+      // Every way round the loop passes this check, so no path can wait forever.
+      if (Date.now() - startedAt >= waitMs) return null;
+
+      // lstat: what is at the path itself, a dangling symlink included, never what it points to.
+      const age = await lstat(path).then((s) => Date.now() - s.mtimeMs, (err: NodeJS.ErrnoException) => {
+        if (err.code === 'ENOENT') return null; // It went away between the two calls: try to take it.
+        throw err;
+      });
+
+      if (age === null) continue;
+      if (age > staleMs) {
+        await rm(path, { force: true });
+        continue;
+      }
+      await sleep(pollMs);
+    }
   } catch {
     return null;
-  }
-
-  for (;;) {
-    try {
-      const handle = await open(path, 'wx', 0o600);
-      await handle.writeFile(`${process.pid}\n`);
-      await handle.close();
-      return { release: () => rm(path, { force: true }) };
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') return null;
-    }
-
-    const age = await stat(path).then((s) => Date.now() - s.mtimeMs, () => null);
-    if (age === null) continue; // It went away between the two calls: try to take it.
-    if (age > staleMs) {
-      await rm(path, { force: true });
-      continue;
-    }
-    if (Date.now() - startedAt >= waitMs) return null;
-    await sleep(pollMs);
   }
 }

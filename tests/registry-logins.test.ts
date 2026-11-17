@@ -4,18 +4,19 @@ import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 
 // The real file system, except that the move into place and the age of a lock can be made to fail.
-const faults = vi.hoisted(() => ({ rename: false, statGoneOnce: false }));
+const faults = vi.hoisted(() => ({ rename: false, statGoneOnce: false, statDenied: false }));
 vi.mock('node:fs/promises', async (importOriginal) => {
   const real = await importOriginal<typeof import('node:fs/promises')>();
   return {
     ...real,
     rename: (...args: Parameters<typeof real.rename>) => (faults.rename ? Promise.reject(new Error('EXDEV')) : real.rename(...args)),
-    stat: (...args: Parameters<typeof real.stat>) => {
+    lstat: (...args: Parameters<typeof real.lstat>) => {
+      if (faults.statDenied) return Promise.reject(Object.assign(new Error('denied'), { code: 'EACCES' }));
       if (faults.statGoneOnce) {
         faults.statGoneOnce = false;
         return Promise.reject(Object.assign(new Error('gone'), { code: 'ENOENT' }));
       }
-      return real.stat(...args);
+      return real.lstat(...args);
     },
   };
 });
@@ -185,6 +186,7 @@ describe('the login lock', () => {
   let dir: string | null = null;
   afterEach(async () => {
     faults.statGoneOnce = false;
+    faults.statDenied = false;
     if (dir) await rm(dir, { recursive: true, force: true });
     dir = null;
   });
@@ -247,6 +249,79 @@ describe('the login lock', () => {
     // The first look at the age reports it gone, so the retry creates it... but the file is still
     // there, so the second look is the real one and the lock is respected until the wait ends.
     expect(await acquireLoginLock(file, quick)).toBeNull();
+  });
+
+  it('gives up within the wait on a dangling symlink at the lock path', async () => {
+    const file = await fileIn();
+    await symlink(join(dir!, 'nowhere', 'target'), `${file}.lock`);
+
+    const startedAt = Date.now();
+    expect(await acquireLoginLock(file, quick)).toBeNull();
+
+    expect(Date.now() - startedAt).toBeLessThan(2_000);
+  });
+
+  it('breaks a stale dangling symlink', async () => {
+    const file = await fileIn();
+    await symlink(join(dir!, 'nowhere', 'target'), `${file}.lock`);
+    const old = new Date(Date.now() - 10 * 60_000);
+    await utimes(`${file}.lock`, old, old).catch(() => undefined);
+    // utimes follows the link, which does not exist: age the link itself with a tiny stale limit instead.
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    const lock = await acquireLoginLock(file, { ...quick, staleMs: 5 });
+
+    expect(lock).not.toBeNull();
+    await lock!.release();
+  });
+
+  it('answers null for a directory at the lock path, fresh or stale', async () => {
+    const file = await fileIn();
+    await mkdir(`${file}.lock`);
+
+    expect(await acquireLoginLock(file, quick)).toBeNull();
+
+    // A stale directory cannot be removed as a file: that is an unexpected error, and also null.
+    const old = new Date(Date.now() - 10 * 60_000);
+    await utimes(`${file}.lock`, old, old);
+    expect(await acquireLoginLock(file, { ...quick, staleMs: 1_000 })).toBeNull();
+  });
+
+  it('answers null when it cannot even look at the lock', async () => {
+    const file = await fileIn();
+    await writeFile(`${file}.lock`, 'someone');
+    faults.statDenied = true;
+
+    expect(await acquireLoginLock(file, quick)).toBeNull();
+  });
+
+  it('does not wait at all when the wait is already over', async () => {
+    const file = await fileIn();
+    await writeFile(`${file}.lock`, 'someone');
+    const old = new Date(Date.now() - 10 * 60_000);
+    await utimes(`${file}.lock`, old, old);
+
+    expect(await acquireLoginLock(file, { ...quick, waitMs: 0, staleMs: 1_000 })).toBeNull();
+  });
+
+  it('release removes only the lock that still holds its own token', async () => {
+    const file = await fileIn();
+    const mine = await acquireLoginLock(file, quick);
+    expect(await readFile(`${file}.lock`, 'utf-8')).toMatch(/^[0-9a-f-]{36}$/);
+
+    // Mine was broken as stale and another login took the lock.
+    await writeFile(`${file}.lock`, 'the other login token');
+    await mine!.release();
+
+    expect(await readFile(`${file}.lock`, 'utf-8')).toBe('the other login token');
+  });
+
+  it('release is harmless when the lock is already gone', async () => {
+    const file = await fileIn();
+    const mine = await acquireLoginLock(file, quick);
+    await rm(`${file}.lock`);
+
+    await expect(mine!.release()).resolves.toBeUndefined();
   });
 
   it('answers null when the lock cannot be made at all', async () => {
