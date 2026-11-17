@@ -199,13 +199,39 @@ describe('checkDockerPush', () => {
     expect((await checkDockerPush(HOST, REPO, noActions.deps)).status).toBe('no_access');
   });
 
-  it.each([401, 403])('reports a login the realm rejects (%i)', async (status) => {
-    const { deps: d } = deps({ config: withAuth, responses: [challenge(), json({ errors: [] }, status)] });
+  it('reports a 401 as a login the registry does not accept, with the realm\'s own reason', async () => {
+    const { deps: d } = deps({ config: withAuth, responses: [challenge(), json({ errors: [{ code: 'UNAUTHORIZED', message: 'key revoked' }] }, 401)] });
 
     const check = await checkDockerPush(HOST, REPO, d);
 
     expect(check).toMatchObject({ status: 'rejected', can_push: false });
-    expect(check.message).toContain(`HTTP ${status}`);
+    expect(check.message).toContain('(HTTP 401): key revoked');
+    expect(check.message).toContain('may be revoked or expired');
+  });
+
+  it('reports a 403 with the realm\'s own reason and does not blame the key', async () => {
+    const { deps: d } = deps({ config: withAuth, responses: [challenge(), json({ errors: [{ code: 'DENIED', message: 'storage quota exceeded' }] }, 403)] });
+
+    const check = await checkDockerPush(HOST, REPO, d);
+
+    expect(check).toMatchObject({ status: 'rejected', can_push: false });
+    expect(check.message).toBe(`${HOST} refused the token request (HTTP 403): storage quota exceeded`);
+  });
+
+  it.each([
+    ['a body that is not JSON', new Response('nope', { status: 403 })],
+    ['an error list without a message', json({ errors: [{}] }, 403)],
+    ['a blank message', json({ errors: [{ message: '  ' }] }, 403)],
+  ])('reports a 403 without a reason for %s', async (_name, body) => {
+    const { deps: d } = deps({ config: withAuth, responses: [challenge(), body] });
+
+    expect((await checkDockerPush(HOST, REPO, d)).message).toBe(`${HOST} refused the token request (HTTP 403)`);
+  });
+
+  it('cuts a very long reason', async () => {
+    const { deps: d } = deps({ config: withAuth, responses: [challenge(), json({ errors: [{ message: 'x'.repeat(500) }] }, 403)] });
+
+    expect((await checkDockerPush(HOST, REPO, d)).message.length).toBeLessThan(300);
   });
 
   it('refuses to send the login to a plain-http realm', async () => {

@@ -7,7 +7,7 @@ import type { WaitBaseline } from '../../lib/wait-for-terminal.js';
 import { waitEnvelope, printWaitOutcome } from '../../lib/report-wait.js';
 import type { ServerlessContainer } from '../../types/api.js';
 import { parseDurationSeconds } from '../../lib/duration.js';
-import { effectiveSecretChanges, mergeEnv, putMergedEnvironment } from '../../lib/serverless-env.js';
+import { assertSecretsStored, effectiveSecretChanges, ensureSecretSupport, mergeEnv, putMergedEnvironment, reconcileKinds } from '../../lib/serverless-env.js';
 import { readEnvironmentFlags, secretsToSet } from '../../lib/env-input.js';
 
 interface ListResponse { data: ServerlessContainer[] }
@@ -49,7 +49,7 @@ export const applyCommand = new Command('apply')
   .option('--wait-timeout <duration>', 'Ceiling for --wait: 30s, 10m, 1h (default 10m)')
   .action(async (opts) => {
     // Read before any request: a bad flag or file fails without touching the API.
-    const { env: envPairs, secrets } = await readEnvironmentFlags(opts);
+    const { env: envPairs, secrets: requestedSecrets } = await readEnvironmentFlags(opts);
 
     const api = await ApiClient.create();
 
@@ -85,43 +85,55 @@ export const applyCommand = new Command('apply')
     let baseline: WaitBaseline | null = null;
 
     if (existing) {
+      // Refuses, before any write, a platform that would drop the secrets without saying so.
+      const current = Object.keys(requestedSecrets).length > 0 ? await ensureSecretSupport(api, existing) : existing;
+      // A key set as a secret that is plain now (or the reverse) is moved in the same write.
+      const kinds = reconcileKinds(current, envPairs, requestedSecrets, opts.rmEnv);
+      const secrets = kinds.secrets;
+      const rmEnv = kinds.rmEnv;
+      const envTouched = envRequested || rmEnv.length > 0;
+      if (!isJsonMode()) for (const note of kinds.notes) console.error(chalk.dim(note));
+
       // Same semantics as `rapids update`: remove named keys first, then
       // overlay --env on what is left of the container's current map.
-      const desiredEnv = envRequested ? mergeEnv(existing.environment_variables, envPairs, opts.rmEnv) : null;
-      const envChanged = desiredEnv !== null && !envEqual(existing.environment_variables, desiredEnv);
+      const desiredEnv = envTouched ? mergeEnv(current.environment_variables, envPairs, rmEnv) : null;
+      const envChanged = desiredEnv !== null && !envEqual(current.environment_variables, desiredEnv);
 
       // Writing a configuration that already matches produces a new revision
       // for no reason — churn an agent has no way to know it caused. Compare
       // first and report `unchanged` instead.
-      const secretChanges = effectiveSecretChanges(secrets, existing.secret_environment_keys);
+      const secretChanges = effectiveSecretChanges(secrets, current.secret_environment_keys);
       const secretsChanged = Object.keys(secretChanges).length > 0;
 
       const drift = Object.entries(desired).filter(
-        ([k, v]) => String((existing as unknown as Record<string, unknown>)[k] ?? '') !== String(v ?? ''),
+        ([k, v]) => String((current as unknown as Record<string, unknown>)[k] ?? '') !== String(v ?? ''),
       );
 
       if (drift.length === 0 && !envChanged && !secretsChanged) {
-        container = existing;
+        container = current;
         action = 'unchanged';
       } else {
         // Snapshot BEFORE the write. Without it the first poll cannot tell the
         // previous operation's verdict from this one's.
-        baseline = await captureBaseline(api, existing.id);
+        baseline = await captureBaseline(api, current.id);
         // Only the fields actually supplied are sent, so apply converges the
         // stated configuration without silently resetting anything the caller
         // did not mention.
         const body = secretsChanged ? { ...desired, secret_environment_variables: secretChanges } : desired;
         // A secrets-only change still sends the environment snapshot, which covers secret names.
-        const res = envRequested || secretsChanged
+        const res = envTouched || secretsChanged
           ? await putMergedEnvironment<MutateResponse>(
               api,
-              existing,
-              envRequested ? (env) => mergeEnv(env, envPairs, opts.rmEnv) : null,
+              current,
+              envTouched ? (env) => mergeEnv(env, envPairs, rmEnv) : null,
               body,
             )
-          : await api.put<MutateResponse>(`/api/v1/serverless/${existing.id}`, body);
+          : await api.put<MutateResponse>(`/api/v1/serverless/${current.id}`, body);
         container = res.container;
-        action = 'updated';
+        // The platform bumps the generation only when something it stores changed.
+        action = typeof container.spec_generation === 'number' && container.spec_generation === current.spec_generation
+          ? 'unchanged'
+          : 'updated';
       }
     } else {
       const body: Record<string, unknown> = {
@@ -135,7 +147,7 @@ export const applyCommand = new Command('apply')
       // to the API.
       if (opts.env || opts.envFile) body.environment_variables = envPairs;
       // Nothing to remove from a new container: only secrets with a value go out.
-      const newSecrets = secretsToSet(secrets);
+      const newSecrets = secretsToSet(requestedSecrets);
       if (Object.keys(newSecrets).length > 0) body.secret_environment_variables = newSecrets;
       const res = await api.post<MutateResponse>(
         '/api/v1/serverless',
@@ -143,6 +155,8 @@ export const applyCommand = new Command('apply')
         opts.idempotencyKey ? { 'Idempotency-Key': String(opts.idempotencyKey) } : undefined,
       );
       container = res.container;
+      // A platform without secret variables would create the container without them.
+      assertSecretsStored(container, Object.keys(newSecrets));
       action = 'created';
     }
 

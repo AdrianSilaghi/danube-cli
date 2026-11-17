@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { ApiError } from '../src/lib/errors.js';
-import { effectiveSecretChanges, mergeEnv, putMergedEnvironment } from '../src/lib/serverless-env.js';
+import { assertSecretsStored, effectiveSecretChanges, ensureSecretSupport, mergeEnv, putMergedEnvironment, reconcileKinds } from '../src/lib/serverless-env.js';
 import type { ApiClient } from '../src/lib/api-client.js';
 import type { ServerlessContainer } from '../src/types/api.js';
 
@@ -99,5 +99,66 @@ describe('effectiveSecretChanges', () => {
 
   it('treats a platform without secret keys as holding none', () => {
     expect(effectiveSecretChanges({ GONE: null }, undefined)).toEqual({});
+  });
+});
+
+describe('ensureSecretSupport', () => {
+  it('returns a container that lists its secret keys without asking again', async () => {
+    const get = vi.fn();
+    const c = { ...container({}), secret_environment_keys: [] };
+
+    expect(await ensureSecretSupport(fakeApi(vi.fn(), get), c)).toBe(c);
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it('returns the freshly read container when only it lists them', async () => {
+    const fresh = { ...container({}), secret_environment_keys: ['K'] };
+    const get = vi.fn().mockResolvedValue({ container: fresh });
+
+    expect(await ensureSecretSupport(fakeApi(vi.fn(), get), container({}))).toBe(fresh);
+  });
+
+  it.each([[{ container: container({}) }], [{}]])('refuses when neither does (%j)', async (answer) => {
+    const get = vi.fn().mockResolvedValue(answer);
+
+    await expect(ensureSecretSupport(fakeApi(vi.fn(), get), container({}))).rejects.toThrow(/does not support secret variables yet, so nothing was changed/);
+  });
+});
+
+describe('assertSecretsStored', () => {
+  const made = (keys?: string[]) => ({ ...container({}), name: 'api', secret_environment_keys: keys });
+
+  it('passes when nothing was sent, or all of it is reported', () => {
+    expect(() => assertSecretsStored(made(), [])).not.toThrow();
+    expect(() => assertSecretsStored(made(['A', 'B']), ['A', 'B'])).not.toThrow();
+  });
+
+  it('names what is missing, and whether the platform lacks the feature', () => {
+    expect(() => assertSecretsStored(made(), ['A'])).toThrow(/WITHOUT its secret variables.*A.*does not support secret variables yet/);
+    expect(() => assertSecretsStored(made(['A']), ['A', 'B'])).toThrow(/WITHOUT some of its secret variables.*B\./);
+  });
+});
+
+describe('reconcileKinds', () => {
+  const now = (env: Record<string, string>, secretKeys: string[]) => ({ environment_variables: env, secret_environment_keys: secretKeys });
+
+  it('moves a plain key that is set as a secret, and a secret key that is set as plain', () => {
+    const plan = reconcileKinds(now({ P: '1', Q: '2' }, ['S']), { S: 'plain' }, { P: 'secret' }, ['Q']);
+
+    expect(plan.rmEnv).toEqual(['Q', 'P']);
+    expect(plan.secrets).toEqual({ P: 'secret', S: null });
+    expect(plan.notes).toEqual(['moved P from plain to secret', 'moved S from secret to plain']);
+  });
+
+  it('leaves alone a key already removed, a key that is only removed as a secret, and an empty container', () => {
+    const removed = reconcileKinds(now({ P: '1' }, []), {}, { P: 'x' }, ['P']);
+    expect(removed.rmEnv).toEqual(['P']);
+    expect(removed.notes).toEqual([]);
+
+    const rmSecret = reconcileKinds(now({}, ['S']), { S: 'v' }, { S: null }, undefined);
+    expect(rmSecret.secrets).toEqual({ S: null });
+    expect(rmSecret.notes).toEqual([]);
+
+    expect(reconcileKinds({ environment_variables: null }, { A: '1' }, { B: 'x' }, undefined)).toEqual({ rmEnv: [], secrets: { B: 'x' }, notes: [] });
   });
 });

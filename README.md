@@ -141,22 +141,26 @@ danube registry verify-push gym-occupancy              # project check + the log
 ```
 
 `registry login` creates a registry access key (`POST /api/v1/registry/access-keys`, project owner
-only, `registry:write`) and hands its token to `docker login <registry> --password-stdin`. The token
+only, `registry:credentials`) and hands its token to `docker login <registry> --password-stdin`. The token
 travels on Docker's standard input only: it is never an argument, never printed, never written by
 the CLI. Docker keeps it in its own credential store, so it cannot be shown again; each run makes a
-new key (`--name` defaults to this machine and the time). It takes the same `--scope`,
+new key (`--name` defaults to this machine and the time). A key from `login` expires after 90 days
+unless you pass `--expires-in` or `--expires-at`; run `danube registry login` again to renew. It takes the same `--scope`,
 `--expires-in` (`90m`, `24h`, `30d`) and `--expires-at` as `registry keys create`, and creates the key
 the same way. A `404` means the platform is too old for the key API, a `403` that the token is not
-the owner's or lacks `registry:credentials`. If `docker login` fails after the key exists, the error
-names the key so you can revoke it with `registry keys rm`.
+the owner's or lacks `registry:credentials`. If `docker login` fails after the key exists, the CLI
+revokes the key again (and names it for `registry keys rm` if that fails too). Docker's own warnings
+(for instance that it stores the login unencrypted) are passed through.
 
 `registry verify-push` answers for the project, then checks what `docker push` will present: it
 reads Docker's login for the registry (`~/.docker/config.json` or `$DOCKER_CONFIG`: `auths`,
 `credHelpers`, `credsStore` through `docker-credential-<helper>`), asks the registry's token realm
 for `repository:<path>:push,pull` over https, and reports whether the granted `access` includes
 `push`. `--json` adds `data.docker` (`status`: `push`, `pull_only`, `no_access`, `no_credentials`,
-`rejected` or `unknown`; `can_push`; `actions`; `message`). Docker's login being unusable for a
-push exits 1; `unknown` (no network, an unreadable credential helper) does not.
+`rejected` or `unknown`; `can_push`; `actions`; `message`). A Docker login that exists and cannot push
+(`pull_only`, `no_access`, `rejected`) exits 1 and carries an `error` in the envelope
+(`registry.docker_<status>`). No login at all (`no_credentials`) is a warning, and so is `unknown` (no
+network, an unreadable credential helper): exit 0, so a pipeline can check before it logs in.
 
 ### Operations
 
@@ -691,9 +695,16 @@ danube rapids update my-api --rm-secret OLD_KEY
   cannot be both a plain variable and a secret.
 - `rapids update` without `--wait` prints `Update accepted; rolling out generation N`: the change is
   recorded and the rollout runs on after the command returns. Pass `--wait` to block until it is live.
-- Because a secret cannot be read, `rapids apply --secret` cannot tell whether the value changed and
-  sends it on every run, which rolls out a new revision each time.
-- Secrets need a platform that offers them; on an older one the API rejects the field.
+- A key is plain or secret, never both. Giving `--secret X` for a key that is plain now (or `--env X`
+  for one that is secret now) moves it in the same write and says `moved X from plain to secret`.
+- Because a secret cannot be read, `rapids apply --secret` cannot compare it; it sends it on every run
+  and reports `unchanged` when the platform did not move the container's generation (no rollout).
+- Secrets need a platform that stores them. A platform without them would ignore the field and report
+  success, so `update` and `apply` refuse before writing when the container does not list
+  `secret_environment_keys` ("nothing was changed"), and `create` fails if the container comes back
+  without the secrets you sent.
+- A refused `--env` or `--secret` argument is named by its position, never quoted, so a value typed
+  by mistake (`--secret DB_PASSWORD hunter2`) does not reach your CI log.
 
 ### Rapids runs (preview / early access)
 

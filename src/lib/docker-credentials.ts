@@ -199,12 +199,21 @@ function readAccess(token: string): AccessEntry[] {
   throw new Undetermined('the registry token has no readable access claim');
 }
 
+const MAX_DETAIL_LENGTH = 200;
+
+/** The realm's own reason (`errors[0].message` in the registry error format), so a quota refusal is not blamed on the key. */
+async function realmErrorMessage(res: Response): Promise<string | null> {
+  const body = (await res.json().catch(() => null)) as { errors?: Array<{ message?: unknown }> } | null;
+  const message = body?.errors?.[0]?.message;
+  return typeof message === 'string' && message.trim() !== '' ? message.trim().slice(0, MAX_DETAIL_LENGTH) : null;
+}
+
 async function requestToken(
   challenge: { realm: string; service?: string },
   repository: string,
   credential: Credential,
   deps: DockerDeps,
-): Promise<{ status: 'rejected'; httpStatus: number } | { status: 'ok'; token: string }> {
+): Promise<{ status: 'rejected'; httpStatus: number; detail: string | null } | { status: 'ok'; token: string }> {
   const url = new URL(challenge.realm);
   // The login only ever goes to an https realm: the registry names it, so a plain-http one is refused rather than trusted.
   if (url.protocol !== 'https:') {
@@ -219,7 +228,9 @@ async function requestToken(
     headers: { Authorization: `Basic ${Buffer.from(`${credential.username}:${credential.secret}`).toString('base64')}` },
   });
 
-  if (res.status === 401 || res.status === 403) return { status: 'rejected', httpStatus: res.status };
+  if (res.status === 401 || res.status === 403) {
+    return { status: 'rejected', httpStatus: res.status, detail: await realmErrorMessage(res) };
+  }
   if (!res.ok) throw new Undetermined(`the token realm answered ${res.status}`);
 
   const body = (await res.json().catch(() => null)) as { token?: string; access_token?: string } | null;
@@ -246,10 +257,12 @@ async function evaluate(host: string, repository: string, deps: DockerDeps): Pro
   const challenge = await discoverRealm(host, deps);
   const granted = await requestToken(challenge, repository, credential, deps);
   if (granted.status === 'rejected') {
-    return verdict(
-      { ...base, status: 'rejected', can_push: false },
-      `${host} rejected the login Docker has stored (HTTP ${granted.httpStatus}); it may be revoked or expired: run danube registry login`,
-    );
+    const detail = granted.detail ? `: ${granted.detail}` : '';
+    // Only a 401 says the login itself is not accepted. A 403 is the realm refusing the request (a quota, say), which a new key does not fix.
+    const message = granted.httpStatus === 401
+      ? `${host} rejected the login Docker has stored (HTTP 401)${detail}. It may be revoked or expired: run danube registry login`
+      : `${host} refused the token request (HTTP ${granted.httpStatus})${detail}`;
+    return verdict({ ...base, status: 'rejected', can_push: false }, message);
   }
 
   const actions = readAccess(granted.token)

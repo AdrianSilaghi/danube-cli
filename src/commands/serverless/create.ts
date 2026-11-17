@@ -12,6 +12,7 @@ import { teamsArray } from '../../types/api.js';
 import type { TeamsResponse, ServerlessCreateResponse } from '../../types/api.js';
 import { parseDurationSeconds } from '../../lib/duration.js';
 import { readEnvironmentFlags, secretsToSet } from '../../lib/env-input.js';
+import { assertSecretsStored } from '../../lib/serverless-env.js';
 
 export const createCommand = new Command('create')
   .description('Create a new serverless container')
@@ -173,6 +174,8 @@ export const createCommand = new Command('create')
     }
 
     const res = await api.post<ServerlessCreateResponse>('/api/v1/serverless', body);
+    // A platform without secret variables would create the container without them.
+    assertSecretsStored(res.container, Object.keys(secretsToSet(secrets)));
 
     if (!opts.wait) {
       if (isJsonMode()) {

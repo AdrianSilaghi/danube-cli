@@ -146,6 +146,12 @@ describe('registry keys', () => {
       expect(out).toContain('echo "$TOKEN" | docker login cr.danubedata.ro -u key-ci --password-stdin');
     });
 
+    it('refuses an answer whose token is empty', async () => {
+      mockPost.mockResolvedValue({ key: makeKey(), token: '' });
+
+      await expect(run('create', 'ci', '--scope', 'pull')).rejects.toThrow('had no key or token');
+    });
+
     it('shows when a key with an expiry expires', async () => {
       mockPost.mockResolvedValue(answer({ expires_at: '2027-01-31T00:00:00Z' }));
 

@@ -145,7 +145,7 @@ export async function createRegistryAccessKey(
 
   // A 2xx means the key exists. Without the token it is unusable, so say so
   // rather than print "undefined" as a credential.
-  if (typeof res?.token !== 'string' || typeof res?.key?.id !== 'string') {
+  if (typeof res?.token !== 'string' || res.token === '' || typeof res?.key?.id !== 'string') {
     throw new Error(
       'The server accepted the request, but its answer had no key or token. ' +
         'The key may exist: run `danube registry keys ls`, and revoke it if it is there.',
@@ -153,6 +153,12 @@ export async function createRegistryAccessKey(
   }
 
   return res;
+}
+
+/** Revoke a key. The one code path under `registry keys rm` and a failed `registry login`. */
+export async function revokeRegistryAccessKey(api: ApiClient, id: string): Promise<RegistryAccessKey> {
+  const res = await api.delete<{ data: RegistryAccessKey }>(`${KEYS_PATH}/${encodeURIComponent(id)}`);
+  return res.data;
 }
 
 export function readScope(scope: string | undefined): RegistryKeyScope {
@@ -221,14 +227,13 @@ const revokeCommand = new Command('rm')
     }
 
     const api = await ApiClient.create();
-    const res = await api.delete<{ data: RegistryAccessKey }>(`${KEYS_PATH}/${encodeURIComponent(id)}`);
+    const key = await revokeRegistryAccessKey(api, id);
 
     if (isJsonMode()) {
-      jsonOutput(res.data);
+      jsonOutput(key);
       return;
     }
 
-    const key = res.data;
     console.log(chalk.green(`Registry access key '${key.name}' revoked.`));
     printDetails([
       ['ID', key.id],

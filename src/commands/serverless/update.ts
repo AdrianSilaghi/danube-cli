@@ -10,7 +10,7 @@ import type { WaitBaseline } from '../../lib/wait-for-terminal.js';
 import { waitEnvelope, printWaitOutcome } from '../../lib/report-wait.js';
 import type { ServerlessContainer } from '../../types/api.js';
 import { parseDurationSeconds } from '../../lib/duration.js';
-import { mergeEnv, putMergedEnvironment } from '../../lib/serverless-env.js';
+import { ensureSecretSupport, mergeEnv, putMergedEnvironment, reconcileKinds } from '../../lib/serverless-env.js';
 import { readEnvironmentFlags } from '../../lib/env-input.js';
 
 export const updateCommand = new Command('update')
@@ -39,10 +39,18 @@ export const updateCommand = new Command('update')
   .option('--wait-timeout <duration>', 'Ceiling for --wait: 30s, 10m, 1h (default 10m)')
   .action(async (nameOrId: string, opts) => {
     // Read before any request: a bad flag or file fails without touching the API.
-    const { env: envPairs, secrets } = await readEnvironmentFlags(opts);
+    const requested = await readEnvironmentFlags(opts);
+    const envPairs = requested.env;
 
     const api = await ApiClient.create();
-    const container = await resolveContainer(api, nameOrId);
+    const listed = await resolveContainer(api, nameOrId);
+    // Refuses, before any write, a platform that would drop the secrets without saying so.
+    const container = Object.keys(requested.secrets).length > 0 ? await ensureSecretSupport(api, listed) : listed;
+    // A key set as a secret that is plain now (or the reverse) is moved in the same write.
+    const kinds = reconcileKinds(container, envPairs, requested.secrets, opts.rmEnv);
+    const secrets = kinds.secrets;
+    const rmEnv = kinds.rmEnv;
+    if (!isJsonMode()) for (const note of kinds.notes) console.error(chalk.dim(note));
 
     const parseIntOption = (val: string, name: string): number => {
       const n = parseInt(val, 10);
@@ -72,7 +80,7 @@ export const updateCommand = new Command('update')
     if (opts.timeout !== undefined) body.timeout_seconds = parseIntOption(opts.timeout, '--timeout');
 
     // Environment changes merge into the container's current map when written.
-    const envRequested = Boolean(opts.env || opts.envFile || opts.rmEnv);
+    const envRequested = Boolean(opts.env || opts.envFile || rmEnv.length > 0);
     // Secrets merge on the server (a string sets, null removes), so only the delta is sent.
     const secretsRequested = Object.keys(secrets).length > 0;
     if (secretsRequested) body.secret_environment_variables = secrets;
@@ -96,10 +104,22 @@ export const updateCommand = new Command('update')
       ? await putMergedEnvironment<UpdateResponse>(
           api,
           container,
-          envRequested ? (env) => mergeEnv(env, envPairs, opts.rmEnv) : null,
+          envRequested ? (env) => mergeEnv(env, envPairs, rmEnv) : null,
           body,
         )
       : await api.put<UpdateResponse>(`/api/v1/serverless/${container.id}`, body);
+
+    // The platform bumps the generation only when something it stores changed.
+    // Writing what is already there rolls nothing out, and a --wait for a
+    // rollout that is not coming would only run out its timeout.
+    const generation = res.container.spec_generation;
+    if (typeof generation === 'number' && generation === container.spec_generation) {
+      const text = `No change: generation ${generation} is already current, so nothing is rolling out.`;
+      if (isJsonMode()) jsonOutput(res.container);
+      else if (spinner) spinner.succeed(text);
+      else console.log(text);
+      return;
+    }
 
     if (!opts.wait) {
       if (isJsonMode()) {
@@ -107,7 +127,6 @@ export const updateCommand = new Command('update')
         return;
       }
       // The PUT only records the change: the rollout runs on after it returns.
-      const generation = res.container.spec_generation;
       spinner!.succeed(
         `Update accepted; rolling out${generation == null ? '' : ` generation ${generation}`}. ` +
         'Pass --wait to block until it is live.',

@@ -34,7 +34,8 @@ function parseValue(raw: string, where: string): string {
   const quote = text[0];
 
   if (quote !== '"' && quote !== "'") {
-    return text.replace(/\s+#.*$/, '').trimEnd();
+    // A comment starts at whitespace + `#` (so `KEY= # note` is empty, `KEY=a#b` is "a#b"); `raw` still has that whitespace.
+    return raw.replace(/\s+#.*$/, '').trim();
   }
 
   let value = '';
@@ -90,25 +91,31 @@ export function parseDotenv(text: string, source: string): EnvMap {
  * CLI's own environment, so a secret never has to appear on the command line.
  * An unset bare `KEY` is an error: silently sending nothing would deploy
  * without the variable.
+ *
+ * A refused argument is named by its position, never quoted: the variadic flag
+ * swallows a value typed after the key (`--secret DB_PASSWORD hunter2`), and
+ * the error would put `hunter2` in a CI log.
  */
 export function parsePairs(pairs: string[] | undefined, flag: string, environ: NodeJS.ProcessEnv): EnvMap {
   const result: EnvMap = {};
 
-  for (const pair of pairs ?? []) {
+  (pairs ?? []).forEach((pair, index) => {
     const eq = pair.indexOf('=');
 
     if (eq > 0) {
       result[pair.slice(0, eq)] = pair.slice(eq + 1);
-      continue;
+      return;
     }
 
     const value = eq === -1 && pair !== '' ? environ[pair] : undefined;
     if (value === undefined) {
-      const reason = eq === -1 && pair !== '' ? `${pair} is not set in your environment` : 'it is neither KEY=VALUE nor a KEY';
-      throw new UsageError(`Invalid env format: '${pair}' (${flag}): ${reason}. Use KEY=VALUE, or KEY to read it from your environment.`);
+      throw new UsageError(
+        `Invalid env format: ${flag} argument ${index + 1} is not KEY=VALUE, and is not the name of a variable set in your environment. ` +
+        'Use KEY=VALUE, or KEY to read it from your environment.',
+      );
     }
     result[pair] = value;
-  }
+  });
 
   return result;
 }
@@ -117,7 +124,7 @@ async function readDotenvFile(path: string, flag: string): Promise<EnvMap> {
   if (path.trim() === '') {
     throw new UsageError(`${flag} needs a path, or - for the standard input.`);
   }
-  return parseDotenv(await readInput(path), path === STDIN_SOURCE ? 'the standard input' : path);
+  return parseDotenv(await readInput(path, { sizeHint: 'an environment file is a few KB, so this is probably the wrong file.' }), path === STDIN_SOURCE ? 'the standard input' : path);
 }
 
 /**

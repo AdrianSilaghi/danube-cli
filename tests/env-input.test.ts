@@ -17,6 +17,10 @@ describe('parseDotenv', () => {
     expect(parseDotenv('A=1 # note\nB=2\t# tab note', '.env')).toEqual({ A: '1', B: '2' });
   });
 
+  it('reads an empty value followed by a comment as empty, and keeps a hash with no space before it', () => {
+    expect(parseDotenv('A= # fill me\nB=a # c\nC=a#b\nD=#b\nE=  \t # c', '.env')).toEqual({ A: '', B: 'a', C: 'a#b', D: '#b', E: '' });
+  });
+
   it('reads single quotes literally and double quotes with escapes', () => {
     const text = [`A='raw \\n $HOME #not-a-comment'`, 'B="line\\nbreak \\"quoted\\" \\\\ \\q"', `C="x" # trailing`].join('\n');
 
@@ -63,12 +67,23 @@ describe('parsePairs', () => {
     expect(parsePairs(undefined, '--env', {})).toEqual({});
   });
 
-  it('refuses a bare KEY that is not set, naming the flag', () => {
-    expect(() => parsePairs(['MISSING'], '--secret', {})).toThrow(/Invalid env format: 'MISSING' \(--secret\): MISSING is not set in your environment/);
+  it('refuses a bare KEY that is not set, naming the flag and the position', () => {
+    expect(() => parsePairs(['OK=1', 'MISSING'], '--secret', {})).toThrow(/Invalid env format: --secret argument 2 is not KEY=VALUE/);
   });
 
-  it.each(['=value', ''])('refuses %j, which is neither KEY=VALUE nor a KEY', (pair) => {
-    expect(() => parsePairs([pair], '--env', { '': 'x' })).toThrow(/neither KEY=VALUE nor a KEY/);
+  it.each(['=value', '', 'hunter2'])('refuses %j without quoting it', (pair) => {
+    const failure = (() => {
+      try {
+        parsePairs([pair], '--secret', { '': 'x' });
+      } catch (err) {
+        return err as Error;
+      }
+      throw new Error('expected a refusal');
+    })();
+
+    expect(failure.message).toMatch(/--secret argument 1/);
+    // A value typed after the key (`--secret DB_PASSWORD hunter2`) must not reach a log.
+    if (pair !== '') expect(failure.message).not.toContain(pair);
   });
 });
 
@@ -122,6 +137,15 @@ describe('readEnvironmentFlags', () => {
 
   it('refuses both files reading the standard input', async () => {
     await expect(readEnvironmentFlags({ envFile: '-', secretFile: '-' })).rejects.toThrow(/cannot both read the standard input/);
+  });
+
+  it('does not mention bucket statements when an env file is too large', async () => {
+    const big = await file('big.env', `A=${'x'.repeat(300 * 1024)}\n`);
+
+    const failure = await readEnvironmentFlags({ envFile: big }).catch((e: Error) => e);
+
+    expect((failure as Error).message).toMatch(/is larger than 256 KiB; an environment file is a few KB/);
+    expect((failure as Error).message).not.toMatch(/bucket/);
   });
 
   it('refuses an empty path', async () => {

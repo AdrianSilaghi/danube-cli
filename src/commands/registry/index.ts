@@ -99,13 +99,19 @@ const verifyPushCommand = new Command('verify-push')
 
     // Only a permitted push has a reference to check Docker's login against.
     const docker = res.data.permitted && res.data.push_reference ? await checkDockerCredentials(api, res.data) : undefined;
+    // No login at all is a warning, not a failure: a pipeline may check before
+    // it logs in, or push with a tool that keeps its credentials elsewhere. A
+    // login that exists and cannot push (pull-only, denied, rejected) is one.
+    const dockerRefuses = docker?.can_push === false && docker.status !== 'no_credentials';
     // A refusal is a failed check, not a failed command invocation — but a
     // script running this in a pipeline needs a non-zero exit to branch on.
-    const failed = !res.data.permitted || docker?.can_push === false;
+    const failed = !res.data.permitted || dockerRefuses;
 
     if (isJsonMode()) {
       const data: VerifyPushResult = docker ? { ...res.data, docker } : res.data;
-      jsonEnvelope(data, { error: res.error ?? null, meta: res.meta ?? {} });
+      // The envelope agrees with the exit code: a failing Docker verdict is an error, not a success with exit 1.
+      const dockerError = dockerRefuses ? { code: `registry.docker_${docker.status}`, message: docker.message, retryable: false } : null;
+      jsonEnvelope(data, { error: res.error ?? dockerError, meta: res.meta ?? {} });
       if (failed) process.exitCode = 1;
       return;
     }
@@ -114,7 +120,7 @@ const verifyPushCommand = new Command('verify-push')
       console.log(chalk.green('Push permitted'));
       console.log(`  ${res.data.push_reference}`);
       if (docker) {
-        const color = docker.can_push === true ? chalk.green : docker.can_push === false ? chalk.red : chalk.yellow;
+        const color = docker.can_push === true ? chalk.green : dockerRefuses ? chalk.red : chalk.yellow;
         console.log(color(`  ${docker.message}`));
       }
       if (failed) process.exitCode = 1;

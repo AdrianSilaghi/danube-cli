@@ -61,15 +61,36 @@ describe('danube registry verify-push', () => {
     expect(process.exitCode).toBeUndefined();
   });
 
-  it('exits 1 when the server permits but Docker would be refused', async () => {
+  it('exits 1 when the server permits but a login Docker has cannot push', async () => {
+    mockGet.mockResolvedValue(permitted());
+    mockCheck.mockResolvedValue(dockerVerdict({ status: 'pull_only', can_push: false, actions: ['pull'], message: 'Docker can only pull' }));
+
+    await verify('gym');
+
+    expect(printed()).toContain('Push permitted');
+    expect(printed()).toContain('Docker can only pull');
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('only warns, and exits 0, when Docker has no login at all', async () => {
     mockGet.mockResolvedValue(permitted());
     mockCheck.mockResolvedValue(dockerVerdict({ status: 'no_credentials', can_push: false, actions: [], message: 'Docker has no login for cr.danubedata.ro: run danube registry login' }));
 
     await verify('gym');
 
-    expect(printed()).toContain('Push permitted');
     expect(printed()).toContain('Docker has no login for cr.danubedata.ro: run danube registry login');
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it('carries no error in the JSON envelope for a missing login', async () => {
+    setJsonMode(true);
+    mockGet.mockResolvedValue(permitted());
+    mockCheck.mockResolvedValue(dockerVerdict({ status: 'no_credentials', can_push: false, actions: [], message: 'no login' }));
+
+    await verify('gym');
+
+    expect(JSON.parse(String(logSpy.mock.calls[0]![0]))).toMatchObject({ success: true, error: null, data: { docker: { status: 'no_credentials' } } });
+    expect(process.exitCode).toBeUndefined();
   });
 
   it('does not fail on a check that could not decide', async () => {
@@ -91,6 +112,9 @@ describe('danube registry verify-push', () => {
 
     const out = JSON.parse(String(logSpy.mock.calls[0]![0]));
     expect(out.data).toMatchObject({ permitted: true, push_reference: 'cr.danubedata.ro/safi4/gym:latest', docker: { status: 'pull_only', can_push: false, actions: ['pull'] } });
+    // The envelope agrees with the exit code.
+    expect(out).toMatchObject({ success: false, error: { code: 'registry.docker_pull_only', retryable: false } });
+    expect(out.error.message).toBe(out.data.docker.message);
     expect(process.exitCode).toBe(1);
   });
 

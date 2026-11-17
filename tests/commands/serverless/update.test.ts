@@ -21,6 +21,7 @@ vi.mock('ora', () => ({
 }));
 
 const { updateCommand } = await import('../../../src/commands/serverless/update.js');
+const { setJsonMode } = await import('../../../src/lib/json-mode.js');
 
 class ExitError extends Error {
   constructor(public code: number) {
@@ -95,6 +96,7 @@ describe('serverless update command', () => {
   afterEach(() => {
     process.exit = originalExit;
     process.exitCode = undefined;
+    setJsonMode(false);
     vi.restoreAllMocks();
   });
 
@@ -138,7 +140,7 @@ describe('serverless update command', () => {
   });
 
   it('sends plain and secret changes together, from --env-file and --secret-file', async () => {
-    mockGet.mockResolvedValueOnce(listResponse({ environment_variables: { KEEP: '1' } }));
+    mockGet.mockResolvedValueOnce(listResponse({ environment_variables: { KEEP: '1' }, secret_environment_keys: [] }));
     mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer() });
     const dir = await mkdtemp(join(tmpdir(), 'danube-update-env-'));
     await writeFile(join(dir, 'plain.env'), 'MODE=prod\n');
@@ -156,6 +158,106 @@ describe('serverless update command', () => {
     expect(mockPut).toHaveBeenCalledWith('/api/v1/serverless/abc-123', {
       environment_variables: { KEEP: '1', MODE: 'prod' },
       secret_environment_variables: { TOKEN: 't0k' },
+    });
+  });
+
+  describe('secrets on a platform that may not store them', () => {
+    it('refuses before writing when neither the list nor the container reports secret_environment_keys', async () => {
+      mockGet.mockImplementation((path: string) =>
+        Promise.resolve(path.startsWith('/api/v1/serverless?') ? listResponse({ environment_variables: { DB_PASSWORD: 'x' } }) : { container: makeContainer() }));
+
+      await expect(
+        updateCommand.parseAsync(['node', 'test', 'my-api', '--rm-env', 'DB_PASSWORD', '--secret', 'DB_PASSWORD=hunter2']),
+      ).rejects.toThrow(/does not support secret variables yet, so nothing was changed/);
+
+      expect(mockPut).not.toHaveBeenCalled();
+    });
+
+    it('reads the container once more when the list omits the field, and writes against that one', async () => {
+      mockGet.mockImplementation((path: string) =>
+        Promise.resolve(path.startsWith('/api/v1/serverless?')
+          ? listResponse()
+          : { container: makeContainer({ secret_environment_keys: [], environment_snapshot: 'snap-9' }) }));
+      mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer({ spec_generation: 2 }) });
+
+      await updateCommand.parseAsync(['node', 'test', 'my-api', '--secret', 'K=v']);
+
+      expect(mockPut).toHaveBeenCalledWith('/api/v1/serverless/abc-123', {
+        secret_environment_variables: { K: 'v' },
+        environment_snapshot: 'snap-9',
+      });
+    });
+
+    it('does not ask for the container again when no secret flag is used', async () => {
+      mockGet.mockResolvedValue(listResponse());
+      mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer() });
+
+      await updateCommand.parseAsync(['node', 'test', 'my-api', '--env', 'A=1']);
+
+      expect(mockGet).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('a key that changes kind', () => {
+    it('moves a plain variable to a secret in one write, and says so', async () => {
+      mockGet.mockResolvedValue(listResponse({ environment_variables: { DB_PASSWORD: 'old', KEEP: '1' }, secret_environment_keys: [] }));
+      mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer({ spec_generation: 2 }) });
+
+      await updateCommand.parseAsync(['node', 'test', 'my-api', '--secret', 'DB_PASSWORD=new']);
+
+      expect(mockPut).toHaveBeenCalledWith('/api/v1/serverless/abc-123', {
+        environment_variables: { KEEP: '1' },
+        secret_environment_variables: { DB_PASSWORD: 'new' },
+      });
+      expect(consoleErrorSpy.mock.calls.flat().join('\n')).toContain('moved DB_PASSWORD from plain to secret');
+    });
+
+    it('moves a secret to a plain variable', async () => {
+      mockGet.mockResolvedValue(listResponse({ environment_variables: {}, secret_environment_keys: ['MODE'] }));
+      mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer({ spec_generation: 2 }) });
+
+      await updateCommand.parseAsync(['node', 'test', 'my-api', '--env', 'MODE=prod']);
+
+      expect(mockPut).toHaveBeenCalledWith('/api/v1/serverless/abc-123', {
+        environment_variables: { MODE: 'prod' },
+        secret_environment_variables: { MODE: null },
+      });
+      expect(consoleErrorSpy.mock.calls.flat().join('\n')).toContain('moved MODE from secret to plain');
+    });
+  });
+
+  describe('when the generation does not move', () => {
+    it('says nothing is rolling out, and does not wait for it', async () => {
+      mockGet.mockImplementation((path: string) =>
+        Promise.resolve(path.startsWith('/api/v1/serverless?')
+          ? listResponse({ spec_generation: 4, secret_environment_keys: ['K'] })
+          : showResponse()));
+      mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer({ spec_generation: 4 }) });
+
+      await updateCommand.parseAsync(['node', 'test', 'my-api', '--secret', 'K=same', '--wait']);
+
+      expect(consoleLogSpy.mock.calls.flat().join('\n')).toContain('No change: generation 4 is already current');
+      // The list and the baseline read; no poll for a rollout that is not coming.
+      expect(mockGet).toHaveBeenCalledTimes(2);
+    });
+
+    it('says so on the spinner without --wait', async () => {
+      mockGet.mockResolvedValue(listResponse({ spec_generation: 4, secret_environment_keys: ['K'] }));
+      mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer({ spec_generation: 4 }) });
+
+      await updateCommand.parseAsync(['node', 'test', 'my-api', '--secret', 'K=same']);
+
+      expect(spinner.succeed).toHaveBeenCalledWith(expect.stringContaining('No change: generation 4 is already current'));
+    });
+
+    it('returns the container in --json', async () => {
+      setJsonMode(true);
+      mockGet.mockResolvedValue(listResponse({ spec_generation: 4, secret_environment_keys: ['K'] }));
+      mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer({ spec_generation: 4 }) });
+
+      await updateCommand.parseAsync(['node', 'test', 'my-api', '--secret', 'K=same']);
+
+      expect(JSON.parse(String(consoleLogSpy.mock.calls[0]![0]))).toMatchObject({ success: true, data: { id: 'abc-123' } });
     });
   });
 
@@ -318,7 +420,7 @@ describe('serverless update command', () => {
   it('refuses an --env KEY that is not in the environment, before any request', async () => {
     await expect(
       updateCommand.parseAsync(['node', 'test', 'my-api', '--env', 'DANUBE_TEST_SURELY_UNSET']),
-    ).rejects.toThrow(/Invalid env format.*not set in your environment/);
+    ).rejects.toThrow(/Invalid env format: --env argument 1/);
 
     expect(mockGet).not.toHaveBeenCalled();
     expect(mockPut).not.toHaveBeenCalled();

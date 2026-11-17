@@ -2,8 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const mockGet = vi.fn();
 const mockPost = vi.fn();
+const mockDelete = vi.fn();
 vi.mock('../../src/lib/api-client.js', () => ({
-  ApiClient: { create: () => Promise.resolve({ get: mockGet, post: mockPost }) },
+  ApiClient: { create: () => Promise.resolve({ get: mockGet, post: mockPost, delete: mockDelete }) },
 }));
 
 vi.mock('ora', () => ({
@@ -41,10 +42,11 @@ describe('danube registry login', () => {
   beforeEach(() => {
     logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    [mockGet, mockPost, mockDocker].forEach((m) => m.mockReset());
+    [mockGet, mockPost, mockDelete, mockDocker].forEach((m) => m.mockReset());
     mockGet.mockResolvedValue({ success: true, data: { registry_host: 'cr.danubedata.ro' } });
     mockPost.mockResolvedValue({ key, token: TOKEN });
     mockDocker.mockResolvedValue({ code: 0, stdout: 'Login Succeeded', stderr: '' });
+    mockDelete.mockResolvedValue({ data: { ...key, revoked_at: '2026-11-17T10:05:00+00:00' } });
     setJsonMode(false);
   });
 
@@ -59,13 +61,42 @@ describe('danube registry login', () => {
     await login(['--name', 'laptop']);
 
     expect(mockGet).toHaveBeenCalledWith('/api/v1/registry/context');
-    expect(mockPost).toHaveBeenCalledWith('/api/v1/registry/access-keys', { name: 'laptop', scope: 'push_pull' });
+    // `login` expires its key after 90 days unless told otherwise.
+    expect(mockPost).toHaveBeenCalledWith('/api/v1/registry/access-keys', { name: 'laptop', scope: 'push_pull', expires_at: expect.any(String) });
     expect(mockDocker).toHaveBeenNthCalledWith(1, ['--version']);
     expect(mockDocker).toHaveBeenNthCalledWith(2, ['login', 'cr.danubedata.ro', '-u', key.username, '--password-stdin'], TOKEN);
     // The token is the stdin argument and nowhere else.
     expect(JSON.stringify(mockDocker.mock.calls[1]![0])).not.toContain(TOKEN);
     expect(everythingPrinted()).not.toContain(TOKEN);
     expect(everythingPrinted()).toContain('Docker is signed in to cr.danubedata.ro');
+    expect(everythingPrinted()).not.toContain('credential store');
+  });
+
+  it('defaults to a 90 day expiry, and --expires-at replaces it', async () => {
+    vi.useFakeTimers({ now: new Date('2026-11-17T10:00:00.000Z'), toFake: ['Date'] });
+    try {
+      await login(['--name', 'a']);
+      await login(['--name', 'b', '--expires-at', '2027-01-31T00:00:00Z']);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(mockPost.mock.calls[0]![1]).toMatchObject({ expires_at: '2027-02-15T10:00:00.000Z' });
+    expect(mockPost.mock.calls[1]![1]).toMatchObject({ expires_at: '2027-01-31T00:00:00.000Z' });
+  });
+
+  it('passes Docker warnings through, scrubbed of the token, and says how to renew', async () => {
+    mockPost.mockResolvedValue({ key: { ...key, expires_at: '2027-02-15T10:00:00+00:00' }, token: TOKEN });
+    mockDocker
+      .mockResolvedValueOnce({ code: 0, stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ code: 0, stdout: 'Login Succeeded', stderr: `WARNING! Your credentials are stored unencrypted in '/home/u/.docker/config.json' ${TOKEN}` });
+
+    await login(['--name', 'laptop']);
+
+    const shown = everythingPrinted();
+    expect(shown).toContain("WARNING! Your credentials are stored unencrypted in '/home/u/.docker/config.json' ***");
+    expect(shown).not.toContain(TOKEN);
+    expect(shown).toContain('run danube registry login again');
   });
 
   it('maps --scope and --expires-in to the API fields, and names the key when --name is absent', async () => {
@@ -140,7 +171,7 @@ describe('danube registry login', () => {
     expect(mockDocker).toHaveBeenCalledTimes(1);
   });
 
-  it('explains a 403 as owner-only / registry:write', async () => {
+  it('explains a 403 as owner-only / registry:credentials', async () => {
     mockPost.mockRejectedValue(new ApiError(403, 'Only the project owner can manage registry access keys.'));
 
     await expect(login([])).rejects.toMatchObject({
@@ -176,16 +207,29 @@ describe('danube registry login', () => {
     await expect(login([])).rejects.toThrow('Could not reach the API');
   });
 
-  it('names the orphaned key, and hides the token, when docker login fails', async () => {
+  it('revokes the key again when docker login fails, and hides the token', async () => {
     mockDocker
       .mockResolvedValueOnce({ code: 0, stdout: 'Docker version 27', stderr: '' })
       .mockResolvedValueOnce({ code: 1, stdout: '', stderr: `Error saving credentials: ${TOKEN}` });
 
     const failure = await login(['--name', 'laptop']).catch((e: Error) => e);
 
+    expect(mockDelete).toHaveBeenCalledWith('/api/v1/registry/access-keys/k-1');
     expect((failure as Error).message).toContain('docker login failed (exit 1): Error saving credentials: ***');
-    expect((failure as Error).message).toContain("The key 'laptop' (id k-1) was created");
+    expect((failure as Error).message).toContain("The key 'laptop' was created and has been revoked again.");
+    expect((failure as Error).message).not.toContain('keys rm');
     expect((failure as Error).message).not.toContain(TOKEN);
+  });
+
+  it('names the key for a manual revoke only when the automatic revoke failed too', async () => {
+    mockDocker.mockResolvedValueOnce({ code: 0, stdout: '', stderr: '' }).mockResolvedValueOnce({ code: 1, stdout: '', stderr: 'denied' });
+    mockDelete.mockRejectedValue(new ApiError(500, 'boom'));
+
+    const failure = await login(['--name', 'laptop']).catch((e: Error) => e);
+
+    expect((failure as Error).message).toContain("The key 'laptop' (id k-1) was created");
+    expect((failure as Error).message).toContain('revoking it failed');
+    expect((failure as Error).message).toContain('danube registry keys rm k-1');
   });
 
   it('reports a docker that dies mid-login with its own message', async () => {

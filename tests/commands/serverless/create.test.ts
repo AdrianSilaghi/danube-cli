@@ -88,7 +88,7 @@ describe('serverless create command', () => {
 
   it('creates with plain and secret variables', async () => {
     mockGet.mockResolvedValue(teamsResponse());
-    mockPost.mockResolvedValue(containerResponse());
+    mockPost.mockResolvedValue(containerResponse({ secret_environment_keys: ['API_KEY'] }));
 
     await createCommand.parseAsync([
       'node', 'test', '--name', 'my-api', '--type', 'docker_image', '--image', 'nginx', '--profile', 'micro',
@@ -99,6 +99,16 @@ describe('serverless create command', () => {
       environment_variables: { MODE: 'prod' },
       secret_environment_variables: { API_KEY: 'abc' },
     }));
+  });
+
+  it('fails when the container comes back without the secrets that were sent', async () => {
+    mockGet.mockResolvedValue(teamsResponse());
+    mockPost.mockResolvedValue(containerResponse({ secret_environment_keys: ['OTHER'] }));
+
+    await expect(createCommand.parseAsync([
+      'node', 'test', '--name', 'my-api', '--type', 'docker_image', '--image', 'nginx', '--profile', 'micro',
+      '--secret', 'API_KEY=abc', 'OTHER=1',
+    ])).rejects.toThrow(/was created WITHOUT some of its secret variables.*API_KEY/);
   });
 
   it('sends neither variable field when no environment flag is given', async () => {

@@ -165,7 +165,7 @@ describe('apply --env/--rm-env', () => {
 
   it('creates with secret_environment_variables, sending only the secrets that carry a value', async () => {
     mockGet.mockResolvedValue({ data: [] });
-    mockPost.mockResolvedValue({ message: 'Created', container: makeContainer() });
+    mockPost.mockResolvedValue({ message: 'Created', container: makeContainer({ secret_environment_keys: ['API_KEY'] }) });
 
     await applyCommand.parseAsync(['node', 'test', '--name', 'my-api', '--secret', 'API_KEY=abc', '--rm-secret', 'GONE']);
 
@@ -198,6 +198,48 @@ describe('apply --env/--rm-env', () => {
     expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('unchanged'));
   });
 
+  it('fails loudly when a created container comes back without the secrets that were sent', async () => {
+    mockGet.mockResolvedValue({ data: [] });
+    mockPost.mockResolvedValue({ message: 'Created', container: makeContainer() });
+
+    await expect(
+      applyCommand.parseAsync(['node', 'test', '--name', 'my-api', '--secret', 'API_KEY=abc']),
+    ).rejects.toThrow(/was created WITHOUT its secret variables.*does not support secret variables yet/);
+  });
+
+  it('refuses an update with secrets before writing when the platform does not report secret keys', async () => {
+    const container = makeContainer({ environment_variables: { DB_PASSWORD: 'x' } });
+    mockExisting(container);
+
+    await expect(
+      applyCommand.parseAsync(['node', 'test', '--name', 'my-api', '--rm-env', 'DB_PASSWORD', '--secret', 'DB_PASSWORD=hunter2']),
+    ).rejects.toThrow(/does not support secret variables yet, so nothing was changed/);
+
+    expect(mockPut).not.toHaveBeenCalled();
+  });
+
+  it('moves a plain variable to a secret in the same write', async () => {
+    mockExisting(makeContainer({ environment_variables: { DB_PASSWORD: 'old' }, secret_environment_keys: [] }));
+    mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer({ spec_generation: 2 }) });
+
+    await applyCommand.parseAsync(['node', 'test', '--name', 'my-api', '--secret', 'DB_PASSWORD=new']);
+
+    expect(mockPut).toHaveBeenCalledWith('/api/v1/serverless/abc-123', {
+      environment_variables: {},
+      secret_environment_variables: { DB_PASSWORD: 'new' },
+    });
+    expect(consoleErrorSpy).toHaveBeenCalledWith(expect.anything());
+  });
+
+  it('reports unchanged when the platform did not move the generation', async () => {
+    mockExisting(makeContainer({ spec_generation: 6, secret_environment_keys: ['K'] }));
+    mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer({ spec_generation: 6 }) });
+
+    await applyCommand.parseAsync(['node', 'test', '--name', 'my-api', '--secret', 'K=same', '--wait']);
+
+    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('unchanged'));
+  });
+
   it('creates with environment_variables from --env-file', async () => {
     mockGet.mockResolvedValue({ data: [] });
     mockPost.mockResolvedValue({ message: 'Created', container: makeContainer() });
@@ -220,7 +262,7 @@ describe('apply --env/--rm-env', () => {
   it('refuses an --env KEY that is not in the environment, before any request', async () => {
     await expect(
       applyCommand.parseAsync(['node', 'test', '--name', 'my-api', '--env', 'DANUBE_TEST_SURELY_UNSET']),
-    ).rejects.toThrow(/Invalid env format/);
+    ).rejects.toThrow(/Invalid env format: --env argument 1/);
 
     expect(mockGet).not.toHaveBeenCalled();
   });
