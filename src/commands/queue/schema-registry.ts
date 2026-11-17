@@ -91,14 +91,6 @@ const disableCommand = new Command('disable')
   .option('-f, --force', 'Alias for --yes')
   .action(async (nameOrId: string, opts: { yes?: boolean; force?: boolean }) => {
     const { api, path, name } = await target(nameOrId);
-    // The server treats disabling a registry that is off as a no-op; say so instead of "being disabled".
-    const current = unwrap(await api.get<{ data: SchemaRegistry }>(path));
-    if (!current.enabled) {
-      if (isJsonMode()) jsonOutput(current);
-      else console.log(`Schema Registry is already disabled on '${name}'.`);
-      return;
-    }
-
     const confirmed = await confirmDestruction(
       name,
       `Disable the Schema Registry on '${name}'? Clients lose the registry and billing stops. Registered schemas stay in the cluster (the _schemas topic) and come back if you enable it again.`,
@@ -111,7 +103,7 @@ const disableCommand = new Command('disable')
       jsonOutput({ disabled: true, queue: name });
       return;
     }
-    console.log(chalk.green(`Schema Registry on '${name}' is being disabled.`));
+    console.log(chalk.green(`Schema Registry is disabled on '${name}' (billing stops).`));
   });
 
 const rotateCommand = new Command('rotate-password')

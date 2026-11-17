@@ -1,8 +1,8 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { link, lstat, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { access, constants, lstat, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
-import { dirname, basename, join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { ApiClient } from '../../lib/api-client.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import { UsageError } from '../../lib/errors.js';
@@ -17,29 +17,37 @@ async function checkDestination(file: string, force: boolean | undefined): Promi
   }
   const parent = await stat(dirname(file)).catch(() => null);
   if (!parent?.isDirectory()) throw new UsageError(`The directory ${dirname(file)} does not exist.`);
+  await access(dirname(file), constants.W_OK).catch(() => {
+    throw new UsageError(`The directory ${dirname(file)} is not writable.`);
+  });
 }
 
 /**
- * Temp file in the same directory (exclusive, 0600), then put it in place: a failed
- * write never loses the old file, and a symlink at the target is replaced, not followed.
- * Without --force the final step is link(), which fails if the target appeared meanwhile.
+ * Without --force: straight to the target, exclusive and 0600 (the checked destination does
+ * not exist, and `wx` fails if it appeared meanwhile). With --force: a short-named temp file
+ * in the same directory, then rename over the target, so a failed write never loses the old
+ * file and a symlink at the target is replaced, not followed.
  */
 async function writeSecretFile(file: string, content: string, force: boolean | undefined): Promise<void> {
-  const temp = join(dirname(file), `.${basename(file)}.${randomBytes(6).toString('hex')}.tmp`);
-  await writeFile(temp, content, { mode: 0o600, flag: 'wx' });
+  if (!force) {
+    try {
+      await writeFile(file, content, { mode: 0o600, flag: 'wx' });
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
+        throw new UsageError(`${file} appeared while writing. Run again, or pick another file with -o.`);
+      }
+      throw err;
+    }
+    return;
+  }
+
+  const temp = join(dirname(file), `.dd-${randomBytes(4).toString('hex')}.tmp`);
   try {
-    if (force) {
-      await rename(temp, file);
-      return;
-    }
-    await link(temp, file);
+    await writeFile(temp, content, { mode: 0o600, flag: 'wx' });
+    await rename(temp, file);
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
-      throw new UsageError(`${file} appeared while writing. Run again, or pick another file with -o.`);
-    }
-    throw err;
-  } finally {
     await unlink(temp).catch(() => undefined);
+    throw err;
   }
 }
 

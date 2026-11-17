@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, readFile, stat, writeFile, chmod, rm, symlink, lstat, readdir } from 'node:fs/promises';
+import { mkdtemp, readFile, stat, writeFile, chmod, rm, symlink, lstat, readdir, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -13,6 +13,24 @@ vi.mock('../../src/lib/api-client.js', () => ({
     create: () => Promise.resolve({ get: mockGet, post: mockPost, put: mockPut, delete: mockDelete, getText: mockGetText }),
   },
 }));
+
+// Pass-through fs wrappers so a test can make the write or the rename fail (FAT-style failures).
+const fsFaults = { writePartialThenFail: false, renameFails: false, writtenPaths: [] as string[] };
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    writeFile: async (...args: Parameters<typeof actual.writeFile>) => {
+      fsFaults.writtenPaths.push(String(args[0]));
+      await actual.writeFile(...args);
+      if (fsFaults.writePartialThenFail) throw new Error('ENOSPC: disk full');
+    },
+    rename: async (...args: Parameters<typeof actual.rename>) => {
+      if (fsFaults.renameFails) throw new Error('EXDEV: cannot rename');
+      return actual.rename(...args);
+    },
+  };
+});
 
 const confirmMock = vi.fn();
 vi.mock('@inquirer/prompts', () => ({ confirm: confirmMock, input: vi.fn() }));
@@ -433,18 +451,19 @@ describe('queue schema-registry', () => {
     await expect(run(['schema-registry', 'enable', 'ev', '--yes'])).rejects.toMatchObject({ statusCode: 422 });
   });
 
-  it('says so, and sends nothing, when the registry is already disabled', async () => {
-    routeGet({ [`${Q}/schema-registry`]: { data: registry() } });
+  it('always sends the DELETE after confirmation, without reading the registry first', async () => {
+    routeGet({});
+    mockDelete.mockResolvedValue({});
 
     await run(['schema-registry', 'disable', 'ev', '--yes']);
 
-    expect(mockDelete).not.toHaveBeenCalled();
-    expect(out()).toMatch(/already disabled/);
-    expect(out()).not.toMatch(/being disabled/);
+    expect(mockDelete).toHaveBeenCalledWith(`${Q}/schema-registry`);
+    expect(mockGet.mock.calls.some(([path]) => String(path).endsWith('/schema-registry'))).toBe(false);
+    expect(out()).toContain("Schema Registry is disabled on 'ev' (billing stops).");
   });
 
   it('disables with --yes', async () => {
-    routeGet({ [`${Q}/schema-registry`]: { data: registry({ enabled: true, status: 'ready' }) } });
+    routeGet({});
     mockDelete.mockResolvedValueOnce({});
 
     await run(['schema-registry', 'disable', 'ev', '--yes']);
@@ -498,6 +517,7 @@ describe('queue client-properties', () => {
     routeGet({});
     mockGetText.mockResolvedValue(body);
     setJsonMode(false);
+    Object.assign(fsFaults, { writePartialThenFail: false, renameFails: false, writtenPaths: [] });
   });
 
   afterEach(async () => {
@@ -535,6 +555,52 @@ describe('queue client-properties', () => {
 
     await expect(run(['client-properties', 'ev', '-o', file])).rejects.toMatchObject({ statusCode: 422 });
     await expect(lstat(file)).rejects.toThrow();
+  });
+
+  it('without --force writes straight to the target: no temp file, mode 600', async () => {
+    const file = join(dir, 'out.properties');
+
+    await run(['client-properties', 'ev', '-o', file]);
+
+    expect(fsFaults.writtenPaths).toEqual([file]);
+    expect(await readdir(dir)).toEqual(['out.properties']);
+    expect((await stat(file)).mode & 0o777).toBe(0o600);
+  });
+
+  it('with --force uses a short temp name and removes it when the rename fails', async () => {
+    const file = join(dir, 'a-very-long-name-'.repeat(10) + '.properties');
+    await writeFile(file, 'old');
+    fsFaults.renameFails = true;
+
+    await expect(run(['client-properties', 'ev', '-o', file, '--force'])).rejects.toThrow(/EXDEV/);
+
+    expect(fsFaults.writtenPaths.filter((p) => p !== file).every((p) => /\/\.dd-[0-9a-f]{8}\.tmp$/.test(p))).toBe(true);
+    expect(await readFile(file, 'utf8')).toBe('old');
+    expect(await readdir(dir)).toEqual([file.slice(dir.length + 1)]);
+  });
+
+  it('with --force removes the partial temp file when the write fails', async () => {
+    const file = join(dir, 'out.properties');
+    await writeFile(file, 'old');
+    fsFaults.writePartialThenFail = true;
+
+    await expect(run(['client-properties', 'ev', '-o', file, '--force'])).rejects.toThrow(/ENOSPC/);
+
+    expect(await readFile(file, 'utf8')).toBe('old');
+    expect(await readdir(dir)).toEqual(['out.properties']);
+  });
+
+  it.skipIf(process.getuid?.() === 0)('fails before the credential read when the directory is not writable', async () => {
+    const locked = join(dir, 'locked');
+    await mkdir(locked);
+    await chmod(locked, 0o500);
+
+    try {
+      await expect(run(['client-properties', 'ev', '-o', join(locked, 'x')])).rejects.toThrow(/not writable/);
+      expect(mockGetText).not.toHaveBeenCalled();
+    } finally {
+      await chmod(locked, 0o700);
+    }
   });
 
   it('errors clearly when -o is a directory, before the credential read', async () => {
