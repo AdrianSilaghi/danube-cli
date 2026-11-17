@@ -145,10 +145,14 @@ only, `registry:credentials`) and hands its token to `docker login <registry> --
 travels on Docker's standard input only: it is never an argument, never printed, never written by
 the CLI. Docker keeps it in its own credential store, so it cannot be shown again; each run makes a
 new key (`--name` defaults to this machine and the time). A key from `login` expires after 90 days
-unless you pass `--expires-in` or `--expires-at`; run `danube registry login` again to renew. It takes the same `--scope`,
+unless you pass `--expires-in` or `--expires-at`. Run `danube registry login` again to renew: once Docker is
+signed in with the new key, it revokes the earlier keys that `login` made on this machine (active ones
+named `danube-cli-<this host>-…`; keys with any other name are never touched) and says how many. For CI,
+create a key with an expiry (`registry keys create`) rather than using `login`. It takes the same `--scope`,
 `--expires-in` (`90m`, `24h`, `30d`) and `--expires-at` as `registry keys create`, and creates the key
 the same way. A `404` means the platform is too old for the key API, a `403` that the token is not
-the owner's or lacks `registry:credentials`. If `docker login` fails after the key exists, the CLI
+the owner's or lacks `registry:credentials`. `login` checks that the Docker daemon answers before it
+creates the key, and stops a `docker login` that has not finished after two minutes. If `docker login` fails after the key exists, the CLI
 revokes the key again (and names it for `registry keys rm` if that fails too). Docker's own warnings
 (for instance that it stores the login unencrypted) are passed through.
 
@@ -228,6 +232,19 @@ the exit code, or on `findings[].severity`, never on `success`.
 > `success: false` when it found a fatal problem, so a working diagnosis looked
 > like a failed command and disagreed with `preflight`. If you branch on
 > `success`, switch to the exit code.
+
+> **Behaviour changes in 1.10.**
+> - An invalid `--env` argument (on `create`, `update`, `apply` or `run`) is a usage error: exit 2 and a
+>   `usage_error` envelope under `--json`, where it was exit 1. A bare `--env KEY` now means "read `KEY`
+>   from my environment" and fails when it is unset.
+> - `registry verify-push` also checks the login Docker will present and exits 1 when that login exists
+>   and cannot push (the `--json` envelope then carries an `error` and `success: false`). Having no
+>   Docker login at all, or not being able to check, is a warning and still exits 0.
+> - `rapids update` without `--wait` no longer prints "Updated": it says the update was accepted and
+>   which generation is rolling out, and with `--wait` it checks the container even when nothing changed.
+> - `rapids apply --wait` on a no-op now checks the container settled (it used to return at once), so it
+>   exits 1 if an earlier rollout failed. `apply` reads every page of your containers to find the one it
+>   is named for.
 
 
 ## Commands
@@ -712,6 +729,10 @@ danube rapids update my-api --rm-secret OLD_KEY
   success, so `update` and `apply` refuse before writing when the container does not list
   `secret_environment_keys` ("nothing was changed"), and `create` fails if the container comes back
   without the secrets you sent.
+- A value that spans lines (a PEM key) cannot be written in an `--env-file` or `--secret-file`: each
+  variable is one line, and a quote left open at the end of a line is an error. Pass it from your
+  environment instead: `KEY="$(cat key.pem)" danube rapids update my-api --secret KEY`. Backtick quotes
+  are read like single quotes (literal), and the backticks are not kept.
 - A refused `--env` or `--secret` argument is named by its position, never quoted, so a value typed
   by mistake (`--secret DB_PASSWORD hunter2`) does not reach your CI log.
 

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { hostname } from 'node:os';
 
 const mockGet = vi.fn();
 const mockPost = vi.fn();
@@ -35,6 +36,9 @@ const login = (args: string[]) => {
   return registryCommand.parseAsync(['login', ...args], { from: 'user' });
 };
 
+const PREFIX = `danube-cli-${hostname().replace(/[^A-Za-z0-9.-]/g, '-')}-`;
+let earlierKeys: Array<Record<string, unknown>> = [];
+
 describe('danube registry login', () => {
   let logSpy: ReturnType<typeof vi.spyOn>;
   let errSpy: ReturnType<typeof vi.spyOn>;
@@ -43,9 +47,13 @@ describe('danube registry login', () => {
     logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     [mockGet, mockPost, mockDelete, mockDocker].forEach((m) => m.mockReset());
-    mockGet.mockResolvedValue({ success: true, data: { registry_host: 'cr.danubedata.ro' } });
+    earlierKeys = [];
+    mockGet.mockImplementation((path: string) =>
+      Promise.resolve(path.startsWith('/api/v1/registry/access-keys')
+        ? { data: earlierKeys, pagination: { current_page: 1, last_page: 1, per_page: 100, total: earlierKeys.length } }
+        : { success: true, data: { registry_host: 'cr.danubedata.ro' } }));
     mockPost.mockResolvedValue({ key, token: TOKEN });
-    mockDocker.mockResolvedValue({ code: 0, stdout: 'Login Succeeded', stderr: '' });
+    mockDocker.mockResolvedValue({ code: 0, stdout: 'Login Succeeded', stderr: '', timedOut: false });
     mockDelete.mockResolvedValue({ data: { ...key, revoked_at: '2026-11-17T10:05:00+00:00' } });
     setJsonMode(false);
   });
@@ -63,8 +71,8 @@ describe('danube registry login', () => {
     expect(mockGet).toHaveBeenCalledWith('/api/v1/registry/context');
     // `login` expires its key after 90 days unless told otherwise.
     expect(mockPost).toHaveBeenCalledWith('/api/v1/registry/access-keys', { name: 'laptop', scope: 'push_pull', expires_at: expect.any(String) });
-    expect(mockDocker).toHaveBeenNthCalledWith(1, ['--version']);
-    expect(mockDocker).toHaveBeenNthCalledWith(2, ['login', 'cr.danubedata.ro', '-u', key.username, '--password-stdin'], TOKEN);
+    expect(mockDocker).toHaveBeenNthCalledWith(1, ['version', '--format', '{{.Server.Version}}'], undefined, { timeoutMs: 15_000 });
+    expect(mockDocker).toHaveBeenNthCalledWith(2, ['login', 'cr.danubedata.ro', '-u', key.username, '--password-stdin'], TOKEN, { timeoutMs: 120_000 });
     // The token is the stdin argument and nowhere else.
     expect(JSON.stringify(mockDocker.mock.calls[1]![0])).not.toContain(TOKEN);
     expect(everythingPrinted()).not.toContain(TOKEN);
@@ -88,8 +96,8 @@ describe('danube registry login', () => {
   it('passes Docker warnings through, scrubbed of the token, and says how to renew', async () => {
     mockPost.mockResolvedValue({ key: { ...key, expires_at: '2027-02-15T10:00:00+00:00' }, token: TOKEN });
     mockDocker
-      .mockResolvedValueOnce({ code: 0, stdout: '', stderr: '' })
-      .mockResolvedValueOnce({ code: 0, stdout: 'Login Succeeded', stderr: `WARNING! Your credentials are stored unencrypted in '/home/u/.docker/config.json' ${TOKEN}` });
+      .mockResolvedValueOnce({ code: 0, stdout: '', stderr: '', timedOut: false })
+      .mockResolvedValueOnce({ code: 0, stdout: 'Login Succeeded', stderr: `WARNING! Your credentials are stored unencrypted in '/home/u/.docker/config.json' ${TOKEN}`, timedOut: false });
 
     await login(['--name', 'laptop']);
 
@@ -156,6 +164,107 @@ describe('danube registry login', () => {
     expect(mockPost).not.toHaveBeenCalled();
   });
 
+  it('creates no key when the docker daemon does not answer', async () => {
+    mockDocker.mockResolvedValueOnce({ code: 1, stdout: '', stderr: 'Cannot connect to the Docker daemon', timedOut: false });
+
+    await expect(login([])).rejects.toThrow(/daemon did not answer\. Start Docker.*no key was created/);
+    expect(mockPost).not.toHaveBeenCalled();
+  });
+
+  it('says the daemon check ran out of time', async () => {
+    mockDocker.mockResolvedValueOnce({ code: null, stdout: '', stderr: '', timedOut: true });
+
+    await expect(login([])).rejects.toThrow(/did not answer in time/);
+    expect(mockPost).not.toHaveBeenCalled();
+  });
+
+  it('revokes the key, and says why, when docker login runs out of time', async () => {
+    mockDocker
+      .mockResolvedValueOnce({ code: 0, stdout: '', stderr: '', timedOut: false })
+      .mockResolvedValueOnce({ code: null, stdout: '', stderr: 'partial', timedOut: true });
+
+    const failure = await login(['--name', 'laptop']).catch((e: Error) => e);
+
+    expect(mockDelete).toHaveBeenCalledWith('/api/v1/registry/access-keys/k-1');
+    expect((failure as Error).message).toContain('did not finish within 2 minutes and was stopped');
+    expect((failure as Error).message).toContain('revoked again');
+  });
+
+  describe('earlier login keys of this machine', () => {
+    const earlier = (id: string, name: string, over: Record<string, unknown> = {}) => ({ ...key, id, name, ...over });
+
+    it('are revoked after a successful login, and only those', async () => {
+      earlierKeys = [
+        earlier('k-1', `${PREFIX}20261101-100000`),
+        earlier('k-old-1', `${PREFIX}20261001-100000`),
+        earlier('k-old-2', `${PREFIX}20260901-100000`),
+        earlier('k-other', 'danube-cli-another-machine-20261001-100000'),
+        earlier('k-ci', 'ci-deploy'),
+        earlier('k-gone', `${PREFIX}20260801-100000`, { revoked_at: '2026-08-02T00:00:00Z' }),
+      ];
+
+      await login(['--name', 'laptop']);
+
+      expect(mockGet).toHaveBeenCalledWith('/api/v1/registry/access-keys?active=true&per_page=100&page=1');
+      expect(mockDelete.mock.calls.map((c) => c[0]).sort()).toEqual([
+        '/api/v1/registry/access-keys/k-old-1',
+        '/api/v1/registry/access-keys/k-old-2',
+      ]);
+      expect(everythingPrinted()).toContain('Revoked 2 earlier login keys from this machine.');
+    });
+
+    it('are reported in the JSON envelope', async () => {
+      setJsonMode(true);
+      earlierKeys = [earlier('k-old-1', `${PREFIX}20261001-100000`)];
+
+      await login([]);
+
+      expect(JSON.parse(String(logSpy.mock.calls[0]![0])).data).toMatchObject({ previous_keys_revoked: 1, previous_keys_failed: 0 });
+    });
+
+    it('are left alone, with a warning, when the list cannot be read', async () => {
+      mockGet.mockImplementation((path: string) =>
+        path.startsWith('/api/v1/registry/access-keys')
+          ? Promise.reject(new ApiError(403, 'no registry:read'))
+          : Promise.resolve({ success: true, data: { registry_host: 'cr.danubedata.ro' } }));
+
+      await login(['--name', 'laptop']);
+
+      expect(mockDelete).not.toHaveBeenCalled();
+      expect(everythingPrinted()).toContain('Could not list the keys');
+      expect(everythingPrinted()).toContain('Docker is signed in');
+    });
+
+    it('warn, without failing the login, when one cannot be revoked', async () => {
+      earlierKeys = [earlier('k-old-1', `${PREFIX}20261001-100000`), earlier('k-old-2', `${PREFIX}20260901-100000`)];
+      mockDelete.mockRejectedValueOnce(new ApiError(500, 'boom')).mockResolvedValueOnce({ data: key });
+
+      await login(['--name', 'laptop']);
+
+      expect(everythingPrinted()).toContain('Revoked 1 earlier login key from this machine.');
+      expect(everythingPrinted()).toContain('Could not revoke 1 earlier login key.');
+    });
+
+    it('warn in the plural when several cannot be revoked', async () => {
+      earlierKeys = [earlier('k-old-1', `${PREFIX}20261001-100000`), earlier('k-old-2', `${PREFIX}20260901-100000`)];
+      mockDelete.mockRejectedValue(new ApiError(500, 'boom'));
+
+      await login(['--name', 'laptop']);
+
+      expect(everythingPrinted()).toContain('Could not revoke 2 earlier login keys.');
+      expect(everythingPrinted()).not.toContain('Revoked');
+    });
+
+    it('are not touched when docker login failed', async () => {
+      earlierKeys = [earlier('k-old-1', `${PREFIX}20261001-100000`)];
+      mockDocker.mockResolvedValueOnce({ code: 0, stdout: '', stderr: '', timedOut: false }).mockResolvedValueOnce({ code: 1, stdout: '', stderr: 'no', timedOut: false });
+
+      await login(['--name', 'laptop']).catch(() => undefined);
+
+      expect(mockDelete.mock.calls.map((c) => c[0])).toEqual(['/api/v1/registry/access-keys/k-1']);
+    });
+  });
+
   it('creates no key when docker is not installed', async () => {
     mockDocker.mockRejectedValueOnce(new Error('spawn docker ENOENT'));
 
@@ -209,8 +318,8 @@ describe('danube registry login', () => {
 
   it('revokes the key again when docker login fails, and hides the token', async () => {
     mockDocker
-      .mockResolvedValueOnce({ code: 0, stdout: 'Docker version 27', stderr: '' })
-      .mockResolvedValueOnce({ code: 1, stdout: '', stderr: `Error saving credentials: ${TOKEN}` });
+      .mockResolvedValueOnce({ code: 0, stdout: 'Docker version 27', stderr: '', timedOut: false })
+      .mockResolvedValueOnce({ code: 1, stdout: '', stderr: `Error saving credentials: ${TOKEN}`, timedOut: false });
 
     const failure = await login(['--name', 'laptop']).catch((e: Error) => e);
 
@@ -222,7 +331,7 @@ describe('danube registry login', () => {
   });
 
   it('names the key for a manual revoke only when the automatic revoke failed too', async () => {
-    mockDocker.mockResolvedValueOnce({ code: 0, stdout: '', stderr: '' }).mockResolvedValueOnce({ code: 1, stdout: '', stderr: 'denied' });
+    mockDocker.mockResolvedValueOnce({ code: 0, stdout: '', stderr: '', timedOut: false }).mockResolvedValueOnce({ code: 1, stdout: '', stderr: 'denied', timedOut: false });
     mockDelete.mockRejectedValue(new ApiError(500, 'boom'));
 
     const failure = await login(['--name', 'laptop']).catch((e: Error) => e);
@@ -233,13 +342,13 @@ describe('danube registry login', () => {
   });
 
   it('reports a docker that dies mid-login with its own message', async () => {
-    mockDocker.mockResolvedValueOnce({ code: 0, stdout: '', stderr: '' }).mockRejectedValueOnce(new Error('spawn docker EACCES'));
+    mockDocker.mockResolvedValueOnce({ code: 0, stdout: '', stderr: '', timedOut: false }).mockRejectedValueOnce(new Error('spawn docker EACCES'));
 
     await expect(login([])).rejects.toThrow(/docker login failed: spawn docker EACCES/);
   });
 
   it('says so when docker fails without output', async () => {
-    mockDocker.mockResolvedValueOnce({ code: 0, stdout: '', stderr: '' }).mockResolvedValueOnce({ code: 2, stdout: '', stderr: '' });
+    mockDocker.mockResolvedValueOnce({ code: 0, stdout: '', stderr: '', timedOut: false }).mockResolvedValueOnce({ code: 2, stdout: '', stderr: '', timedOut: false });
 
     await expect(login([])).rejects.toThrow(/\(exit 2\): no output/);
   });

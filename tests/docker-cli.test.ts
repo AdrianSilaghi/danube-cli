@@ -22,9 +22,43 @@ describe('runDocker', () => {
     child.stdin.emit('error', new Error('EPIPE'));
     child.emit('close', 0);
 
-    expect(await pending).toEqual({ code: 0, stdout: 'Login Succeeded', stderr: 'warning' });
+    expect(await pending).toEqual({ code: 0, stdout: 'Login Succeeded', stderr: 'warning', timedOut: false });
     expect(input.join('')).toBe('the-token');
     expect(spawnMock).toHaveBeenCalledWith('docker', ['login', 'h', '--password-stdin'], { stdio: ['pipe', 'pipe', 'pipe'] });
+  });
+
+  it('kills a docker that does not finish in time and says so', async () => {
+    vi.useFakeTimers();
+    try {
+      const child = Object.assign(fakeChild(), { kill: vi.fn() });
+      spawnMock.mockReturnValueOnce(child);
+
+      const pending = runDocker(['login'], 'tok', { timeoutMs: 1_000 });
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(child.kill).toHaveBeenCalled();
+      child.emit('close', null);
+
+      expect(await pending).toMatchObject({ code: null, timedOut: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stops the timer when docker cannot be started', async () => {
+    vi.useFakeTimers();
+    try {
+      const child = Object.assign(fakeChild(), { kill: vi.fn() });
+      spawnMock.mockReturnValueOnce(child);
+
+      const pending = runDocker(['--version'], undefined, { timeoutMs: 1_000 });
+      child.emit('error', new Error('spawn docker ENOENT'));
+      await expect(pending).rejects.toThrow('ENOENT');
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      expect(child.kill).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('rejects when docker cannot be started', async () => {

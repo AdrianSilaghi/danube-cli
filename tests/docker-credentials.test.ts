@@ -96,9 +96,12 @@ describe('readDockerCredential', () => {
     expect(runHelper).toHaveBeenCalledWith('desktop', HOST);
   });
 
-  it('falls back to auths when the helper holds nothing for the host', async () => {
-    const empty = deps({ config: { credsStore: 'desktop', ...withAuth }, helper: { code: 1, stdout: 'credentials not found in native keychain\n', stderr: '' } });
-    expect(await readDockerCredential(HOST, empty.deps)).toEqual({ username: 'dd-key', secret: 's3cret' });
+  it('uses only the configured store: a login it does not hold is no login, whatever auths still says', async () => {
+    const store = deps({ config: { credsStore: 'desktop', ...withAuth }, helper: { code: 1, stdout: 'credentials not found in native keychain\n', stderr: '' } });
+    expect(await readDockerCredential(HOST, store.deps)).toBeNull();
+
+    const perHost = deps({ config: { credHelpers: { [HOST]: 'pass' }, ...withAuth }, helper: { code: 1, stdout: '', stderr: 'credentials not found' } });
+    expect(await readDockerCredential(HOST, perHost.deps)).toBeNull();
 
     const noUser = deps({ config: { credsStore: 'desktop' }, helper: { code: 0, stdout: JSON.stringify({ Secret: 'hs' }), stderr: '' } });
     expect(await readDockerCredential(HOST, noUser.deps)).toEqual({ username: '', secret: 'hs' });

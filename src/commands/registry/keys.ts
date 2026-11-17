@@ -17,7 +17,7 @@ import type { RegistryAccessKey, RegistryKeyScope, CreateRegistryAccessKeyRespon
  * printed once, only to stdout, and nothing here logs or echoes it elsewhere.
  */
 
-const KEYS_PATH = '/api/v1/registry/access-keys';
+export const KEYS_PATH = '/api/v1/registry/access-keys';
 const REGISTRY_HOST = 'cr.danubedata.ro';
 const SCOPES: readonly RegistryKeyScope[] = ['push_pull', 'pull'];
 const MS_PER_DAY = 86_400_000;
@@ -103,6 +103,9 @@ export function resolveExpiry(opts: { expiresIn?: string; expiresAt?: string }):
   return undefined;
 }
 
+/** A 2xx whose body cannot be used: the key may exist, and its token is not recoverable. */
+class UnreadableKeyAnswer extends Error {}
+
 /** The refusals of the create call that have one fix, said as that fix. */
 function explainCreateFailure(err: unknown): unknown {
   if (!(err instanceof ApiError)) return err;
@@ -146,9 +149,9 @@ export async function createRegistryAccessKey(
   // A 2xx means the key exists. Without the token it is unusable, so say so
   // rather than print "undefined" as a credential.
   if (typeof res?.token !== 'string' || res.token === '' || typeof res?.key?.id !== 'string') {
-    throw new Error(
+    throw new UnreadableKeyAnswer(
       'The server accepted the request, but its answer had no key or token. ' +
-        'The key may exist: run `danube registry keys ls`, and revoke it if it is there.',
+        'The key may have been created; check `danube registry keys ls`, and revoke it if it is there.',
     );
   }
 
@@ -186,7 +189,9 @@ const createCommand = new Command('create')
     try {
       res = await createRegistryAccessKey(api, { name, scope, expiresAt });
     } catch (error) {
-      spinner?.fail('Could not create the key');
+      spinner?.fail(error instanceof UnreadableKeyAnswer
+        ? 'The key may have been created, but the answer could not be read'
+        : 'Could not create the key');
       throw error;
     }
 

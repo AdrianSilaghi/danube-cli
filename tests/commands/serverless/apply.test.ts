@@ -34,14 +34,14 @@ const makeContainer = (overrides: Record<string, unknown> = {}) => ({
 
 /**
  * Routes both shapes apply.ts's `api.get` calls read through the SAME mock:
- * `findByName`'s bare-path list call, and captureBaseline's `/{id}` show
+ * `findByName`'s paged list call, and captureBaseline's `/{id}` show
  * call (issued whenever there is drift, `--wait` or not). Without this, a
  * blanket `mockResolvedValue` hands captureBaseline the list shape and it
  * throws reading `.container` off it.
  */
 function mockExisting(container: Record<string, unknown>): void {
   mockGet.mockImplementation((path: string) =>
-    path === '/api/v1/serverless'
+    path.startsWith('/api/v1/serverless?')
       ? Promise.resolve({ data: [container] })
       : Promise.resolve({ container, url: null }),
   );
@@ -314,13 +314,48 @@ describe('apply --env/--rm-env', () => {
     });
   });
 
-  it('reports unchanged when the platform did not move the generation', async () => {
-    mockExisting(makeContainer({ spec_generation: 6, secret_environment_keys: ['K'] }));
+  const settled = (summary: string, health: string, generation: number) => ({
+    status_details: { summary, health, observed_at: '2026-11-17T10:00:00+00:00', stale: false, operation: { state: 'succeeded', terminal: true }, error: null },
+    observed_generation: generation,
+  });
+
+  it('reports unchanged when the platform did not move the generation, and checks the container settled', async () => {
+    mockExisting(makeContainer({ spec_generation: 6, secret_environment_keys: ['K'], ...settled('ready', 'healthy', 6) }));
     mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer({ spec_generation: 6 }) });
 
     await applyCommand.parseAsync(['node', 'test', '--name', 'my-api', '--secret', 'K=same', '--wait']);
 
-    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('unchanged'));
+    expect(consoleLogSpy.mock.calls.flat().join('\n')).toContain('Ready');
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it('fails a --wait on a no-op when the container has settled in failure', async () => {
+    mockExisting(makeContainer({ image: 'nginx', spec_generation: 6, ...settled('failed', 'unhealthy', 6) }));
+
+    await applyCommand.parseAsync(['node', 'test', '--name', 'my-api', '--image', 'nginx', '--wait']);
+
+    expect(mockPut).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+    process.exitCode = undefined;
+  });
+
+  it('finds a container on a later page of the list instead of creating it again', async () => {
+    const mine = makeContainer({ id: 'on-page-2', name: 'my-api', slug: 'my-api' });
+    mockGet.mockImplementation((path: string) => {
+      if (path === '/api/v1/serverless?per_page=100&page=1') {
+        return Promise.resolve({ data: [makeContainer({ name: 'other', slug: 'other' })], pagination: { current_page: 1, last_page: 2, per_page: 100, total: 101 } });
+      }
+      if (path === '/api/v1/serverless?per_page=100&page=2') {
+        return Promise.resolve({ data: [mine], pagination: { current_page: 2, last_page: 2, per_page: 100, total: 101 } });
+      }
+      return Promise.resolve({ container: mine, url: null });
+    });
+    mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer({ id: 'on-page-2', image: 'node' }) });
+
+    await applyCommand.parseAsync(['node', 'test', '--name', 'my-api', '--image', 'node']);
+
+    expect(mockPost).not.toHaveBeenCalled();
+    expect(mockPut).toHaveBeenCalledWith('/api/v1/serverless/on-page-2', { image: 'node' });
   });
 
   it('creates with environment_variables from --env-file', async () => {

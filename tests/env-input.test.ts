@@ -39,6 +39,15 @@ describe('parseDotenv', () => {
     expect(parseDotenv('A="  x # y  "\nB=\'  z \'\nC=\nD=""', '.env')).toEqual({ A: '  x # y  ', B: '  z ', C: '', D: '' });
   });
 
+  it('reads backtick quotes literally, never keeping the backticks', () => {
+    expect(parseDotenv('A=`a "b" \'c\' # d`\nB=`x` # note', '.env')).toEqual({ A: 'a "b" \'c\' # d', B: 'x' });
+    expect(() => parseDotenv('A=`open', '.env')).toThrow(/quoted value is not closed/);
+  });
+
+  it('does not read a quoted value that continues on the next line (PEM)', () => {
+    expect(() => parseDotenv('KEY="-----BEGIN KEY-----\nabc\n-----END KEY-----"', '.env')).toThrow(/\.env:1: the quoted value is not closed on this line/);
+  });
+
   it('reads Windows line endings', () => {
     expect(parseDotenv('A=1\r\nB=2\r\n', '.env')).toEqual({ A: '1', B: '2' });
   });

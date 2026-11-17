@@ -26,14 +26,14 @@ const DOUBLE_QUOTE_ESCAPES: Record<string, string> = { n: '\n', r: '\r', t: '\t'
 
 /**
  * Read one dotenv value that starts after `=`: unquoted (an inline ` #` comment
- * ends it), 'single' (literal) or "double" (\n \r \t \" \\ escapes). Nothing is
+ * ends it), 'single' or `backtick` quoted (literal) or "double" (\n \r \t \" \\ escapes). Nothing is
  * interpolated: `$HOME` stays the five characters it is.
  */
 function parseValue(raw: string, where: string): string {
   const text = raw.trimStart();
   const quote = text[0];
 
-  if (quote !== '"' && quote !== "'") {
+  if (quote !== '"' && quote !== "'" && quote !== '`') {
     // A comment starts at whitespace + `#` (so `KEY= # note` is empty, `KEY=a#b` is "a#b"); `raw` still has that whitespace.
     return raw.replace(/\s+#.*$/, '').trim();
   }

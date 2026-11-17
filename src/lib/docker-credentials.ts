@@ -139,15 +139,16 @@ async function fromHelper(helper: string, host: string, deps: DockerDeps): Promi
   return parsed.Secret ? { username: parsed.Username ?? '', secret: parsed.Secret } : null;
 }
 
-/** Where Docker looks, in its order: `credHelpers[host]`, then `credsStore`, then `auths[host].auth`. */
+/**
+ * Where Docker looks: `credHelpers[host]`, else `credsStore`, else `auths[host].auth`. Like Docker,
+ * a configured store is the only place it looks: a login it does not hold ("credentials not found")
+ * is no login, even when an old `auths` entry is still in the file.
+ */
 export async function readDockerCredential(host: string, deps: DockerDeps = defaultDeps()): Promise<Credential | null> {
   const config = await readConfig(deps);
 
   const helper = config.credHelpers?.[host] ?? config.credsStore;
-  if (helper) {
-    const credential = await fromHelper(helper, host, deps);
-    if (credential) return credential;
-  }
+  if (helper) return fromHelper(helper, host, deps);
 
   const entry = Object.entries(config.auths ?? {}).find(([key]) => hostOf(key) === host)?.[1];
   if (!entry?.auth) return null;

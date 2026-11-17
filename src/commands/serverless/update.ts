@@ -111,32 +111,18 @@ export const updateCommand = new Command('update')
       : await api.put<UpdateResponse>(`/api/v1/serverless/${container.id}`, body);
 
     // The platform bumps the generation only when something it stores changed.
-    // Writing what is already there rolls nothing out, and a --wait for a
-    // rollout that is not coming would only run out its timeout.
+    // Writing what is already there rolls nothing out.
     const generation = res.container.spec_generation;
-    if (typeof generation === 'number' && generation === container.spec_generation) {
-      const text = `No change: generation ${generation} is already current, so nothing is rolling out.`;
-      if (isJsonMode() && opts.wait) {
-        // The shape a completed --wait has, so a caller parses one thing: terminal, at the current generation.
-        jsonEnvelope(waitEnvelope('unchanged', res.container, {
-          settled: true,
-          status: res.container.status_details ?? null,
-          url: res.container.url,
-          targetRevision: res.container.current_revision ?? null,
-          observedAt: res.container.status_details?.observed_at ?? null,
-          sawFreshObservation: true,
-          observedGeneration: res.container.observed_generation ?? null,
-          waitedMs: 0,
-        }), { meta: { waited: false, fresh_observation: true } });
-      } else if (isJsonMode()) jsonOutput(res.container);
-      else if (spinner) spinner.succeed(text);
-      else console.log(text);
-      return;
-    }
+    const noChange = typeof generation === 'number' && generation === container.spec_generation;
+    const noChangeText = `No change: generation ${generation} is already current, so nothing new is rolling out.`;
 
     if (!opts.wait) {
       if (isJsonMode()) {
         jsonOutput(res.container);
+        return;
+      }
+      if (noChange) {
+        spinner!.succeed(noChangeText);
         return;
       }
       // The PUT only records the change: the rollout runs on after it returns.
@@ -150,19 +136,27 @@ export const updateCommand = new Command('update')
     // --wait, mirroring `apply --wait`: no spinner (there is nothing to spin
     // on past this point) and progress goes to stderr so `--json` stdout
     // stays a clean document a caller can pipe straight into a parser.
+    //
+    // With no change, an earlier rollout may still be running (or may have
+    // failed): the verdict of --wait is about the container, not about this
+    // write, so it still waits for the current generation to settle. A
+    // container that is already terminal answers on the first poll.
     if (!isJsonMode()) {
-      console.error(chalk.dim(`updated ${res.container.name}; waiting for a terminal state...`));
+      console.error(chalk.dim(noChange
+        ? `${noChangeText} Checking that generation ${generation} has settled...`
+        : `updated ${res.container.name}; waiting for a terminal state...`));
     }
 
     const wait = await waitForTerminal(api, res.container.id, {
       timeoutMs: parseDuration(opts.waitTimeout) ?? DEFAULT_WAIT_TIMEOUT_MS,
-      baseline,
+      // Nothing was written, so there is no previous verdict to be confused with.
+      baseline: noChange ? null : baseline,
       minGeneration: res.container.spec_generation ?? null,
     });
 
     if (isJsonMode()) {
       const err = wait.status?.error ?? null;
-      jsonEnvelope(waitEnvelope('updated', res.container, wait), {
+      jsonEnvelope(waitEnvelope(noChange ? 'unchanged' : 'updated', res.container, wait), {
         error: wait.settled && err ? { code: err.code, message: err.message ?? undefined, retryable: err.retryable } : null,
         meta: { waited: true, fresh_observation: wait.sawFreshObservation },
       });

@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { ApiClient } from '../../lib/api-client.js';
+import { fetchAllPages } from '../../lib/paginate.js';
 import { isJsonMode, jsonEnvelope } from '../../lib/json-mode.js';
 import { waitForTerminal, captureBaseline, DEFAULT_WAIT_TIMEOUT_MS } from '../../lib/wait-for-terminal.js';
 import type { WaitBaseline } from '../../lib/wait-for-terminal.js';
@@ -10,7 +11,6 @@ import { parseDurationSeconds } from '../../lib/duration.js';
 import { assertSecretsStored, effectiveSecretChanges, ensureSecretSupport, mergeEnv, putMergedEnvironment, reconcileKinds } from '../../lib/serverless-env.js';
 import { readEnvironmentFlags, secretsToSet } from '../../lib/env-input.js';
 
-interface ListResponse { data: ServerlessContainer[] }
 interface MutateResponse { message?: string; container: ServerlessContainer }
 
 /**
@@ -166,9 +166,7 @@ export const applyCommand = new Command('apply')
       action = 'created';
     }
 
-    // A no-op has nothing to converge to, so waiting would just re-confirm the
-    // state we already read.
-    if (!opts.wait || action === 'unchanged') {
+    if (!opts.wait) {
       if (isJsonMode()) {
         jsonEnvelope(waitEnvelope(action, container, {
           settled: action === 'unchanged',
@@ -191,9 +189,11 @@ export const applyCommand = new Command('apply')
       console.error(chalk.dim(`${action} ${container.name}; waiting for a terminal state...`));
     }
 
+    // A no-op writes nothing, yet --wait still reports on the container: an earlier
+    // rollout may be running or may have failed. One that has settled answers on the first poll.
     const wait = await waitForTerminal(api, container.id, {
       timeoutMs: parseDuration(opts.waitTimeout) ?? DEFAULT_WAIT_TIMEOUT_MS,
-      baseline,
+      baseline: action === 'unchanged' ? null : baseline,
       minGeneration: container.spec_generation ?? null,
     });
 
@@ -216,11 +216,13 @@ export const applyCommand = new Command('apply')
   });
 
 async function findByName(api: ApiClient, name: string): Promise<ServerlessContainer | null> {
-  const res = await api.get<ListResponse>('/api/v1/serverless');
+  // The list endpoint has no name filter and answers 15 at a time: every page is read, or a
+  // container past the first would not be found and apply would try to create it again.
+  const { items } = await fetchAllPages<ServerlessContainer>(api, '/api/v1/serverless');
   const wanted = name.toLowerCase();
   const slug = slugify(name);
 
-  return res.data.find((c) => c.name.toLowerCase() === wanted || c.slug === slug) ?? null;
+  return items.find((c) => c.name.toLowerCase() === wanted || c.slug === slug) ?? null;
 }
 
 /** Mirrors the API's slug rule: lowercase alphanumerics and hyphens, max 63. */

@@ -248,18 +248,47 @@ describe('serverless update command', () => {
   });
 
   describe('when the generation does not move', () => {
-    it('says nothing is rolling out, and does not wait for it', async () => {
-      mockGet.mockImplementation((path: string) =>
-        Promise.resolve(path.startsWith('/api/v1/serverless?')
-          ? listResponse({ spec_generation: 4, secret_environment_keys: ['K'] })
-          : showResponse()));
+    /** The list answers with `listOverrides`; every show answers from `shows` in order, the last one repeating. */
+    const mockListAndShows = (listOverrides: Record<string, unknown>, ...shows: unknown[]): void => {
+      let call = 0;
+      mockGet.mockImplementation((path: string) => {
+        if (path.startsWith('/api/v1/serverless?')) return Promise.resolve(listResponse(listOverrides));
+        return Promise.resolve(shows[Math.min(call++, shows.length - 1)]);
+      });
+    };
+
+    it('with --wait, still checks that the current generation has settled, and answers on the first poll when it has', async () => {
+      mockListAndShows({ spec_generation: 4, secret_environment_keys: ['K'] }, showResponse({ observed_generation: 4 }));
       mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer({ spec_generation: 4 }) });
 
       await updateCommand.parseAsync(['node', 'test', 'my-api', '--secret', 'K=same', '--wait']);
 
-      expect(consoleLogSpy.mock.calls.flat().join('\n')).toContain('No change: generation 4 is already current');
-      // The list and the baseline read; no poll for a rollout that is not coming.
-      expect(mockGet).toHaveBeenCalledTimes(2);
+      expect(consoleErrorSpy.mock.calls.flat().join('\n')).toContain('No change: generation 4 is already current');
+      expect(consoleLogSpy.mock.calls.flat().join('\n')).toContain('Ready');
+      // The list, the baseline and one poll.
+      expect(mockGet).toHaveBeenCalledTimes(3);
+      expect(process.exitCode).toBeUndefined();
+    });
+
+    it('with --wait, waits for an earlier rollout that is still running, and fails when it fails', async () => {
+      vi.useFakeTimers();
+      try {
+        mockListAndShows(
+          { spec_generation: 4, secret_environment_keys: ['K'] },
+          showResponse({}),
+          showResponse({ observed_generation: 3 }, { summary: 'deploying', operation: { state: 'running', terminal: false } }),
+          showResponse({ observed_generation: 4 }, { summary: 'failed', health: 'unhealthy', operation: { state: 'failed', terminal: true } }),
+        );
+        mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer({ spec_generation: 4 }) });
+
+        const run = updateCommand.parseAsync(['node', 'test', 'my-api', '--secret', 'K=same', '--wait']);
+        await vi.advanceTimersByTimeAsync(10_000);
+        await run;
+      } finally {
+        vi.useRealTimers();
+      }
+
+      expect(process.exitCode).toBe(1);
     });
 
     it('says so on the spinner without --wait', async () => {
@@ -271,24 +300,18 @@ describe('serverless update command', () => {
       expect(spinner.succeed).toHaveBeenCalledWith(expect.stringContaining('No change: generation 4 is already current'));
     });
 
-    it('emits the wait envelope for --wait --json, terminal and at the current generation', async () => {
+    it('emits the wait envelope for --wait --json, from what the platform reports now', async () => {
       setJsonMode(true);
-      mockGet.mockImplementation((path: string) =>
-        Promise.resolve(path.startsWith('/api/v1/serverless?')
-          ? listResponse({ spec_generation: 4, secret_environment_keys: ['K'] })
-          : showResponse()));
-      mockPut.mockResolvedValue({
-        message: 'Updated',
-        container: makeContainer({ spec_generation: 4, status_details: terminalStatus(), observed_generation: 4, url: 'https://my-api.example' }),
-      });
+      mockListAndShows({ spec_generation: 4, secret_environment_keys: ['K'] }, showResponse({ observed_generation: 4, current_revision: 'my-api-r4' }));
+      mockPut.mockResolvedValue({ message: 'Updated', container: makeContainer({ spec_generation: 4 }) });
 
       await updateCommand.parseAsync(['node', 'test', 'my-api', '--secret', 'K=same', '--wait']);
 
       expect(consoleLogSpy).toHaveBeenCalledTimes(1);
       expect(JSON.parse(String(consoleLogSpy.mock.calls[0]![0]))).toMatchObject({
         success: true,
-        data: { action: 'unchanged', container_id: 'abc-123', settled: true, terminal: true, summary: 'ready', fresh_observation: true, url: 'https://my-api.example', waited_ms: 0 },
-        meta: { waited: false, fresh_observation: true },
+        data: { action: 'unchanged', container_id: 'abc-123', settled: true, terminal: true, summary: 'ready', fresh_observation: true, target_revision: 'my-api-r4' },
+        meta: { waited: true, fresh_observation: true },
       });
     });
 
