@@ -535,6 +535,26 @@ danube database create --name my-db --provider postgresql --datacenter fsn1 --pr
 
 Plans and prices in the interactive picker are fetched live from the API.
 
+### Queue Instances (`danube queue`)
+
+Managed RabbitMQ brokers and Kafka clusters.
+
+| Command | Description |
+|---------|-------------|
+| `danube queue ls [--provider rabbitmq\|kafka]` | List queue instances |
+| `danube queue create` | Create a queue instance (interactive or flags) |
+| `danube queue get <name-or-id>` | Show details |
+| `danube queue connection-info <name-or-id>` | Show connection details (Kafka: bootstrap address, SASL settings, kcat and Java snippets) |
+| `danube queue rm <name-or-id>` | Delete a queue instance and its data |
+
+```bash
+# Kafka (write the version as --version=4.3)
+danube queue create --name events --provider kafka --profile kafka-small --version=4.3
+danube queue connection-info events
+```
+
+Kafka clusters do not support stop/start, snapshots or plan changes yet; the API says so when you try.
+
 ### Parameter Groups (`danube parameter-groups` / `danube pg`)
 
 Reusable engine configurations for cache / database / queue instances. System groups are read-only — clone them to customize.
