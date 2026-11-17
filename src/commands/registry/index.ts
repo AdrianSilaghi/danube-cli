@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import { ApiClient } from '../../lib/api-client.js';
 import { isJsonMode, jsonEnvelope } from '../../lib/json-mode.js';
 import { repositoriesCommand, usageCommand } from './repositories.js';
+import { keysCommand } from './keys.js';
 
 interface Envelope<T> {
   success: boolean;
@@ -93,9 +94,10 @@ const verifyPushCommand = new Command('verify-push')
   });
 
 export const registryCommand = new Command('registry')
-  .description('Container registry discovery and preflight');
+  .description('Container registry discovery, preflight and access keys');
 
 registryCommand.addCommand(contextCommand);
 registryCommand.addCommand(verifyPushCommand);
 registryCommand.addCommand(repositoriesCommand);
 registryCommand.addCommand(usageCommand);
+registryCommand.addCommand(keysCommand);
