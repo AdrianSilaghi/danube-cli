@@ -38,6 +38,12 @@ export interface KafkaConnectionInfo {
   sasl_mechanism?: string | null;
   username?: string | null;
   password?: string | null;
+  schema_registry?: {
+    status?: string | null;
+    url?: string | null;
+    username?: string | null;
+    password?: string | null;
+  } | null;
 }
 
 export function isKafkaConnectionInfo(info: Record<string, unknown>): boolean {

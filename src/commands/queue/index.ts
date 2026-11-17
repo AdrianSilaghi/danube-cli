@@ -4,7 +4,6 @@ import ora from 'ora';
 import { input } from '@inquirer/prompts';
 import { ApiClient } from '../../lib/api-client.js';
 import { fetchAllPages } from '../../lib/paginate.js';
-import { resolveResource } from '../../lib/resolve.js';
 import { formatTable, statusColor, formatDate, printDetails } from '../../lib/output.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import { promptOr, confirmDestruction } from '../../lib/interactive.js';
@@ -24,6 +23,10 @@ import {
   type KafkaConnectionInfo,
   type QueueProvider,
 } from './kafka.js';
+import { LIST_PATH, resolveQueue, type QueueInstance } from './shared.js';
+import { usersCommand } from './users.js';
+import { schemaRegistryCommand } from './schema-registry.js';
+import { clientPropertiesCommand } from './client-properties.js';
 
 /**
  * Managed message brokers: RabbitMQ and Kafka.
@@ -34,31 +37,12 @@ import {
  * commands.
  */
 
-interface QueueInstance {
-  id: string;
-  name: string;
-  status: string;
-  provider?: string | null;
-  resource_profile?: string | null;
-  version?: string | null;
-  datacenter?: string | null;
-  endpoint?: string | null;
-  monthly_cost_dollars?: number | string | null;
-  created_at: string;
-}
-
-const LIST_PATH = '/api/v1/queue';
-
 const diagnosticsTarget = {
   noun: 'queue instance',
   kind: 'queue',
   listPath: LIST_PATH,
   resourcePath: (id: string) => `/api/v1/queue/${id}`,
 };
-
-async function resolveQueue(api: ApiClient, nameOrId: string): Promise<QueueInstance> {
-  return resolveResource<QueueInstance>(api, LIST_PATH, 'queue', nameOrId);
-}
 
 const lsCommand = new Command('ls')
   .description('List all queue instances')
@@ -309,6 +293,17 @@ function printKafkaConnectionInfo(info: KafkaConnectionInfo & Record<string, unk
     ['Password', info.password ?? '(hidden: your role cannot read it)'],
   ]);
 
+  const registry = info.schema_registry;
+  if (registry) {
+    console.log(chalk.bold('\nSchema Registry'));
+    printDetails([
+      ['Status', registry.status ?? '-'],
+      ['URL', registry.url ?? '-'],
+      ['Username', registry.username ?? '-'],
+      ['Password', registry.password ?? '(hidden: your role cannot read it)'],
+    ]);
+  }
+
   console.log(chalk.dim(`\n${info.certificate ?? 'The certificate is publicly trusted, so no CA file is needed.'}`));
   console.log(chalk.bold('\nkcat'));
   console.log(chalk.dim(`Set the password first: export ${PASSWORD_ENV_VAR}=... (or read it with: danube queue connection-info <name> --json)`));
@@ -366,6 +361,9 @@ export const queueCommand = new Command('queue')
   .addCommand(lifecycleCommand('start'))
   .addCommand(lifecycleCommand('stop'))
   .addCommand(connectionInfoCommand)
+  .addCommand(clientPropertiesCommand)
+  .addCommand(usersCommand)
+  .addCommand(schemaRegistryCommand)
   .addCommand(metricsCommand)
   .addCommand(createDiagnoseCommand(diagnosticsTarget))
   .addCommand(createLogsCommand(diagnosticsTarget))

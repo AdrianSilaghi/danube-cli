@@ -604,12 +604,32 @@ Managed RabbitMQ brokers and Kafka clusters.
 | `danube queue get <name-or-id>` | Show details |
 | `danube queue connection-info <name-or-id>` | Show connection details (Kafka: bootstrap address, SASL settings, kcat and Java snippets) |
 | `danube queue rm <name-or-id>` | Delete a queue instance and its data |
+| `danube queue users <queue>` | List a Kafka cluster's users and their ACL rules |
+| `danube queue users create <queue> <name> --acl <spec>...` | Create a Kafka user; the password is shown once |
+| `danube queue users update <queue> <name> --acl <spec>...` | Replace the user's ACL rules (`--none` removes all access) |
+| `danube queue users rotate-password <queue> <name>` | New password, shown once (old one stops working) |
+| `danube queue users rm <queue> <name>` | Delete a Kafka user |
+| `danube queue schema-registry <queue>` | Show the Schema Registry add-on (status, URL, username, password) |
+| `danube queue schema-registry enable\|disable\|rotate-password <queue>` | Manage it; `enable` asks to confirm the monthly price (`--yes` skips) |
+| `danube queue client-properties <queue> [-o file]` | Write the Kafka client properties file (mode 600, no overwrite without `--force`, `-o -` prints) |
 
 ```bash
 # Kafka (write the version as --version=4.3)
 danube queue create --name events --provider kafka --profile kafka-small --version=4.3
 danube queue connection-info events
+
+# Users and ACLs: <resource>:<name>:<literal|prefix>:<ops>, repeat --acl for more rules
+danube queue users create events orders-app \
+  --acl topic:orders.:prefix:read,write,describe \
+  --acl group:billing:literal:read
+danube queue users update events orders-app --acl cluster:describe   # replaces all rules
+
+# Schema Registry and a ready-made client config
+danube queue schema-registry enable events
+danube queue client-properties events -o events.properties
 ```
+
+ACL resources: `topic`, `group`, `transactional_id` (name and pattern, `literal` by default; `*` with `literal` means all) and `cluster` (operations only, e.g. `cluster:describe`). The server has the final say on limits such as the number of rules.
 
 Kafka clusters do not support stop/start, snapshots or plan changes yet; the API says so when you try.
 
