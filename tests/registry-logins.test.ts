@@ -332,7 +332,8 @@ describe('the login lock', () => {
     expect(await acquireLoginLock(join(blocker, 'nested', 'registry-logins.json'), quick)).toBeNull();
   });
 
-  it('answers null when the lock file cannot be created', async () => {
+  // chmod cannot deny root (CI runs as root); the any-error → null path is also covered by the test above.
+  it.skipIf(process.getuid?.() === 0)('answers null when the lock file cannot be created', async () => {
     dir = await mkdtemp(join(tmpdir(), 'danube-lock-'));
     await chmod(dir, 0o500);
 
