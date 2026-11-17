@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, readFile, stat, writeFile, chmod, rm, symlink, lstat } from 'node:fs/promises';
+import { mkdtemp, readFile, stat, writeFile, chmod, rm, symlink, lstat, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -77,7 +77,7 @@ describe('parseAcl', () => {
     expect(parseAcl('group:app:consumer:prefix:read')).toEqual({
       resource_type: 'group', name: 'app:consumer', pattern: 'prefix', operations: ['read'],
     });
-    expect(parseAcl('topic:a:b:c:literal:write')).toMatchObject({ name: 'a:b:c', pattern: 'literal', operations: ['write'] });
+    expect(parseAcl('transactional_id:a:b:c:literal:write')).toMatchObject({ name: 'a:b:c', pattern: 'literal', operations: ['write'] });
   });
 
   it('parses a cluster rule without name or pattern', () => {
@@ -95,7 +95,12 @@ describe('parseAcl', () => {
     ['cluster:read', /read not allowed on cluster/],
     ['cluster:orders:describe', /only operations/],
     ['topic:*:prefix:read', /only valid with the literal/],
-    ['topic::literal:read', /name is empty/],
+    ['topic::literal:read', /empty name or segment/],
+    ['topic:orders::read', /empty name or segment/],
+    ['group::a:read', /empty name or segment/],
+    ['group:a::read', /empty name or segment/],
+    ['topic:orders:prefx:read', /unknown pattern "prefx" \(literal or prefix\)/],
+    ['topic:a:b:prefix:read', /topic name cannot contain ":" \(got "a:b"\)/],
     ['topic:orders:literal:', /no operations/],
     ['topic', /wrong number of parts/],
   ])('rejects %s', (spec, message) => {
@@ -126,13 +131,38 @@ describe('queue users', () => {
     setJsonMode(false);
   });
 
-  it('lists users with their rules', async () => {
-    routeGet({ [`${Q}/kafka-users`]: { data: [user()], meta: {} } });
+  it('lists users as a table with one line per user', async () => {
+    const two = user({
+      id: 'u-2', name: 'audit', username: 'kafka-ev.audit', status: 'pending', created_at: null,
+      acls: [
+        { resource_type: 'topic', name: 'orders.', pattern: 'prefix', operations: ['read', 'describe'] },
+        { resource_type: 'cluster', operations: ['describe'] },
+      ],
+    });
+    routeGet({ [`${Q}/kafka-users`]: { data: [user({ created_at: null }), two], meta: {} } });
 
     await run(['users', 'ev']);
 
-    expect(out()).toContain('kafka-ev.orders-app');
-    expect(out()).toContain('topic:orders.:prefix:read,describe');
+    expect(out().split('\n')).toEqual([
+      'NAME        USERNAME             STATUS   ACLS                                                  CREATED',
+      '----------  -------------------  -------  ----------------------------------------------------  -------',
+      'orders-app  kafka-ev.orders-app  active   topic:orders.:prefix:read,describe                    -      ',
+      'audit       kafka-ev.audit       pending  topic:orders.:prefix:read,describe; cluster:describe  -      ',
+    ]);
+  });
+
+  it('prints the status message of a user the cluster refused, under the table', async () => {
+    routeGet({
+      [`${Q}/kafka-users`]: {
+        data: [user({ created_at: null, status: 'error', status_message: 'ACL rejected by the cluster' })],
+        meta: {},
+      },
+    });
+
+    await run(['users', 'ls', 'ev']);
+
+    const lines = out().split('\n');
+    expect(lines[lines.length - 1]).toBe('orders-app: ACL rejected by the cluster');
   });
 
   it('lists with the explicit ls subcommand too, and as JSON', async () => {
@@ -161,6 +191,7 @@ describe('queue users', () => {
     });
     expect(out()).toContain('s3cret');
     expect(out()).toMatch(/only this once/);
+    expect(out()).toMatch(/applies it in the background.*pending/);
   });
 
   it('includes the password in --json output', async () => {
@@ -188,6 +219,7 @@ describe('queue users', () => {
     expect(mockPut).toHaveBeenCalledWith(`${Q}/kafka-users/u-1`, {
       acls: [{ resource_type: 'group', name: 'billing', pattern: 'literal', operations: ['read'] }],
     });
+    expect(out()).toMatch(/applies the new rules in the background.*pending/);
   });
 
   it('update needs --acl or --none, and --none sends an empty list', async () => {
@@ -218,19 +250,13 @@ describe('queue users', () => {
     expect(mockDelete).toHaveBeenCalledWith(`${Q}/kafka-users/u-1`);
   });
 
-  it('looks the queue up by exact name for changes but not for the list', async () => {
-    routeGet({ [`${Q}/kafka-users`]: { data: [user()] } });
-    mockPost.mockResolvedValue({ data: user() });
-    // an id prefix ("q-") must not select the queue for a credential change
+  it('lists users when the queue is given as an id prefix (read-only lookup)', async () => {
     mockGet.mockImplementation((path: string) =>
-      path.startsWith('/api/v1/queue?')
-        ? Promise.resolve({ data: [{ id: 'q-1', name: 'ev', provider: 'kafka' }], pagination: { last_page: 1, total: 1 } })
-        : Promise.resolve({ data: [user()] }),
+      path.startsWith('/api/v1/queue?') ? Promise.resolve(queueList) : Promise.resolve({ data: [user()] }),
     );
 
-    await expect(run(['users', 'rotate-password', 'q-', 'orders-app', '--yes'])).rejects.toThrow(/not found/);
-    expect(mockPost).not.toHaveBeenCalled();
     await run(['users', 'ls', 'q-']);
+
     expect(out()).toContain('orders-app');
   });
 
@@ -243,6 +269,20 @@ describe('queue users', () => {
     expect(failure).toBeInstanceOf(ConfirmationRequiredError);
     expect(() => handleError(failure)).toThrow('exit');
     expect(exit).toHaveBeenCalledWith(5);
+    expect(mockPost).not.toHaveBeenCalled();
+  });
+
+  it('the rotate confirmation says the old password keeps working and connections close within an hour', async () => {
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+    routeGet({ [`${Q}/kafka-users`]: { data: [user()] } });
+    confirmMock.mockResolvedValueOnce(false);
+
+    await run(['users', 'rotate-password', 'ev', 'orders-app']);
+
+    const message = confirmMock.mock.calls[0]?.[0].message as string;
+    expect(message).toMatch(/old password keeps working until the cluster applies the new one/);
+    expect(message).toMatch(/within an hour/);
+    expect(message).not.toMatch(/disconnected/);
     expect(mockPost).not.toHaveBeenCalled();
   });
 
@@ -355,7 +395,7 @@ describe('queue schema-registry', () => {
 
   it('disable warns that schemas stay in the cluster; enable accepts --force', async () => {
     Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
-    routeGet({ [`${Q}/schema-registry`]: { data: registry() } });
+    routeGet({ [`${Q}/schema-registry`]: { data: registry({ enabled: true, status: 'ready' }) } });
     confirmMock.mockResolvedValueOnce(false);
 
     await run(['schema-registry', 'disable', 'ev']);
@@ -365,6 +405,7 @@ describe('queue schema-registry', () => {
     expect(message).toMatch(/billing stops/);
     expect(mockDelete).not.toHaveBeenCalled();
 
+    routeGet({ [`${Q}/schema-registry`]: { data: registry() } });
     Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
     mockPost.mockResolvedValueOnce({ data: registry({ enabled: true, status: 'provisioning' }) });
     await run(['schema-registry', 'enable', 'ev', '--force']);
@@ -372,7 +413,7 @@ describe('queue schema-registry', () => {
   });
 
   it('disable and rotate-password without --yes when non-interactive exit 5 and send nothing', async () => {
-    routeGet({});
+    routeGet({ [`${Q}/schema-registry`]: { data: registry({ enabled: true, status: 'ready' }) } });
     const exit = vi.spyOn(process, 'exit').mockImplementation((() => { throw new Error('exit'); }) as never);
 
     for (const verb of ['disable', 'rotate-password']) {
@@ -392,8 +433,18 @@ describe('queue schema-registry', () => {
     await expect(run(['schema-registry', 'enable', 'ev', '--yes'])).rejects.toMatchObject({ statusCode: 422 });
   });
 
+  it('says so, and sends nothing, when the registry is already disabled', async () => {
+    routeGet({ [`${Q}/schema-registry`]: { data: registry() } });
+
+    await run(['schema-registry', 'disable', 'ev', '--yes']);
+
+    expect(mockDelete).not.toHaveBeenCalled();
+    expect(out()).toMatch(/already disabled/);
+    expect(out()).not.toMatch(/being disabled/);
+  });
+
   it('disables with --yes', async () => {
-    routeGet({});
+    routeGet({ [`${Q}/schema-registry`]: { data: registry({ enabled: true, status: 'ready' }) } });
     mockDelete.mockResolvedValueOnce({});
 
     await run(['schema-registry', 'disable', 'ev', '--yes']);
@@ -486,9 +537,42 @@ describe('queue client-properties', () => {
     await expect(lstat(file)).rejects.toThrow();
   });
 
-  it('errors clearly when -o is a directory', async () => {
+  it('errors clearly when -o is a directory, before the credential read', async () => {
     await expect(run(['client-properties', 'ev', '-o', dir])).rejects.toThrow(/is a directory/);
     await expect(run(['client-properties', 'ev', '-o', dir, '--force'])).rejects.toThrow(/is a directory/);
+    expect(mockGetText).not.toHaveBeenCalled();
+  });
+
+  it('validates the destination before the credential read', async () => {
+    const existing = join(dir, 'there.properties');
+    await writeFile(existing, 'old');
+
+    await expect(run(['client-properties', 'ev', '-o', existing])).rejects.toThrow(/already exists/);
+    await expect(run(['client-properties', 'ev', '-o', join(dir, 'no-such-dir', 'x')])).rejects.toThrow(/does not exist/);
+
+    expect(mockGetText).not.toHaveBeenCalled();
+    expect(await readFile(existing, 'utf8')).toBe('old');
+  });
+
+  it('leaves no temp file behind and keeps the old file when the credential read fails', async () => {
+    const file = join(dir, 'out.properties');
+    await writeFile(file, 'old');
+    mockGetText.mockRejectedValueOnce(new ApiError(500, 'boom'));
+
+    await expect(run(['client-properties', 'ev', '-o', file, '--force'])).rejects.toThrow('boom');
+    expect(await readFile(file, 'utf8')).toBe('old');
+
+    mockGetText.mockResolvedValueOnce(body);
+    await run(['client-properties', 'ev', '-o', file, '--force']);
+    expect(await readdir(dir)).toEqual(['out.properties']);
+  });
+
+  it('refuses -o - together with --json before the credential read', async () => {
+    setJsonMode(true);
+
+    await expect(run(['client-properties', 'ev', '-o', '-'])).rejects.toThrow(/not JSON/);
+    expect(mockGetText).not.toHaveBeenCalled();
+    setJsonMode(false);
   });
 
   it('with --force replaces a symlink instead of writing through it', async () => {
@@ -521,5 +605,44 @@ describe('queue client-properties', () => {
     await run(['client-properties', 'ev', '-o', '-']);
 
     expect(write).toHaveBeenCalledWith(body);
+  });
+});
+
+describe('exact queue lookup', () => {
+  // An id prefix ("q-" is the start of q-1) must never select a queue for these commands.
+  const cases: [string, string[]][] = [
+    ['queue rm', ['rm', 'q-', '--force']],
+    ['queue update', ['update', 'q-', '--profile', 'kafka-medium']],
+    ['queue start', ['start', 'q-']],
+    ['queue stop', ['stop', 'q-']],
+    ['queue connection-info', ['connection-info', 'q-']],
+    ['users create', ['users', 'create', 'q-', 'u', '--acl', 'cluster:describe']],
+    ['users update', ['users', 'update', 'q-', 'u', '--none']],
+    ['users rotate-password', ['users', 'rotate-password', 'q-', 'u', '--yes']],
+    ['users rm', ['users', 'rm', 'q-', 'u', '--yes']],
+    ['schema-registry show', ['schema-registry', 'show', 'q-']],
+    ['schema-registry enable', ['schema-registry', 'enable', 'q-', '--yes']],
+    ['schema-registry disable', ['schema-registry', 'disable', 'q-', '--yes']],
+    ['schema-registry rotate-password', ['schema-registry', 'rotate-password', 'q-', '--yes']],
+    ['client-properties', ['client-properties', 'q-', '-o', '/nonexistent-dir/x']],
+  ];
+
+  beforeEach(() => {
+    for (const m of [mockGet, mockPost, mockPut, mockDelete, mockGetText, confirmMock]) m.mockReset();
+    setJsonMode(false);
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it.each(cases)('%s refuses a prefix of the id', async (_label, args) => {
+    mockGet.mockImplementation((path: string) =>
+      path.startsWith('/api/v1/queue?') ? Promise.resolve(queueList) : Promise.reject(new Error(`unexpected GET ${path}`)),
+    );
+
+    await expect(run(args)).rejects.toThrow(/not found/);
+
+    expect(mockGet).toHaveBeenCalledTimes(1);
+    for (const m of [mockPost, mockPut, mockDelete, mockGetText]) expect(m).not.toHaveBeenCalled();
   });
 });

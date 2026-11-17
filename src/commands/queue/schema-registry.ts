@@ -11,9 +11,9 @@ import type { SchemaRegistry } from '../../types/api.js';
 
 const euros = (cents: number) => `EUR ${(cents / 100).toFixed(2)}`;
 
-async function target(nameOrId: string, exact = true): Promise<{ api: ApiClient; path: string; name: string }> {
+async function target(nameOrId: string): Promise<{ api: ApiClient; path: string; name: string }> {
   const api = await ApiClient.create();
-  const queue = await resolveQueue(api, nameOrId, exact);
+  const queue = await resolveQueue(api, nameOrId, true);
   return { api, path: `/api/v1/queue/${queue.id}/schema-registry`, name: queue.name };
 }
 
@@ -42,7 +42,7 @@ const showCommand = new Command('show')
   .action(showRegistry);
 
 async function showRegistry(nameOrId: string): Promise<void> {
-  const { api, path } = await target(nameOrId, false);
+  const { api, path } = await target(nameOrId);
   const reg = unwrap(await api.get<{ data: SchemaRegistry }>(path));
 
   if (isJsonMode()) {
@@ -91,6 +91,14 @@ const disableCommand = new Command('disable')
   .option('-f, --force', 'Alias for --yes')
   .action(async (nameOrId: string, opts: { yes?: boolean; force?: boolean }) => {
     const { api, path, name } = await target(nameOrId);
+    // The server treats disabling a registry that is off as a no-op; say so instead of "being disabled".
+    const current = unwrap(await api.get<{ data: SchemaRegistry }>(path));
+    if (!current.enabled) {
+      if (isJsonMode()) jsonOutput(current);
+      else console.log(`Schema Registry is already disabled on '${name}'.`);
+      return;
+    }
+
     const confirmed = await confirmDestruction(
       name,
       `Disable the Schema Registry on '${name}'? Clients lose the registry and billing stops. Registered schemas stay in the cluster (the _schemas topic) and come back if you enable it again.`,

@@ -9,7 +9,7 @@ import type { KafkaAclRule } from '../../types/api.js';
  *   topic:orders:read,write          (pattern defaults to literal)
  *   cluster:describe                 (cluster has no name or pattern)
  *
- * Names may contain ':' (consumer groups and transactional ids often do). The
+ * Topic names cannot contain ':'; group and transactional ids may (and often do). The
  * last part is the operations; a `literal` or `prefix` just before it is the
  * pattern, and everything between the resource and that is the name:
  * `group:app:consumer:prefix:read` is group "app:consumer", prefix.
@@ -52,18 +52,24 @@ export function parseAcl(spec: string): AclRule {
   } else {
     const middle = parts.slice(1, -1);
     if (middle.length === 0) return fail(spec, 'wrong number of parts.');
+    if (middle.includes('')) return fail(spec, 'empty name or segment (look for "::" or a leading or trailing ":").');
     opsText = parts[parts.length - 1] ?? '';
     const last = (middle[middle.length - 1] ?? '').toLowerCase();
     if (middle.length >= 2 && (PATTERNS as readonly string[]).includes(last)) {
       pattern = last;
       name = middle.slice(0, -1).join(':');
+    } else if (resource === 'topic' && middle.length >= 2) {
+      // Topic names cannot contain ':', so the part before the operations was meant as a pattern.
+      return fail(spec, `unknown pattern "${middle[middle.length - 1]}" (literal or prefix).`);
     } else {
       pattern = 'literal';
       name = middle.join(':');
     }
+    if (resource === 'topic' && name.includes(':')) {
+      return fail(spec, `a topic name cannot contain ":" (got "${name}").`);
+    }
   }
 
-  if (name !== undefined && name === '') return fail(spec, 'the name is empty.');
   if (name === '*' && pattern !== 'literal') return fail(spec, '"*" is only valid with the literal pattern.');
 
   const operations = opsText.split(',').map((o) => o.trim().toLowerCase()).filter(Boolean);

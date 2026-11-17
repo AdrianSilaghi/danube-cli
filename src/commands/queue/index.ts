@@ -216,7 +216,7 @@ const updateCommand = new Command('update')
     }
 
     const api = await ApiClient.create();
-    const instance = await resolveQueue(api, nameOrId);
+    const instance = await resolveQueue(api, nameOrId, true);
     const updated = await api.put<Record<string, unknown>>(`/api/v1/queue/${instance.id}`, body);
 
     if (isJsonMode()) {
@@ -233,7 +233,7 @@ const rmCommand = new Command('rm')
   .option('--force', 'Skip the confirmation prompt')
   .action(async (nameOrId: string, opts: Record<string, boolean>) => {
     const api = await ApiClient.create();
-    const instance = await resolveQueue(api, nameOrId);
+    const instance = await resolveQueue(api, nameOrId, true);
 
     const confirmed = await confirmDestruction(
       instance.name,
@@ -258,7 +258,7 @@ function lifecycleCommand(verb: 'start' | 'stop'): Command {
     .argument('<name-or-id>', 'Queue name or ID')
     .action(async (nameOrId: string) => {
       const api = await ApiClient.create();
-      const instance = await resolveQueue(api, nameOrId);
+      const instance = await resolveQueue(api, nameOrId, true);
       const res = await api.post<Record<string, unknown>>(`/api/v1/queue/${instance.id}/${verb}`);
 
       if (isJsonMode()) {
@@ -318,7 +318,7 @@ const connectionInfoCommand = new Command('connection-info')
   .argument('<name-or-id>', 'Queue name or ID')
   .action(async (nameOrId: string) => {
     const api = await ApiClient.create();
-    const instance = await resolveQueue(api, nameOrId);
+    const instance = await resolveQueue(api, nameOrId, true);
     const info = await api.get<Record<string, unknown>>(`/api/v1/queue/${instance.id}/connection-info`);
 
     if (isJsonMode()) {

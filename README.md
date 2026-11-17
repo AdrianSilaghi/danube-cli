@@ -595,7 +595,7 @@ Plans and prices in the interactive picker are fetched live from the API.
 
 ### Queue Instances (`danube queue`)
 
-Managed RabbitMQ brokers and Kafka clusters.
+Managed RabbitMQ brokers and Kafka clusters. Commands that change or delete something, or that read credentials (`rm`, `update`, `start`, `stop`, `connection-info`, `users`, `schema-registry`, `client-properties`), take a queue by its exact name or full id, never by the beginning of an id.
 
 | Command | Description |
 |---------|-------------|
