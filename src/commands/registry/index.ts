@@ -4,6 +4,9 @@ import { ApiClient } from '../../lib/api-client.js';
 import { isJsonMode, jsonEnvelope } from '../../lib/json-mode.js';
 import { repositoriesCommand, usageCommand } from './repositories.js';
 import { keysCommand } from './keys.js';
+import { loginCommand } from './login.js';
+import { checkDockerPush, parseImageReference } from '../../lib/docker-credentials.js';
+import type { DockerPushCheck } from '../../lib/docker-credentials.js';
 
 interface Envelope<T> {
   success: boolean;
@@ -27,6 +30,9 @@ interface VerifyPush {
   provided_namespace: string;
   push_reference: string | null;
 }
+
+/** The server's answer, plus what Docker's own credentials would be allowed to do. */
+type VerifyPushResult = VerifyPush & { docker?: DockerPushCheck };
 
 const humanBytes = (n: number): string => {
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -62,8 +68,28 @@ const contextCommand = new Command('context')
     console.log(`Storage:      ${humanBytes(d.storage.used_bytes)} / ${storeLimit}${d.storage.can_push ? '' : chalk.yellow('  (full)')}`);
   });
 
+/**
+ * What Docker's own login may do with the repository the server just permitted.
+ * The server answers for the project; `docker push` presents Docker's stored
+ * credentials, which can be missing, expired or pull-only.
+ */
+async function checkDockerCredentials(api: ApiClient, verdict: VerifyPush): Promise<DockerPushCheck | undefined> {
+  const { host, repository } = parseImageReference(verdict.push_reference!);
+
+  let registryHost = host;
+  if (registryHost === null) {
+    try {
+      registryHost = (await api.get<Envelope<RegistryContext>>('/api/v1/registry/context')).data.registry_host;
+    } catch {
+      return undefined;
+    }
+  }
+
+  return checkDockerPush(registryHost, repository);
+}
+
 const verifyPushCommand = new Command('verify-push')
-  .description('Check whether a push would be permitted, before running it')
+  .description('Check whether a push would be permitted, before running it, with the credentials Docker will use')
   .argument('<repository>', 'Repository path or full image reference')
   .action(async (repository: string) => {
     const api = await ApiClient.create();
@@ -71,17 +97,33 @@ const verifyPushCommand = new Command('verify-push')
       `/api/v1/registry/verify-push?repository=${encodeURIComponent(repository)}`,
     );
 
+    // Only a permitted push has a reference to check Docker's login against.
+    const docker = res.data.permitted && res.data.push_reference ? await checkDockerCredentials(api, res.data) : undefined;
+    // No login at all is a warning, not a failure: a pipeline may check before
+    // it logs in, or push with a tool that keeps its credentials elsewhere. A
+    // login that exists and cannot push (pull-only, denied, rejected) is one.
+    const dockerRefuses = docker?.can_push === false && docker.status !== 'no_credentials';
+    // A refusal is a failed check, not a failed command invocation — but a
+    // script running this in a pipeline needs a non-zero exit to branch on.
+    const failed = !res.data.permitted || dockerRefuses;
+
     if (isJsonMode()) {
-      jsonEnvelope(res.data, { error: res.error ?? null, meta: res.meta ?? {} });
-      // A refusal is a failed check, not a failed command invocation — but a
-      // script running this in a pipeline needs a non-zero exit to branch on.
-      if (!res.data.permitted) process.exitCode = 1;
+      const data: VerifyPushResult = docker ? { ...res.data, docker } : res.data;
+      // The envelope agrees with the exit code: a failing Docker verdict is an error, not a success with exit 1.
+      const dockerError = dockerRefuses ? { code: `registry.docker_${docker.status}`, message: docker.message, retryable: false } : null;
+      jsonEnvelope(data, { error: res.error ?? dockerError, meta: res.meta ?? {} });
+      if (failed) process.exitCode = 1;
       return;
     }
 
     if (res.data.permitted) {
       console.log(chalk.green('Push permitted'));
       console.log(`  ${res.data.push_reference}`);
+      if (docker) {
+        const color = docker.can_push === true ? chalk.green : dockerRefuses ? chalk.red : chalk.yellow;
+        console.log(color(`  ${docker.message}`));
+      }
+      if (failed) process.exitCode = 1;
       return;
     }
 
@@ -98,6 +140,7 @@ export const registryCommand = new Command('registry')
 
 registryCommand.addCommand(contextCommand);
 registryCommand.addCommand(verifyPushCommand);
+registryCommand.addCommand(loginCommand);
 registryCommand.addCommand(repositoriesCommand);
 registryCommand.addCommand(usageCommand);
 registryCommand.addCommand(keysCommand);

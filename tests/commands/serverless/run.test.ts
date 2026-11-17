@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 // Polling is the behaviour under test; actually sleeping between polls would
 // make the suite take minutes to assert something that is purely logical.
@@ -124,13 +127,40 @@ describe('rapids run', () => {
     expect(mockPost).toHaveBeenCalledWith('/api/v1/serverless/c-1/runs', { env: { A: '1', B: '2' } });
   });
 
-  it('exits 1 on invalid env format (no equals sign)', async () => {
+  it('refuses an --env KEY that is not in the environment, before any request', async () => {
+    await expect(runCommand.parseAsync(['node', 'test', 'my-api', '--env', 'DANUBE_TEST_SURELY_UNSET'])).rejects.toThrow(/Invalid env format/);
+
+    expect(mockGet).not.toHaveBeenCalled();
+    expect(mockPost).not.toHaveBeenCalled();
+  });
+
+  it('takes a bare --env KEY from the CLI environment', async () => {
     mockGet.mockResolvedValue(listResponse());
+    mockPost.mockResolvedValue({ data: makeRun() });
+    vi.stubEnv('DANUBE_TEST_RUN_TOKEN', 's3cret');
 
-    await expect(runCommand.parseAsync(['node', 'test', 'my-api', '--env', 'BAD'])).rejects.toThrow(ExitError);
+    await runCommand.parseAsync(['node', 'test', 'my-api', '--env', 'DANUBE_TEST_RUN_TOKEN', 'B=2']);
 
-    expect(process.exit).toHaveBeenCalledWith(1);
-    expect(errSpy.mock.calls.flat().join('\n')).toContain('Invalid env format');
+    expect(mockPost).toHaveBeenCalledWith('/api/v1/serverless/c-1/runs', {
+      env: { DANUBE_TEST_RUN_TOKEN: 's3cret', B: '2' },
+    });
+    vi.unstubAllEnvs();
+  });
+
+  it('reads --env-file, and --env wins over it', async () => {
+    mockGet.mockResolvedValue(listResponse());
+    mockPost.mockResolvedValue({ data: makeRun() });
+    const dir = await mkdtemp(join(tmpdir(), 'danube-run-env-'));
+    const file = join(dir, '.env');
+    await writeFile(file, '# run settings\nexport A=from-file\nC="three words"\n');
+
+    try {
+      await runCommand.parseAsync(['node', 'test', 'my-api', '--env-file', file, '--env', 'A=from-flag']);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+
+    expect(mockPost).toHaveBeenCalledWith('/api/v1/serverless/c-1/runs', { env: { A: 'from-flag', C: 'three words' } });
   });
 
   it('maps --timeout to timeout_seconds, converted from a duration to whole seconds', async () => {

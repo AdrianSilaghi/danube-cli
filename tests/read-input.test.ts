@@ -56,6 +56,12 @@ describe('readInput', () => {
     expect((err as Error).message).toMatch(/^Cannot read /);
   });
 
+  it('says what the caller says about a too-large input', async () => {
+    const path = await fileWith(Buffer.alloc(MAX_INPUT_BYTES + 1, 'a'));
+
+    await expect(readInput(path, { sizeHint: 'it is a settings file.' })).rejects.toThrow(/larger than 256 KiB; it is a settings file\.$/);
+  });
+
   it('names the path once, and says what is wrong with it', async () => {
     const missing = join(tmpdir(), 'danube-no-such-dir', 'policy.json');
 

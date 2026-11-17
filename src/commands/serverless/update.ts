@@ -10,7 +10,8 @@ import type { WaitBaseline } from '../../lib/wait-for-terminal.js';
 import { waitEnvelope, printWaitOutcome } from '../../lib/report-wait.js';
 import type { ServerlessContainer } from '../../types/api.js';
 import { parseDurationSeconds } from '../../lib/duration.js';
-import { mergeEnv, putMergedEnvironment } from '../../lib/serverless-env.js';
+import { ensureSecretSupport, mergeEnv, putMergedEnvironment, reconcileKinds } from '../../lib/serverless-env.js';
+import { readEnvironmentFlags } from '../../lib/env-input.js';
 
 export const updateCommand = new Command('update')
   .description('Update a serverless container')
@@ -28,13 +29,29 @@ export const updateCommand = new Command('update')
   .option('--scaling-target <n>', 'Target value per pod for scaling metric')
   .option('--concurrency-target <n>', 'Concurrency target per pod')
   .option('--timeout <seconds>', 'Request timeout in seconds (max 900)')
-  .option('--env <pairs...>', 'Set environment variables (KEY=VALUE), merged with existing')
+  .option('--env <pairs...>', 'Set environment variables (KEY=VALUE, or KEY to read it from your environment), merged with existing')
+  .option('--env-file <path>', 'Read environment variables from a dotenv file (- for the standard input); --env wins')
   .option('--rm-env <keys...>', 'Remove environment variables by key')
+  .option('--secret <pairs...>', 'Set write-only secret variables (KEY=VALUE, or KEY to read it from your environment)')
+  .option('--secret-file <path>', 'Read secret variables from a dotenv file (- for the standard input)')
+  .option('--rm-secret <keys...>', 'Remove secret variables by key')
   .option('--wait', 'Block until the container reaches a terminal state')
   .option('--wait-timeout <duration>', 'Ceiling for --wait: 30s, 10m, 1h (default 10m)')
   .action(async (nameOrId: string, opts) => {
+    // Read before any request: a bad flag or file fails without touching the API.
+    const requested = await readEnvironmentFlags(opts);
+    const envPairs = requested.env;
+
     const api = await ApiClient.create();
-    const container = await resolveContainer(api, nameOrId);
+    const listed = await resolveContainer(api, nameOrId);
+    // Refuses, before any write, a platform that would drop the secrets without saying so.
+    const container = Object.keys(requested.secrets).length > 0 ? await ensureSecretSupport(api, listed) : listed;
+    // A key set as a secret that is plain now (or the reverse) is moved in the same write.
+    const kinds = reconcileKinds(container, envPairs, requested.secrets, opts.rmEnv);
+    const secrets = requested.secrets;
+    const rmEnv = kinds.rmEnv;
+    // stderr, also under --json: stdout stays one clean document.
+    for (const note of kinds.notes) console.error(chalk.dim(note));
 
     const parseIntOption = (val: string, name: string): number => {
       const n = parseInt(val, 10);
@@ -64,16 +81,10 @@ export const updateCommand = new Command('update')
     if (opts.timeout !== undefined) body.timeout_seconds = parseIntOption(opts.timeout, '--timeout');
 
     // Environment changes merge into the container's current map when written.
-    const envRequested = Boolean(opts.env || opts.rmEnv);
-    const envPairs: Record<string, string> = {};
-    for (const pair of (opts.env ?? []) as string[]) {
-      const eqIndex = pair.indexOf('=');
-      if (eqIndex <= 0) {
-        console.error(chalk.red(`Invalid env format: '${pair}'. Use KEY=VALUE.`));
-        process.exit(1);
-      }
-      envPairs[pair.substring(0, eqIndex)] = pair.substring(eqIndex + 1);
-    }
+    const envRequested = Boolean(opts.env || opts.envFile || rmEnv.length > 0);
+    // Secrets merge on the server (a string sets, null removes), so only the delta is sent.
+    const secretsRequested = Object.keys(secrets).length > 0;
+    if (secretsRequested) body.secret_environment_variables = secrets;
 
     if (Object.keys(body).length === 0 && !envRequested) {
       console.error(chalk.red('No update options specified. Use --help for available options.'));
@@ -89,40 +100,63 @@ export const updateCommand = new Command('update')
 
     const spinner = isJsonMode() || opts.wait ? null : ora('Updating container...').start();
     type UpdateResponse = { message: string; container: ServerlessContainer };
-    const res = envRequested
+    // A secrets-only change still sends the environment snapshot, which covers secret names.
+    const res = envRequested || secretsRequested
       ? await putMergedEnvironment<UpdateResponse>(
           api,
           container,
-          (env) => mergeEnv(env, envPairs, opts.rmEnv),
+          envRequested ? (env) => mergeEnv(env, envPairs, rmEnv) : null,
           body,
         )
       : await api.put<UpdateResponse>(`/api/v1/serverless/${container.id}`, body);
+
+    // The platform bumps the generation only when something it stores changed.
+    // Writing what is already there rolls nothing out.
+    const generation = res.container.spec_generation;
+    const noChange = typeof generation === 'number' && generation === container.spec_generation;
+    const noChangeText = `No change: generation ${generation} is already current, so nothing new is rolling out.`;
 
     if (!opts.wait) {
       if (isJsonMode()) {
         jsonOutput(res.container);
         return;
       }
-      spinner!.succeed(`Updated ${chalk.bold(res.container.name)}`);
+      if (noChange) {
+        spinner!.succeed(noChangeText);
+        return;
+      }
+      // The PUT only records the change: the rollout runs on after it returns.
+      spinner!.succeed(
+        `Update accepted; rolling out${generation == null ? '' : ` generation ${generation}`}. ` +
+        'Pass --wait to block until it is live.',
+      );
       return;
     }
 
     // --wait, mirroring `apply --wait`: no spinner (there is nothing to spin
     // on past this point) and progress goes to stderr so `--json` stdout
     // stays a clean document a caller can pipe straight into a parser.
+    //
+    // With no change, an earlier rollout may still be running (or may have
+    // failed): the verdict of --wait is about the container, not about this
+    // write, so it still waits for the current generation to settle. A
+    // container that is already terminal answers on the first poll.
     if (!isJsonMode()) {
-      console.error(chalk.dim(`updated ${res.container.name}; waiting for a terminal state...`));
+      console.error(chalk.dim(noChange
+        ? `${noChangeText} Checking that generation ${generation} has settled...`
+        : `updated ${res.container.name}; waiting for a terminal state...`));
     }
 
     const wait = await waitForTerminal(api, res.container.id, {
       timeoutMs: parseDuration(opts.waitTimeout) ?? DEFAULT_WAIT_TIMEOUT_MS,
-      baseline,
+      // Nothing was written, so there is no previous verdict to be confused with.
+      baseline: noChange ? null : baseline,
       minGeneration: res.container.spec_generation ?? null,
     });
 
     if (isJsonMode()) {
       const err = wait.status?.error ?? null;
-      jsonEnvelope(waitEnvelope('updated', res.container, wait), {
+      jsonEnvelope(waitEnvelope(noChange ? 'unchanged' : 'updated', res.container, wait), {
         error: wait.settled && err ? { code: err.code, message: err.message ?? undefined, retryable: err.retryable } : null,
         meta: { waited: true, fresh_observation: wait.sawFreshObservation },
       });

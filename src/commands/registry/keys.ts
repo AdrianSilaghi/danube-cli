@@ -6,7 +6,7 @@ import { fetchAllPages } from '../../lib/paginate.js';
 import { formatTable, statusColor, formatDate, printDetails } from '../../lib/output.js';
 import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import { confirmDestruction } from '../../lib/interactive.js';
-import { UsageError } from '../../lib/errors.js';
+import { ApiError, UsageError } from '../../lib/errors.js';
 import { parseDuration } from '../../lib/duration.js';
 import type { RegistryAccessKey, RegistryKeyScope, CreateRegistryAccessKeyResponse } from '../../types/api.js';
 
@@ -17,7 +17,7 @@ import type { RegistryAccessKey, RegistryKeyScope, CreateRegistryAccessKeyRespon
  * printed once, only to stdout, and nothing here logs or echoes it elsewhere.
  */
 
-const KEYS_PATH = '/api/v1/registry/access-keys';
+export const KEYS_PATH = '/api/v1/registry/access-keys';
 const REGISTRY_HOST = 'cr.danubedata.ro';
 const SCOPES: readonly RegistryKeyScope[] = ['push_pull', 'pull'];
 const MS_PER_DAY = 86_400_000;
@@ -80,7 +80,7 @@ const lsCommand = new Command('ls')
  * `90m`, `24h` or `30d`; `--expires-at` is an absolute date. Both is a mistake,
  * not a choice. Whether the date is in the future is the API's to judge.
  */
-function resolveExpiry(opts: { expiresIn?: string; expiresAt?: string }): string | undefined {
+export function resolveExpiry(opts: { expiresIn?: string; expiresAt?: string }): string | undefined {
   if (opts.expiresIn && opts.expiresAt) {
     throw new UsageError('Use either --expires-in or --expires-at, not both.');
   }
@@ -103,7 +103,68 @@ function resolveExpiry(opts: { expiresIn?: string; expiresAt?: string }): string
   return undefined;
 }
 
-function readScope(scope: string | undefined): RegistryKeyScope {
+/** A 2xx whose body cannot be used: the key may exist, and its token is not recoverable. */
+class UnreadableKeyAnswer extends Error {}
+
+/** The refusals of the create call that have one fix, said as that fix. */
+function explainCreateFailure(err: unknown): unknown {
+  if (!(err instanceof ApiError)) return err;
+
+  if (err.statusCode === 404) {
+    return new ApiError(
+      404,
+      'This platform does not offer registry access keys through the API yet. Create one in the console (Container Registry > Access keys).',
+      err.errors, err.cause, err.meta,
+    );
+  }
+  if (err.statusCode === 403) {
+    return new ApiError(
+      403,
+      `Creating a registry access key needs the project owner and an API token with the registry:credentials ability. (${err.message})`,
+      err.errors, err.cause, err.meta,
+    );
+  }
+  return err;
+}
+
+/**
+ * Create a key and return it with its token. The one code path under both
+ * `registry keys create` and `registry login`.
+ */
+export async function createRegistryAccessKey(
+  api: ApiClient,
+  input: { name: string; scope: RegistryKeyScope; expiresAt?: string },
+): Promise<CreateRegistryAccessKeyResponse> {
+  let res: CreateRegistryAccessKeyResponse;
+  try {
+    res = await api.post<CreateRegistryAccessKeyResponse>(KEYS_PATH, {
+      name: input.name,
+      scope: input.scope,
+      ...(input.expiresAt ? { expires_at: input.expiresAt } : {}),
+    });
+  } catch (error) {
+    throw explainCreateFailure(error);
+  }
+
+  // A 2xx means the key exists. Without the token it is unusable, so say so
+  // rather than print "undefined" as a credential.
+  if (typeof res?.token !== 'string' || res.token === '' || typeof res?.key?.id !== 'string') {
+    throw new UnreadableKeyAnswer(
+      'The server accepted the request, but its answer had no key or token. ' +
+        'The key may have been created; check `danube registry keys ls`, and revoke it if it is there.',
+    );
+  }
+
+  return res;
+}
+
+/** Revoke a key. The one code path under `registry keys rm` and a failed `registry login`. */
+export async function revokeRegistryAccessKey(api: ApiClient, id: string): Promise<RegistryAccessKey> {
+  const res = await api.delete<{ data: RegistryAccessKey }>(`${KEYS_PATH}/${encodeURIComponent(id)}`);
+  return res.data;
+}
+
+export function readScope(scope: string | undefined): RegistryKeyScope {
   if (!scope || !SCOPES.includes(scope as RegistryKeyScope)) {
     throw new UsageError(`--scope is required: ${SCOPES.join(' or ')}.`);
   }
@@ -126,24 +187,12 @@ const createCommand = new Command('create')
 
     let res: CreateRegistryAccessKeyResponse;
     try {
-      res = await api.post<CreateRegistryAccessKeyResponse>(KEYS_PATH, {
-        name,
-        scope,
-        ...(expiresAt ? { expires_at: expiresAt } : {}),
-      });
+      res = await createRegistryAccessKey(api, { name, scope, expiresAt });
     } catch (error) {
-      spinner?.fail('Could not create the key');
+      spinner?.fail(error instanceof UnreadableKeyAnswer
+        ? 'The key may have been created, but the answer could not be read'
+        : 'Could not create the key');
       throw error;
-    }
-
-    // A 2xx means the key exists. Without the token it is unusable, so say so
-    // rather than print "undefined" as a credential.
-    if (typeof res?.token !== 'string' || typeof res?.key?.id !== 'string') {
-      spinner?.fail('The key may have been created, but the answer could not be read');
-      throw new Error(
-        'The server accepted the request, but its answer had no key or token. ' +
-          'The key may exist: run `danube registry keys ls`, and revoke it if it is there.',
-      );
     }
 
     if (isJsonMode()) {
@@ -183,14 +232,13 @@ const revokeCommand = new Command('rm')
     }
 
     const api = await ApiClient.create();
-    const res = await api.delete<{ data: RegistryAccessKey }>(`${KEYS_PATH}/${encodeURIComponent(id)}`);
+    const key = await revokeRegistryAccessKey(api, id);
 
     if (isJsonMode()) {
-      jsonOutput(res.data);
+      jsonOutput(key);
       return;
     }
 
-    const key = res.data;
     console.log(chalk.green(`Registry access key '${key.name}' revoked.`));
     printDetails([
       ['ID', key.id],
