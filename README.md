@@ -149,9 +149,13 @@ unless you pass `--expires-in` or `--expires-at`. Run `danube registry login` ag
 signed in with the new key, it revokes the key the previous `login` made for the same Docker config
 directory (`DOCKER_CONFIG` or `~/.docker`) and registry. The CLI remembers that key's id, and the project
 it belongs to, in `~/.danube/registry-logins.json` (private to you, ids only, never a token), and revokes
-only ids it recorded itself, in their own project, whatever the key is named: other keys, other machines'
+only ids it recorded itself, in their own project, whatever the key is named (a Docker config directory is
+the same one however it is spelled: relative paths and symlinks are resolved, and the file is replaced
+atomically; logins into one Docker config take a lock file, so two at once cannot revoke each other's
+key, and one that cannot get the lock skips the renewal and says so): other keys, other machines'
 keys and keys made with `keys create` are never touched. A revoke that fails is a warning (and is tried
-again at the next login); `--json` reports `previous_key_revoked` (`true`, `false` or `null` for none
+again at the next login); a recorded key that is not found in the current project, with no project
+recorded, is reported as `previous_key_revoked: null` (it may live in another project) and dropped; `--json` reports `previous_key_revoked` (`true`, `false` or `null` for none
 recorded), `previous_key_message` and `key_recorded`. For CI, create a key with an expiry
 (`registry keys create`) rather than using `login`. It takes the same `--scope`,
 `--expires-in` (`90m`, `24h`, `30d`) and `--expires-at` as `registry keys create`, and creates the key

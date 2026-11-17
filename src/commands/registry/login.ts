@@ -7,7 +7,7 @@ import { isJsonMode, jsonOutput } from '../../lib/json-mode.js';
 import { runDocker } from '../../lib/docker-cli.js';
 import { readConfig, getTeamId } from '../../lib/config.js';
 import { getProjectOverride } from '../../lib/project-context.js';
-import { dockerConfigDir, readLoginKeys, writeLoginKeys } from '../../lib/registry-logins.js';
+import { acquireLoginLock, dockerConfigDir, readLoginKeys, writeLoginKeys } from '../../lib/registry-logins.js';
 import type { LoginKeyRecord } from '../../lib/registry-logins.js';
 import type { RegistryAccessKey, TeamsResponse } from '../../types/api.js';
 import { createRegistryAccessKey, readScope, resolveExpiry, revokeRegistryAccessKey } from './keys.js';
@@ -45,17 +45,25 @@ interface Renewal {
   message: string | null;
   /** Whether the new key was recorded, so the next login here can revoke it. */
   recorded: boolean;
+  /** Something the user should look at: a revoke that failed, a key that could not be found, or a record that could not be made. */
+  warn: boolean;
 }
 
-/** Revoke one recorded key in the project it belongs to. A 404 means it is already gone, which is what was wanted. */
-async function revokeRecorded(api: ApiClient, record: LoginKeyRecord, currentTeam: number | null): Promise<string | null> {
+type Revocation = { kind: 'done' } | { kind: 'lost' } | { kind: 'failed'; message: string };
+
+/**
+ * Revoke one recorded key in the project it belongs to. A 404 in a project the record names means it
+ * is already gone, which is what was wanted. A 404 for a record with no project only means it is not in
+ * the project this request is for: it may be alive in another one, so it is not reported as revoked.
+ */
+async function revokeRecorded(api: ApiClient, record: LoginKeyRecord, currentTeam: number | null): Promise<Revocation> {
   try {
     const client = record.teamId !== null && record.teamId !== currentTeam ? await ApiClient.create({ teamId: record.teamId }) : api;
     await revokeRegistryAccessKey(client, record.keyId);
-    return null;
+    return { kind: 'done' };
   } catch (err) {
-    if (err instanceof ApiError && err.statusCode === 404) return null;
-    return err instanceof Error ? err.message : String(err);
+    if (err instanceof ApiError && err.statusCode === 404) return record.teamId === null ? { kind: 'lost' } : { kind: 'done' };
+    return { kind: 'failed', message: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -68,8 +76,9 @@ async function revokeRecorded(api: ApiClient, record: LoginKeyRecord, currentTea
 async function renewLogin(api: ApiClient, key: RegistryAccessKey, registryHost: string, teamId: number | null): Promise<Renewal> {
   const dockerDir = dockerConfigDir();
   const previous = (await readLoginKeys(dockerDir, registryHost)).filter((r) => r.keyId !== key.id);
-  const failures = await Promise.all(previous.map((r) => revokeRecorded(api, r, teamId)));
-  const kept = previous.filter((_, i) => failures[i] !== null);
+  const outcomes = await Promise.all(previous.map((r) => revokeRecorded(api, r, teamId)));
+  // Only a failure is worth another try. A key that was not found is dropped: retrying would never end.
+  const kept = previous.filter((_, i) => outcomes[i]!.kind === 'failed');
 
   let recorded = true;
   try {
@@ -78,20 +87,31 @@ async function renewLogin(api: ApiClient, key: RegistryAccessKey, registryHost: 
     recorded = false;
   }
 
-  const problems = failures.filter((f): f is string => f !== null);
-  const done = previous.length - problems.length;
+  const problems = outcomes.flatMap((o) => (o.kind === 'failed' ? [o.message] : []));
+  const lost = outcomes.filter((o) => o.kind === 'lost').length;
+  const done = outcomes.filter((o) => o.kind === 'done').length;
   const parts = [
     ...(done > 0 ? [`Revoked the ${done === 1 ? 'key' : `${done} keys`} the earlier login here made.`] : []),
     ...(problems.length > 0 ? [`Could not revoke ${problems.length === 1 ? 'an earlier login key' : `${problems.length} earlier login keys`} (${problems.join('; ')}); the next login will try again.`] : []),
+    ...(lost > 0 ? [`${lost === 1 ? 'An earlier login key was' : `${lost} earlier login keys were`} not found in the current project; ${lost === 1 ? 'it' : 'they'} may live in another project, so check \`danube registry keys ls --project <id>\`. ${lost === 1 ? 'It is' : 'They are'} no longer tracked.`] : []),
     ...(recorded ? [] : ['Could not record this key, so the next login will not revoke it.']),
   ];
 
   return {
-    previousKeyRevoked: previous.length === 0 ? null : problems.length === 0,
+    previousKeyRevoked: problems.length > 0 ? false : previous.length === 0 || lost > 0 ? null : true,
     message: parts.length > 0 ? parts.join(' ') : null,
     recorded,
+    warn: problems.length > 0 || lost > 0 || !recorded,
   };
 }
+
+/** What a login reports when it could not take the lock: nothing was revoked or recorded, and the user can do it by hand. */
+const SKIPPED: Renewal = {
+  previousKeyRevoked: null,
+  message: 'Another registry login is running here, so this one did not renew: the earlier key was not revoked and this key was not recorded. See: danube registry keys ls',
+  recorded: false,
+  warn: true,
+};
 
 interface RegistryContextResponse { data: { registry_host: string } }
 
@@ -122,36 +142,45 @@ export const loginCommand = new Command('login')
     const registryHost = (await api.get<RegistryContextResponse>('/api/v1/registry/context')).data.registry_host;
 
     const { key, token } = await createRegistryAccessKey(api, { name, scope, expiresAt });
-    // The token travels on docker's standard input only: not argv, not its environment, not our output.
-    const login = await runDocker(['login', registryHost, '-u', key.username, '--password-stdin'], token, { timeoutMs: DOCKER_LOGIN_TIMEOUT_MS }).catch((err: Error) => ({
-      code: null as number | null,
-      stdout: '',
-      stderr: err.message,
-      timedOut: false,
-    }));
+    // Held from just before docker login to the record write: two logins into one Docker config
+    // must not each revoke the key the other left in Docker. Without it, nothing is revoked or recorded.
+    const lock = await acquireLoginLock();
+    let renewal: Renewal;
+    let warnings: string;
+    try {
+      // The token travels on docker's standard input only: not argv, not its environment, not our output.
+      const login = await runDocker(['login', registryHost, '-u', key.username, '--password-stdin'], token, { timeoutMs: DOCKER_LOGIN_TIMEOUT_MS }).catch((err: Error) => ({
+        code: null as number | null,
+        stdout: '',
+        stderr: err.message,
+        timedOut: false,
+      }));
 
-    // Docker's output is scrubbed of the token before it is shown or quoted.
-    const scrub = (text: string): string => text.split(token).join('***').trim();
+      // Docker's output is scrubbed of the token before it is shown or quoted.
+      const scrub = (text: string): string => text.split(token).join('***').trim();
 
-    if (login.code !== 0) {
-      // The token is gone with this process, so a key left behind would be a live push credential nobody holds.
-      const revoked = await revokeRegistryAccessKey(api, key.id).then(() => true, () => false);
-      throw new Error(
-        `docker login failed${login.code === null ? '' : ` (exit ${login.code})`}: ${login.timedOut ? 'it did not finish within 2 minutes and was stopped' : scrub(login.stderr || login.stdout) || 'no output'}\n` +
-        (revoked
-          ? `The key '${key.name}' was created and has been revoked again.`
-          : `The key '${key.name}' (id ${key.id}) was created and its token cannot be shown again, and revoking it failed. ` +
-            `Revoke it with: danube registry keys rm ${key.id}`) +
-        ' Run this again once docker login works.',
-      );
+      if (login.code !== 0) {
+        // The token is gone with this process, so a key left behind would be a live push credential nobody holds.
+        const revoked = await revokeRegistryAccessKey(api, key.id).then(() => true, () => false);
+        throw new Error(
+          `docker login failed${login.code === null ? '' : ` (exit ${login.code})`}: ${login.timedOut ? 'it did not finish within 2 minutes and was stopped' : scrub(login.stderr || login.stdout) || 'no output'}\n` +
+          (revoked
+            ? `The key '${key.name}' was created and has been revoked again.`
+            : `The key '${key.name}' (id ${key.id}) was created and its token cannot be shown again, and revoking it failed. ` +
+              `Revoke it with: danube registry keys rm ${key.id}`) +
+          ' Run this again once docker login works.',
+        );
+      }
+
+      warnings = scrub(login.stderr);
+      // Docker now holds this key: the one the last login here put there is no longer needed.
+      renewal = lock ? await renewLogin(api, key, registryHost, await currentTeamId(api)) : SKIPPED;
+    } finally {
+      await lock?.release();
     }
 
     // Docker's own warnings (where it keeps the login, whether that is encrypted) are the user's to read.
-    const warnings = scrub(login.stderr);
     if (warnings) console.error(chalk.dim(warnings));
-
-    // Docker now holds this key: the one the last login here put there is no longer needed.
-    const renewal = await renewLogin(api, key, registryHost, await currentTeamId(api));
 
     if (isJsonMode()) {
       jsonOutput({
@@ -171,7 +200,7 @@ export const loginCommand = new Command('login')
     console.log(chalk.dim('Docker holds the token (see its output above for where); it is not shown again and the CLI keeps no copy.'));
     if (renewal.message) {
       // A warning when something could not be done, plain news otherwise.
-      if (renewal.previousKeyRevoked === false || !renewal.recorded) console.error(chalk.yellow(renewal.message));
+      if (renewal.warn) console.error(chalk.yellow(renewal.message));
       else console.log(renewal.message);
     }
     if (key.expires_at) console.log(chalk.dim('To renew before it expires, run danube registry login again: it revokes this key then.'));

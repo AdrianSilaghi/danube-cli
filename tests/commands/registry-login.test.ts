@@ -27,10 +27,25 @@ vi.mock('../../src/lib/config.js', async (importOriginal) => ({
 let store = new Map<string, Array<{ keyId: string; teamId: number | null }>>();
 let dockerDir = '/home/u/.docker';
 let writeFails = false;
+// One mutex with the semantics of the real lock: a second acquirer waits for the release. `lockBusy` makes it give up instead.
+let lockBusy = false;
+let lockTail: Promise<void> = Promise.resolve();
+const events: string[] = [];
 vi.mock('../../src/lib/registry-logins.js', () => ({
+  acquireLoginLock: () => {
+    if (lockBusy) return Promise.resolve(null);
+    let release!: () => void;
+    const previous = lockTail;
+    lockTail = new Promise<void>((resolve) => { release = resolve; });
+    return previous.then(() => {
+      events.push('lock');
+      return { release: () => { events.push('release'); release(); return Promise.resolve(); } };
+    });
+  },
   dockerConfigDir: () => dockerDir,
   readLoginKeys: (dir: string, host: string) => Promise.resolve([...(store.get(`${dir}|${host}`) ?? [])]),
   writeLoginKeys: (dir: string, host: string, records: Array<{ keyId: string; teamId: number | null }>) => {
+    events.push('record');
     if (writeFails) return Promise.reject(new Error('EACCES'));
     store.set(`${dir}|${host}`, [...records]);
     return Promise.resolve();
@@ -79,6 +94,9 @@ describe('danube registry login', () => {
     store = new Map();
     dockerDir = '/home/u/.docker';
     writeFails = false;
+    lockBusy = false;
+    lockTail = Promise.resolve();
+    events.length = 0;
     configuredTeam = null;
     createCalls.length = 0;
     mockOtherDelete.mockReset().mockResolvedValue({ data: key });
@@ -308,6 +326,111 @@ describe('danube registry login', () => {
 
       expect(recorded()).toEqual([{ keyId: 'k-old', teamId: null }, { keyId: 'k-1', teamId: null }]);
       expect(errSpy.mock.calls.flat().join('\n')).toContain('(plain string failure)');
+    });
+
+    it('holds the lock from before docker login until the record is written', async () => {
+      mockDocker.mockImplementation((args: string[]) => {
+        events.push(args[0] === 'login' ? 'docker-login' : 'docker-check');
+        return Promise.resolve({ code: 0, stdout: '', stderr: '', timedOut: false });
+      });
+
+      await login(['--name', 'laptop']);
+
+      expect(events).toEqual(['docker-check', 'lock', 'docker-login', 'record', 'release']);
+    });
+
+    it('releases the lock when docker login fails', async () => {
+      mockDocker.mockResolvedValueOnce({ code: 0, stdout: '', stderr: '', timedOut: false }).mockResolvedValueOnce({ code: 1, stdout: '', stderr: 'no', timedOut: false });
+
+      await login(['--name', 'laptop']).catch(() => undefined);
+
+      expect(events).toEqual(['lock', 'release']);
+    });
+
+    it('revokes and records nothing when it cannot take the lock, and says so', async () => {
+      setJsonMode(true);
+      lockBusy = true;
+      store.set(`/home/u/.docker|${HOST}`, [{ keyId: 'k-old', teamId: CURRENT_TEAM }]);
+
+      await login(['--name', 'laptop']);
+
+      // docker login still ran (the user asked for it), but nobody revoked anything on a stale view.
+      expect(mockDocker).toHaveBeenCalledWith(expect.arrayContaining(['login']), TOKEN, expect.anything());
+      expect(mockDelete).not.toHaveBeenCalled();
+      expect(recorded()).toEqual([{ keyId: 'k-old', teamId: CURRENT_TEAM }]);
+      expect(printedJson()).toMatchObject({ previous_key_revoked: null, key_recorded: false });
+      expect(printedJson().previous_key_message).toContain('Another registry login is running here');
+    });
+
+    it('warns in the human output when it could not take the lock', async () => {
+      lockBusy = true;
+
+      await login(['--name', 'laptop']);
+
+      expect(errSpy.mock.calls.flat().join('\n')).toContain('Another registry login is running here');
+    });
+
+    it('two logins at once cannot revoke the key Docker ends up holding', async () => {
+      const keys = [{ ...key, id: 'k-A' }, { ...key, id: 'k-B' }];
+      const tokens = ['cr_A_token', 'cr_B_token'];
+      let created = 0;
+      mockPost.mockImplementation(() => {
+        const i = created++;
+        return Promise.resolve({ key: keys[i], token: tokens[i] });
+      });
+      const dockerLogins: string[] = [];
+      let inFlight = 0;
+      mockDocker.mockImplementation(async (args: string[], stdin?: string) => {
+        if (args[0] === 'login') {
+          inFlight++;
+          expect(inFlight).toBe(1); // never two docker logins at once
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          dockerLogins.push(String(stdin));
+          inFlight--;
+        }
+        return { code: 0, stdout: '', stderr: '', timedOut: false };
+      });
+
+      await Promise.all([login(['--name', 'one']), login(['--name', 'two'])]);
+
+      const heldByDocker = dockerLogins.at(-1) === 'cr_A_token' ? 'k-A' : 'k-B';
+      const deleted = mockDelete.mock.calls.map((c) => String(c[0]).split('/').pop());
+      expect(deleted).not.toContain(heldByDocker);
+      // The one that logged in last is the one recorded, and the one before it was revoked.
+      expect(recorded()).toEqual([{ keyId: heldByDocker, teamId: CURRENT_TEAM }]);
+      expect(deleted).toEqual([heldByDocker === 'k-A' ? 'k-B' : 'k-A']);
+    });
+
+    it('drops, and does not call revoked, a 404 for a key recorded without a project', async () => {
+      setJsonMode(true);
+      store.set(`/home/u/.docker|${HOST}`, [{ keyId: 'k-old', teamId: null }]);
+      mockDelete.mockRejectedValue(new ApiError(404, 'Not found'));
+
+      await login(['--name', 'laptop']);
+
+      expect(printedJson()).toMatchObject({ previous_key_revoked: null });
+      expect(printedJson().previous_key_message).toMatch(/not found in the current project.*another project.*danube registry keys ls --project <id>.*no longer tracked/);
+      expect(recorded()).toEqual([{ keyId: 'k-1', teamId: CURRENT_TEAM }]);
+    });
+
+    it('warns about it in the human output, in the plural for several', async () => {
+      store.set(`/home/u/.docker|${HOST}`, [{ keyId: 'k-a', teamId: null }, { keyId: 'k-b', teamId: null }]);
+      mockDelete.mockRejectedValue(new ApiError(404, 'Not found'));
+
+      await login(['--name', 'laptop']);
+
+      expect(errSpy.mock.calls.flat().join('\n')).toContain('2 earlier login keys were not found in the current project; they may live in another project');
+    });
+
+    it('still says false when one key failed and another was not found', async () => {
+      setJsonMode(true);
+      store.set(`/home/u/.docker|${HOST}`, [{ keyId: 'k-a', teamId: null }, { keyId: 'k-b', teamId: CURRENT_TEAM }]);
+      mockDelete.mockRejectedValueOnce(new ApiError(404, 'Not found')).mockRejectedValueOnce(new Error('boom'));
+
+      await login(['--name', 'laptop']);
+
+      expect(printedJson()).toMatchObject({ previous_key_revoked: false });
+      expect(recorded()).toEqual([{ keyId: 'k-b', teamId: CURRENT_TEAM }, { keyId: 'k-1', teamId: CURRENT_TEAM }]);
     });
 
     it('treats a 404 on the old key as already gone', async () => {
