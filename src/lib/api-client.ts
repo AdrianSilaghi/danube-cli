@@ -57,10 +57,11 @@ export class ApiClient {
     body?: unknown,
     timeoutMs: number = 30_000,
     extraHeaders?: Record<string, string>,
+    asText = false,
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const headers: Record<string, string> = {
-      'Accept': 'application/json',
+      'Accept': asText ? 'text/plain, application/json' : 'application/json',
       'Authorization': `Bearer ${this.token}`,
       'User-Agent': `DanubeCLI/${getCurrentVersion()}`,
       ...extraHeaders,
@@ -89,6 +90,10 @@ export class ApiClient {
 
       if (res.status === 204) {
         return undefined as T;
+      }
+
+      if (asText && res.ok) {
+        return (await res.text()) as T;
       }
 
       const json = await res.json().catch(() => null);
@@ -137,6 +142,11 @@ export class ApiClient {
    */
   get<T>(path: string, timeoutMs?: number): Promise<T> {
     return this.request<T>('GET', path, undefined, timeoutMs);
+  }
+
+  /** A plain-text body, for endpoints that answer `text/plain` (errors still arrive as JSON). */
+  getText(path: string): Promise<string> {
+    return this.request<string>('GET', path, undefined, undefined, undefined, true);
   }
 
   /**

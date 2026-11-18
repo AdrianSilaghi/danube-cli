@@ -24,6 +24,18 @@ describe('ApiClient', () => {
     vi.restoreAllMocks();
   });
 
+  it('getText returns a text/plain body and still raises JSON errors', async () => {
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, text: () => Promise.resolve('a=b\n') })
+      .mockResolvedValueOnce({ ok: false, status: 422, headers: new Headers(), json: () => Promise.resolve({ error: 'No endpoint yet.' }) });
+
+    const client = new ApiClient('my-token', 'https://api.test');
+
+    expect(await client.getText('/api/v1/queue/q/client-properties')).toBe('a=b\n');
+    expect((fetch as ReturnType<typeof vi.fn>).mock.calls[0]![1].headers.Accept).toContain('text/plain');
+    await expect(client.getText('/x')).rejects.toThrow('No endpoint yet.');
+  });
+
   it('sends GET request with auth header', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,

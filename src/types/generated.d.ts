@@ -2714,12 +2714,41 @@ export interface paths {
          *     `bootstrap_servers` is the `host:port` to give your client. Connect with
          *     `security_protocol` `SASL_SSL` and `sasl_mechanism` `SCRAM-SHA-512` as `username`.
          *     The certificate is publicly trusted, so no CA file is needed (`certificate` says so).
+         *     `schema_registry` is `null` unless the cluster's Schema Registry is enabled; then it has the registry's
+         *     `url`, the HTTP Basic `username` and `password`, and its `status` (`provisioning`, `ready` or `error`).
+         *     `GET /api/v1/queue/{queueInstance}/client-properties` gives all of it as a client properties file.
          *
-         *     `password` and `amqp_url` (a URL, which embeds the password) are `null`
+         *     `password`, `schema_registry.password` and `amqp_url` (a URL, which embeds the password) are `null`
          *     unless the token also holds `queue:credentials`; `queue:read` alone
          *     still gets the endpoint and username.
          */
         get: operations["v1.queue.connection-info"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/queue/{queueInstance}/client-properties": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download a Kafka cluster's client.properties
+         * @description The cluster's client settings as a Java properties file (`text/plain`, sent as the attachment
+         *     `kafka-{name}-client.properties`): `bootstrap.servers`, `security.protocol`, `sasl.mechanism` and a
+         *     `sasl.jaas.config` that signs in as the cluster's admin user. When the cluster's Schema Registry is enabled
+         *     it also has `schema.registry.url`, `basic.auth.credentials.source` and `basic.auth.user.info` for
+         *     Confluent's serializers. Pass it to Kafka's command-line tools with `--command-config`, or load it in your
+         *     client. It holds passwords, so it needs both `queue:read` and `queue:credentials`, and is never cached. A RabbitMQ queue, or a
+         *     cluster whose endpoint is not ready yet, answers 422.
+         */
+        get: operations["v1.queue.client-properties"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2737,12 +2766,204 @@ export interface paths {
         };
         /**
          * Broker metrics
-         * @description A RabbitMQ broker's summary and health: queues, messages, connections and resource use.
-         *     Not available for Kafka (early access) yet.
+         * @description The broker's current summary and health. `summary` depends on the `provider`.
+         *
+         *     RabbitMQ: `connections`, `channels`, `queues`, `memory_percent` and `health_status`.
+         *
+         *     Kafka (early access): `provider` is `kafka`, and `summary` holds `cpu_percent` (of the
+         *     plan's vCPUs), `memory_used_bytes`, `memory_limit_bytes`, `disk_used_bytes`,
+         *     `disk_capacity_bytes`, `messages_in_per_sec`, `bytes_in_per_sec`, `bytes_out_per_sec`,
+         *     `partitions`, `under_replicated_partitions`, `consumer_lag_total` (messages produced but
+         *     not yet consumed, over every consumer group) and `consumer_groups`, a list of
+         *     `{group, lag}` with the largest lag first (at most 50). A value is `null` while it is
+         *     unknown, for example in the first minutes after the cluster starts.
+         *
+         *     `health.status` is `healthy`, `warning`, `critical` or `unknown`; `health.issues` says why.
          */
         get: operations["v1.queue.metrics"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/queue/{queueInstance}/updates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List version updates
+         * @description The engine versions the broker can be updated to, and its last 10 updates, newest first.
+         *
+         *     `available_updates` lists each version with a `label` and, when it cannot be chosen yet,
+         *     the `issue` that stops it. It is empty while `blocked_reason` says why no update can start
+         *     now (the broker is not running, or an update is in progress), and when the broker is on the
+         *     newest version. A Kafka cluster (early access) is offered one version at a time, never a
+         *     downgrade.
+         *
+         *     Each `history` entry has `from_version`, `to_version`, `status` (`pending`, `applying`,
+         *     `completed` or `failed`), `error_message` when it failed, `started_at` and `completed_at`.
+         */
+        get: operations["v1.queue.updates"];
+        put?: never;
+        /**
+         * Start a version update
+         * @description Updates the broker to a version from `available_updates` (list version updates) in the
+         *     background. The queue's `status` is `updating` until the update finishes; follow it in the
+         *     update history. Open connections drop while the broker restarts.
+         *
+         *     A Kafka cluster (early access) has one broker, so it is unavailable for the few minutes it
+         *     restarts on the new version. Once it runs that version, its metadata version is raised to
+         *     match, and from then on it cannot go back. A broker that does not come up
+         *     on the new version is put back on the old one, and the update is marked `failed`.
+         *
+         *     Answers 422 under `target_version` when the version is not on offer or no update can start now.
+         */
+        post: operations["v1.queue.updates.start"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/queue/{queueInstance}/kafka-users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a Kafka cluster's users
+         * @description The cluster's users besides its admin, with their ACL rules, by name. Passwords are never listed. `meta` gives
+         *     the most users a cluster can have, the most rules a user can have and the longest name a user of this cluster
+         *     can have. A RabbitMQ queue answers 422.
+         */
+        get: operations["v1.queue.kafka-users.index"];
+        put?: never;
+        /**
+         * Create a Kafka user
+         * @description A SCRAM-SHA-512 user of a running Kafka cluster with its own ACLs, applied in the background: `status` is
+         *     `pending` until the cluster has it, usually within a minute or two. The answer is the only time `password` is
+         *     shown. Needs `queue:write` and `queue:credentials`. A RabbitMQ queue, or a cluster that is not running,
+         *     answers 422.
+         */
+        post: operations["v1.queue.kafka-users.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/queue/{queueInstance}/kafka-users/{kafkaUser}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Replace a Kafka user's ACLs
+         * @description The rule list replaces the user's rules entirely, applied in the background (`status` is `pending` until
+         *     then). Needs `queue:write`. A cluster that is not running, or a user being deleted, answers 422.
+         */
+        put: operations["v1.queue.kafka-users.update"];
+        post?: never;
+        /**
+         * Delete a Kafka user
+         * @description Removes the user and its ACLs from the cluster in the background: it shows `deleting`, then leaves the list.
+         *     New connections as it are refused once that is applied, and connections already open are cut off when they
+         *     next re-authenticate, within an hour. Deleting a user that already shows `deleting` tries the removal again.
+         *     Needs `queue:credentials` (a token needs `queue:delete`). A cluster that is not running answers 422.
+         */
+        delete: operations["v1.queue.kafka-users.destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/queue/{queueInstance}/kafka-users/{kafkaUser}/rotate-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rotate a Kafka user's password
+         * @description A new password, shown only in this answer. The cluster applies it in the background, within a few minutes
+         *     (`status` is `pending` until then): from then on new connections need the new password, and connections
+         *     already open are cut off when they next re-authenticate, within an hour. Until it is applied the old password
+         *     still signs in. Needs `queue:write` and `queue:credentials`. A cluster that is not running, or a user being
+         *     deleted, answers 422.
+         */
+        post: operations["v1.queue.kafka-users.rotate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/queue/{queueInstance}/schema-registry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show a Kafka cluster's Schema Registry
+         * @description The Schema Registry add-on of a Kafka cluster: whether it is enabled, its status, its HTTPS endpoint and
+         *     the HTTP Basic credentials clients sign in with. `password` is `null` unless the caller may read the
+         *     cluster's credentials (`queue:credentials`). A RabbitMQ queue answers 422.
+         */
+        get: operations["v1.queue.schema-registry.show"];
+        put?: never;
+        /**
+         * Enable a Kafka cluster's Schema Registry
+         * @description Adds a Confluent-compatible Schema Registry (Karapace) to a running Kafka cluster, billed at
+         *     `monthly_price_cents` per month while it is enabled. It is set up in the background: `status` is
+         *     `provisioning` until it answers, usually within a few minutes. Enabling a registry that is already enabled
+         *     changes nothing. Needs `queue:write`. A RabbitMQ queue, or a cluster that is not running, answers 422; an
+         *     account without access to the Schema Registry (early access) answers 403.
+         */
+        post: operations["v1.queue.schema-registry.enable"];
+        /**
+         * Disable a Kafka cluster's Schema Registry
+         * @description Removes the registry in the background and stops its charge. The schemas stay in the cluster's `_schemas`
+         *     topic: enabling the registry again brings them back. Disabling a registry that is not enabled changes
+         *     nothing. Needs `queue:write`. A RabbitMQ queue, or a cluster that is being created or deleted, answers 422.
+         */
+        delete: operations["v1.queue.schema-registry.disable"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/queue/{queueInstance}/schema-registry/rotate-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rotate a Kafka cluster's Schema Registry password
+         * @description A new HTTP Basic password, in this answer. The registry restarts with it in the background, within a few
+         *     minutes; until then the old password still signs in. Needs `queue:write` and `queue:credentials`. A cluster
+         *     that is not running, or a registry that is not enabled, answers 422.
+         */
+        post: operations["v1.queue.schema-registry.rotate"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5513,6 +5734,58 @@ export interface components {
              */
             role: "admin" | "editor";
         };
+        /** KafkaSchemaRegistryResource */
+        KafkaSchemaRegistryResource: {
+            /** @description Whether the add-on is enabled (and billed). */
+            enabled: boolean;
+            /**
+             * @description `disabled`; `provisioning` until the registry answers; `ready`; `error` when it has not come up
+             *     within ten minutes, or has stopped answering since.
+             * @enum {string}
+             */
+            status: "disabled" | "provisioning" | "ready" | "error";
+            /** @description The registry's HTTPS endpoint (Confluent Schema Registry API), `null` while disabled. */
+            url: string | null;
+            /**
+             * @description The HTTP Basic username clients sign in with.
+             * @constant
+             */
+            username: "registry";
+            /** @description The HTTP Basic password. `null` unless you may read the cluster's credentials (`queue:credentials`). */
+            password: string | null;
+            /** @description The add-on's price per month, in euro cents, before any discount. */
+            monthly_price_cents: number;
+            /** @description When the registry was enabled; `null` while disabled. */
+            enabled_at: string | null;
+        };
+        /** KafkaUserResource */
+        KafkaUserResource: {
+            id: string;
+            name: string;
+            /** @description The SASL/SCRAM-SHA-512 username clients sign in with: `kafka-{cluster}.{name}`. */
+            username: string;
+            /**
+             * @description `pending` until the cluster has applied the latest change, `active` once it has, `error` when the
+             *     cluster refused it (see `status_message`), `deleting` while it is removed.
+             */
+            status: string;
+            /** @description Why the cluster refused the user, when `status` is `error`. */
+            status_message: string | null;
+            /**
+             * @description The allow rules. A rule has `resource_type` (`topic`, `group`, `transactional_id` or `cluster`),
+             *     `name` and `pattern` (`literal` or `prefix`; neither for `cluster`), and `operations`.
+             */
+            acls: {
+                resource_type: string;
+                name?: string;
+                pattern?: string;
+                operations: string[];
+            }[];
+            created_at: string | null;
+            updated_at: string | null;
+            /** @description The password, shown once: only in the answer to a create or a rotation. Store it now. */
+            password?: string;
+        };
         /** KubernetesClusterResource */
         KubernetesClusterResource: {
             id: string;
@@ -5641,9 +5914,9 @@ export interface components {
             cpu_cores: number;
             storage_size_gb: number;
             port: number;
-            management_port: number;
+            management_port: number | null;
             host: string | null;
-            vhost: string;
+            vhost: string | null;
             configuration: unknown[] | null;
             parameter_group_id: number | null;
             resource_profile: string | null;
@@ -5676,6 +5949,8 @@ export interface components {
             status_observed_at: string | null;
             failure_details: unknown[] | null;
             provider: components["schemas"]["QueueProviderType"];
+            /** Format: date-time */
+            schema_registry_enabled_at: string | null;
         };
         /**
          * QueueInstanceStatus
@@ -6879,6 +7154,41 @@ export interface components {
             /** @enum {string} */
             datacenter: "fsn1" | "nbg1" | "hel1" | "ash1" | "hil1" | "sin1";
         };
+        /**
+         * StoreKafkaUserRequest
+         * @description A new user of a Kafka cluster, with the topics, consumer groups, transactional ids
+         *     and cluster operations it may use. Everything not listed in `acls` is denied.
+         */
+        StoreKafkaUserRequest: {
+            /**
+             * @description The user's short name: 1 to 32 lower-case letters, digits and hyphens, starting and ending with a
+             *     letter or digit, unique in the cluster. `admin` is reserved. The username clients sign in with is
+             *     `kafka-{cluster}.{name}`, at most 55 characters, so a cluster with a long name allows shorter user
+             *     names: the list of users gives the limit as `meta.max_name_length`.
+             */
+            name: string;
+            /** @description What the user may do: up to 50 allow rules. An empty list creates a user with no access. */
+            acls: {
+                /**
+                 * @description `topic`, `group` (a consumer group), `transactional_id` or `cluster`.
+                 * @enum {string}
+                 */
+                resource_type: "topic" | "group" | "transactional_id" | "cluster";
+                /** @description The topic, group or transactional id. `*` with the `literal` pattern means all of them. Leave it out for `cluster`. */
+                name?: string;
+                /**
+                 * @description `literal` matches the name exactly; `prefix` matches every name that starts with it. Leave it out for `cluster`.
+                 * @enum {string}
+                 */
+                pattern?: "literal" | "prefix";
+                /**
+                 * @description The operations allowed. topic: read, write, create, delete, alter, describe, describe_configs, alter_configs, all.
+                 *     group: read, describe, delete, describe_configs, alter_configs, all. transactional_id: describe, write, all.
+                 *     cluster: create, describe, describe_configs, idempotent_write.
+                 */
+                operations: ("read" | "write" | "create" | "delete" | "alter" | "describe" | "describe_configs" | "alter_configs" | "all" | "idempotent_write")[];
+            }[];
+        };
         /** StoreKubernetesClusterRequest */
         StoreKubernetesClusterRequest: {
             /** @description Lowercase letters, digits and hyphens, unique among the Kubernetes clusters of the project. */
@@ -7455,6 +7765,33 @@ export interface components {
             labels?: {
                 [key: string]: string;
             };
+        };
+        /**
+         * UpdateKafkaUserRequest
+         * @description The user's new rule list. It replaces the old one entirely: send every rule the user should keep.
+         */
+        UpdateKafkaUserRequest: {
+            /** @description What the user may do: up to 50 allow rules. An empty list takes all access away. */
+            acls: {
+                /**
+                 * @description `topic`, `group` (a consumer group), `transactional_id` or `cluster`.
+                 * @enum {string}
+                 */
+                resource_type: "topic" | "group" | "transactional_id" | "cluster";
+                /** @description The topic, group or transactional id. `*` with the `literal` pattern means all of them. Leave it out for `cluster`. */
+                name?: string;
+                /**
+                 * @description `literal` matches the name exactly; `prefix` matches every name that starts with it. Leave it out for `cluster`.
+                 * @enum {string}
+                 */
+                pattern?: "literal" | "prefix";
+                /**
+                 * @description The operations allowed. topic: read, write, create, delete, alter, describe, describe_configs, alter_configs, all.
+                 *     group: read, describe, delete, describe_configs, alter_configs, all. transactional_id: describe, write, all.
+                 *     cluster: create, describe, describe_configs, idempotent_write.
+                 */
+                operations: ("read" | "write" | "create" | "delete" | "alter" | "describe" | "describe_configs" | "alter_configs" | "all" | "idempotent_write")[];
+            }[];
         };
         /**
          * UpdateProjectRequest
@@ -15127,8 +15464,8 @@ export interface operations {
                         management_url: string;
                         host: string | null;
                         port: number;
-                        management_port: number;
-                        vhost: string;
+                        management_port: number | null;
+                        vhost: string | null;
                         username: string;
                         password: string | null;
                     } | {
@@ -15146,12 +15483,64 @@ export interface operations {
                         password: string | null;
                         /** @constant */
                         certificate: "The broker's certificate is issued by Let's Encrypt, a publicly trusted authority: clients need no CA file.";
+                        schema_registry: {
+                            url: string;
+                            /** @constant */
+                            username: "registry";
+                            password: string | null;
+                            /**
+                             * @description `provisioning` until the registry answers on its public address, then `ready`; `error` when it has not
+                             *     come up within ten minutes, or has stopped answering since.
+                             * @enum {string}
+                             */
+                            status: "provisioning" | "ready" | "error";
+                        } | null;
                     };
                 };
             };
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.queue.client-properties": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The queue instance ID */
+                queueInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The properties file. */
+            200: {
+                headers: {
+                    "Content-Disposition"?: string;
+                    "Cache-Control"?: "no-store, private";
+                    Pragma?: "no-cache";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            /** @description A RabbitMQ queue, or a cluster without an endpoint yet. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: string;
+                    };
+                };
+            };
         };
     };
     "v1.queue.metrics": {
@@ -15200,6 +15589,161 @@ export interface operations {
                             id: string;
                             name: string;
                         };
+                    } | {
+                        provider: components["schemas"]["QueueProviderType"];
+                        summary: {
+                            cpu_percent: number | null;
+                            memory_used_bytes: number | null;
+                            memory_limit_bytes: number | null;
+                            disk_used_bytes: number | null;
+                            disk_capacity_bytes: number | null;
+                            messages_in_per_sec: number | null;
+                            bytes_in_per_sec: number | null;
+                            bytes_out_per_sec: number | null;
+                            partitions: number | null;
+                            under_replicated_partitions: number | null;
+                            consumer_lag_total: number | null;
+                            consumer_groups: {
+                                group: string | null;
+                                lag: number;
+                            }[];
+                        };
+                        health: {
+                            /** @enum {string} */
+                            status: "critical" | "healthy" | "warning";
+                            issues: ("Memory usage critical (>95%)" | "Memory usage above 80%" | "Disk usage critical (>90%)" | "Disk usage above 80%" | "Some partitions are under-replicated")[];
+                        } | {
+                            /** @constant */
+                            status: "unknown";
+                            issues: [
+                                "Unable to fetch metrics"
+                            ];
+                        };
+                        instance: {
+                            id: string;
+                            name: string;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.queue.updates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The queue instance ID */
+                queueInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The @var types are what api.json publishes: Scramble reads these as bare arrays and an enum otherwise. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        current_version: string;
+                        available_updates: {
+                            version: string;
+                            label: string;
+                            issue: string | null;
+                        }[];
+                        blocked_reason: string | null;
+                        in_progress: boolean;
+                        history: {
+                            id: string;
+                            from_version: string;
+                            to_version: string;
+                            status: string;
+                            error_message: string | null;
+                            started_at: string | null;
+                            completed_at: string | null;
+                        }[];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "v1.queue.updates.start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The queue instance ID */
+                queueInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description A `version` from `available_updates`, such as `4.4`. */
+                    target_version: string;
+                };
+            };
+        };
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                        update: {
+                            id: string;
+                            from_version: string;
+                            to_version: string;
+                            status: string;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.queue.kafka-users.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The queue instance ID */
+                queueInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Array of `KafkaUserResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["KafkaUserResource"][];
+                        meta: {
+                            /** @description The most users a cluster can have, its admin not counted. */
+                            max_users: number;
+                            /** @description The most ACL rules a user can have. */
+                            max_acl_rules: number;
+                            /** @description The longest user name this cluster allows (its username `kafka-{cluster}.{name}` is at most 55 characters). */
+                            max_name_length: number;
+                        };
                     };
                 };
             };
@@ -15213,6 +15757,315 @@ export interface operations {
                 content: {
                     "application/json": {
                         error: string;
+                    };
+                };
+            };
+        };
+    };
+    "v1.queue.kafka-users.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The queue instance ID */
+                queueInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoreKafkaUserRequest"];
+            };
+        };
+        responses: {
+            /** @description `KafkaUserResource` */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["KafkaUserResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.queue.kafka-users.update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The queue instance ID */
+                queueInstance: string;
+                /** @description The kafka user ID */
+                kafkaUser: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateKafkaUserRequest"];
+            };
+        };
+        responses: {
+            /** @description `KafkaUserResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["KafkaUserResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "v1.queue.kafka-users.destroy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The queue instance ID */
+                queueInstance: string;
+                /** @description The kafka user ID */
+                kafkaUser: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "Kafka user deletion initiated.";
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string|null} */
+                        error: "The Kafka cluster must be running to change its users." | "Users and ACLs are available for Kafka clusters only." | null;
+                    };
+                };
+            };
+        };
+    };
+    "v1.queue.kafka-users.rotate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The queue instance ID */
+                queueInstance: string;
+                /** @description The kafka user ID */
+                kafkaUser: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `KafkaUserResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["KafkaUserResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        error: "This user is being deleted.";
+                    } | {
+                        /** @enum {string|null} */
+                        error: "The Kafka cluster must be running to change its users." | "Users and ACLs are available for Kafka clusters only." | "This user is being deleted." | null;
+                    };
+                };
+            };
+        };
+    };
+    "v1.queue.schema-registry.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The queue instance ID */
+                queueInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `KafkaSchemaRegistryResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["KafkaSchemaRegistryResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: string;
+                    };
+                };
+            };
+        };
+    };
+    "v1.queue.schema-registry.enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The queue instance ID */
+                queueInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `KafkaSchemaRegistryResource` */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["KafkaSchemaRegistryResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: string | null;
+                    };
+                };
+            };
+        };
+    };
+    "v1.queue.schema-registry.disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The queue instance ID */
+                queueInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `KafkaSchemaRegistryResource` */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["KafkaSchemaRegistryResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: string | null;
+                    };
+                };
+            };
+        };
+    };
+    "v1.queue.schema-registry.rotate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The queue instance ID */
+                queueInstance: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `KafkaSchemaRegistryResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["KafkaSchemaRegistryResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        error: "The Schema Registry is not enabled.";
+                    } | {
+                        /** @enum {string|null} */
+                        error: "The Kafka cluster must be running to change its Schema Registry." | "Schema Registry is available for Kafka clusters only." | null;
                     };
                 };
             };

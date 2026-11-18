@@ -1065,3 +1065,32 @@ export interface UptimeCheckResponse {
   message: string;
   check: UptimeCheck;
 }
+
+export interface KafkaAclRule {
+  resource_type: string;
+  name?: string;
+  pattern?: string;
+  operations: string[];
+}
+
+export interface KafkaUser {
+  id: string;
+  name: string;
+  username: string;
+  status: string;
+  status_message: string | null;
+  acls: KafkaAclRule[];
+  created_at: string | null;
+  /** Only in the answer to a create or a rotation. */
+  password?: string;
+}
+
+export interface SchemaRegistry {
+  enabled: boolean;
+  status: string;
+  url: string | null;
+  username: string;
+  password: string | null;
+  monthly_price_cents: number;
+  enabled_at: string | null;
+}
